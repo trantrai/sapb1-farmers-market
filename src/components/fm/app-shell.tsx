@@ -6,19 +6,29 @@ import {
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home,
 } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
-import DashboardView from './dashboard-view'
-import OrdersListView from './orders-list-view'
-import OrderDetailView from './order-detail-view'
-import OrderFormView, { type EditOrderData } from './order-form-view'
-import UsersView from './users-view'
-import SettingsView from './settings-view'
-import RolesView from './roles-view'
-import SapAuditView from './sap-audit-view'
-import ItemsSyncView from './items-sync-view'
-import VatGroupsSyncView from './vatgroups-sync-view'
-import PartnersSyncView from './bpartners-sync-view'
+
+// Lazy load các views — chỉ tải khi user chuyển đến màn hình đó
+const ViewLoading = () => (
+  <div className="fm-card" style={{ padding: 48, textAlign: 'center', color: 'var(--fm-text-2)' }}>
+    <div className="fm-spin" style={{ width: 28, height: 28, border: '3px solid var(--fm-line)', borderTopColor: 'var(--fm-primary)', borderRadius: '50%', margin: '0 auto 12px' }} />
+    Đang tải…
+  </div>
+)
+const DashboardView = dynamic(() => import('./dashboard-view'), { ssr: false, loading: ViewLoading })
+const OrdersListView = dynamic(() => import('./orders-list-view'), { ssr: false, loading: ViewLoading })
+const OrderDetailView = dynamic(() => import('./order-detail-view'), { ssr: false, loading: ViewLoading })
+const OrderFormView = dynamic(() => import('./order-form-view'), { ssr: false, loading: ViewLoading })
+const UsersView = dynamic(() => import('./users-view'), { ssr: false, loading: ViewLoading })
+const SettingsView = dynamic(() => import('./settings-view'), { ssr: false, loading: ViewLoading })
+const RolesView = dynamic(() => import('./roles-view'), { ssr: false, loading: ViewLoading })
+const SapAuditView = dynamic(() => import('./sap-audit-view'), { ssr: false, loading: ViewLoading })
+const ItemsSyncView = dynamic(() => import('./items-sync-view'), { ssr: false, loading: ViewLoading })
+const VatGroupsSyncView = dynamic(() => import('./vatgroups-sync-view'), { ssr: false, loading: ViewLoading })
+const PartnersSyncView = dynamic(() => import('./bpartners-sync-view'), { ssr: false, loading: ViewLoading })
+import type { EditOrderData } from './order-form-view'
 
 type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners'
 
