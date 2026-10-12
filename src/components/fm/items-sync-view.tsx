@@ -87,7 +87,7 @@ export default function ItemsSyncView() {
     }
   }, [page, q, startPolling])
 
-  useEffect(() => { load(1, '') }, [])
+  useEffect(() => { void Promise.resolve().then(() => load(1, '')) }, [])
   // onDone → luôn gọi bản load mới nhất (q/page hiện tại)
   useEffect(() => { loadRef.current = () => { void load(1, q) } })
 

@@ -51,13 +51,17 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    setLoading(true)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true)
+    })
     api(`/api/orders/${orderId}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
       })
       .then((o: Order) => {
+        if (cancelled) return
         setOrder(o)
         setError('')
         // Lấy thông tin địa chỉ/người liên hệ
@@ -65,14 +69,16 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
           api(`/api/partners?q=${encodeURIComponent(o.cardCode)}`)
             .then((r) => (r.ok ? r.json() : null))
             .then((j) => {
+              if (cancelled) return
               const p = j?.items?.find((x: any) => x.cardCode === o.cardCode) ?? j?.items?.[0]
               if (p) setPartner({ address: p.address, contactPerson: p.contactPerson, contactPhone: p.contactPhone })
             })
             .catch(() => {})
         }
       })
-      .catch(() => setError('Không tải được chi tiết đơn hàng.'))
-      .finally(() => setLoading(false))
+      .catch(() => { if (!cancelled) setError('Không tải được chi tiết đơn hàng.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [orderId])
 
   if (loading) {

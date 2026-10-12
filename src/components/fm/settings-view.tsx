@@ -29,7 +29,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
     // server sẽ giữ mật khẩu cũ khi gửi chuỗi rỗng → không bao giờ ghi đè nhầm.
     setS({ ...json.settings, sapPassword: '', hasPassword: Boolean(json.hasPassword) })
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { void Promise.resolve().then(load) }, [])
 
   const update = (patch: Partial<SettingsData>) => setS((cur) => (cur ? { ...cur, ...patch } : cur))
 

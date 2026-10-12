@@ -152,15 +152,20 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
 
     const hit = listCache.get(fetchUrl)
     if (hit && Date.now() - hit.ts < CACHE_TTL) {
-      setAll(hit.options)
-      setMeta({ source: hit.source, error: hit.error })
-      setLoading(false)
+      queueMicrotask(() => {
+        if (cancelled) return
+        setAll(hit.options)
+        setMeta({ source: hit.source, error: hit.error })
+        setLoading(false)
+      })
       return () => {
         window.removeEventListener('resize', place)
         window.removeEventListener('scroll', place, true)
       }
     }
-    setLoading(true)
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true)
+    })
     api(fetchUrl)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -198,9 +203,11 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
     if (qq.length < minChars) {
-      setAll(null)
-      setMeta({ source: '', error: '' })
-      setLoading(false)
+      queueMicrotask(() => {
+        setAll(null)
+        setMeta({ source: '', error: '' })
+        setLoading(false)
+      })
       return () => {
         window.removeEventListener('resize', place)
         window.removeEventListener('scroll', place, true)

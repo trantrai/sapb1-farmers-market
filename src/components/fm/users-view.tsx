@@ -66,7 +66,7 @@ export default function UsersView({ user }: Props) {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()

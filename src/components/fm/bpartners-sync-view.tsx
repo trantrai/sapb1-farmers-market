@@ -86,7 +86,7 @@ export default function PartnersSyncView() {
     }
   }, [page, q, startPolling])
 
-  useEffect(() => { load(1, '') }, [])
+  useEffect(() => { void Promise.resolve().then(() => load(1, '')) }, [])
   // onDone → luôn gọi bản load mới nhất (q hiện tại)
   useEffect(() => { loadRef.current = () => { void load(1, q) } })
 

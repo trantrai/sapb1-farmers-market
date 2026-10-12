@@ -119,9 +119,34 @@ export default function OrderFormView({
   const [fieldErr, setFieldErr] = useState<Record<number, string>>({})
   const isEdit = Boolean(editOrder)
 
+  // ---- ATP check: tồn kho khả dụng của mặt hàng (theo kho của dòng nếu có) ----
+  async function checkAtp(key: number, itemCode: string, whCode?: string) {
+    setAtp((m) => ({ ...m, [key]: { status: 'loading' } }))
+    try {
+      const qs = new URLSearchParams({ itemCode })
+      if (whCode) qs.set('warehouseCode', whCode)
+      const res = await api(`/api/items/stock?${qs.toString()}`)
+      const json = await res.json()
+      if (json?.ok) {
+        setAtp((m) => ({
+          ...m,
+          [key]: { status: 'ok', source: json.source, warehouses: json.warehouses, totals: json.totals, selected: json.selected ?? null },
+        }))
+      } else {
+        setAtp((m) => ({ ...m, [key]: { status: 'error', error: json?.error ?? 'Không kiểm tra được tồn kho' } }))
+      }
+    } catch {
+      setAtp((m) => ({ ...m, [key]: { status: 'error', error: 'Không thể kết nối máy chủ' } }))
+    }
+  }
+
+
   // ---- Điền sẵn dữ liệu đơn khi vào chế độ SỬA ----
   useEffect(() => {
     if (!editOrder) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
     setPartner({ code: editOrder.cardCode, name: editOrder.cardName })
     setDocDate((editOrder.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
     setDocDueDate((editOrder.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
@@ -149,6 +174,9 @@ export default function OrderFormView({
     setFieldErr({})
     // Kiểm tra ATP cho các dòng đã điền
     for (const l of prefilled) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
+
+    })
+    return () => { cancelled = true }
   }, [editOrder])
 
   const totals = useMemo(() => {
@@ -215,27 +243,6 @@ export default function OrderFormView({
       })
       return ls.map((l) => ({ ...l, warehouseCode: code || undefined }))
     })
-  }
-
-  // ---- ATP check: tồn kho khả dụng của mặt hàng (theo kho của dòng nếu có) ----
-  const checkAtp = async (key: number, itemCode: string, whCode?: string) => {
-    setAtp((m) => ({ ...m, [key]: { status: 'loading' } }))
-    try {
-      const qs = new URLSearchParams({ itemCode })
-      if (whCode) qs.set('warehouseCode', whCode)
-      const res = await api(`/api/items/stock?${qs.toString()}`)
-      const json = await res.json()
-      if (json?.ok) {
-        setAtp((m) => ({
-          ...m,
-          [key]: { status: 'ok', source: json.source, warehouses: json.warehouses, totals: json.totals, selected: json.selected ?? null },
-        }))
-      } else {
-        setAtp((m) => ({ ...m, [key]: { status: 'error', error: json?.error ?? 'Không kiểm tra được tồn kho' } }))
-      }
-    } catch {
-      setAtp((m) => ({ ...m, [key]: { status: 'error', error: 'Không thể kết nối máy chủ' } }))
-    }
   }
 
   // Giải đơn giá theo quy tắc: GIÁ ĐẶC BIỆT theo Mặt hàng + Khách hàng (OSPP) →

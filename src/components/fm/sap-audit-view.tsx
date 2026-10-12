@@ -83,7 +83,7 @@ export default function SapAuditView() {
     }
   }, [page, status, q])
 
-  useEffect(() => { load(1, status, q) /* eslint-disable-line react-hooks/exhaustive-deps */ }, [])
+  useEffect(() => { void Promise.resolve().then(() => load(1, status, q)) }, [status, q])
 
   const doRetry = async (row: AuditRow) => {
     setBusyId(row.id)
