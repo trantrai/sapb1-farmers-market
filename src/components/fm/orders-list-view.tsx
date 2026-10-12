@@ -511,7 +511,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
         <div className="fm-backdrop" onClick={() => setDetail(null)}>
           <div ref={modalRef} tabIndex={-1} className="fm-modal fm-modal--wide fm-scroll" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Chi tiết Sale Order #${detail.docNum}`}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, color: 'var(--fm-navy)', fontSize: 20 }}>
+              <h3 style={{ margin: 0, color: 'var(--fm-text)', fontSize: 20 }}>
                 Sale Order #{detail.docNum}{' '}
                 {isOverdue(detail.docDueDate, detail.status) ? (
                   <span className="fm-chip fm-chip--overdue">Quá hạn</span>

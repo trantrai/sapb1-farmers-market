@@ -128,7 +128,7 @@ export default function AppShell({ user, onLogout }: Props) {
       <aside className={`fm-sidebar${drawerOpen ? ' is-open' : ''}`}>
         <div className="fm-logo" style={{ justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <img src="/logo-farmers-market.png" alt="Logo Farmers Market" style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' }} />
+            <div className="fm-logo__badge">F</div>
             <div className="fm-logo__name">
               FARMERS MARKET
               <small>SAP B1 · Sale Order</small>
@@ -136,7 +136,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
           <button
             className="fm-burger"
-            style={{ background: 'rgba(255,255,255,.1)', border: 'none', color: '#fff', width: 44, height: 44 }}
+            style={{ background: '#F5F5F5', border: '1px solid var(--fm-line)', color: 'var(--fm-text)', width: 44, height: 44 }}
             aria-label="Đóng menu"
             onClick={() => setDrawerOpen(false)}
           >
@@ -155,12 +155,12 @@ export default function AppShell({ user, onLogout }: Props) {
         )}
 
         {menu.length === 0 && (
-          <div style={{ color: '#C9D8EE', fontSize: 12, padding: 12 }}>Không có quyền truy cập</div>
+          <div style={{ color: 'var(--fm-text-2)', fontSize: 12, padding: 12 }}>Không có quyền truy cập</div>
         )}
 
-        <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.12)' }}>
-          <div style={{ padding: '4px 12px 10px', fontSize: 11.5, color: '#B8CCE8', lineHeight: 1.5 }}>
-            <Sprout size={13} style={{ verticalAlign: -2, marginRight: 4, color: 'var(--fm-yellow)' }} />
+        <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid var(--fm-line)' }}>
+          <div style={{ padding: '4px 12px 10px', fontSize: 11.5, color: 'var(--fm-text-3)', lineHeight: 1.5 }}>
+            <Sprout size={13} style={{ verticalAlign: -2, marginRight: 4, color: 'var(--fm-accent)' }} />
             Phiên bản 1.1 · CSDL demo
           </div>
           <div
@@ -184,7 +184,7 @@ export default function AppShell({ user, onLogout }: Props) {
 
       {/* ===== Main ===== */}
       <div className="fm-main">
-        <header className="fm-topbar">
+        <div className="fm-pagehead">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <button
               className="fm-burger"
@@ -194,23 +194,18 @@ export default function AppShell({ user, onLogout }: Props) {
             >
               <MenuIcon size={17} />
             </button>
-            <h1 className="fm-topbar__title" title={VIEW_TITLES[view]} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{VIEW_TITLES[view]}</h1>
+            <h1 className="fm-pagehead__title" title={VIEW_TITLES[view]} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{VIEW_TITLES[view]}</h1>
           </div>
-          <div className="fm-topbar__user">
-            <span
-              style={{
-                width: 30, height: 30, borderRadius: '50%', background: 'var(--fm-navy)', color: 'var(--fm-yellow)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12,
-              }}
-            >
+          <div className="fm-pagehead__user">
+            <span className="fm-pagehead__avatar">
               {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
             </span>
             <span>
               <b style={{ color: 'var(--fm-text)' }}>{user.fullName}</b>
-              <span className="fm-topbar__role-label"> · {user.roleLabel}</span>
+              <span className="fm-pagehead__role-label"> · {user.roleLabel}</span>
             </span>
           </div>
-        </header>
+        </div>
 
         <main className="fm-page">
           <div className="fm-view" key={view}>

@@ -395,7 +395,7 @@ function UserModal({  mode,
     <div className="fm-backdrop" onClick={onClose}>
       <div ref={modalRef} tabIndex={-1} className="fm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, color: 'var(--fm-navy)', fontSize: 19 }}>
+          <h3 style={{ margin: 0, color: 'var(--fm-text)', fontSize: 19 }}>
             {mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}
           </h3>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng" onClick={onClose}>✕</button>

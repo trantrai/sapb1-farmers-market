@@ -43,8 +43,7 @@ export default function LoginView({ onLogin }: Props) {
     <div className="fm-login">
       <div className="fm-login__panel">
         <div className="fm-login__brand">
-          { }
-          <img src="/logo-farmers-market.png" alt="Logo Farmers Market" className="fm-login__logo" />
+          <div className="fm-login__logo" aria-hidden="true">F</div>
           <h1 className="fm-login__title">FARMERS MARKET</h1>
           <p className="fm-login__subtitle">Hệ thống Sale Order — SAP Business One</p>
         </div>
