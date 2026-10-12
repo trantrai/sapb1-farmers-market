@@ -134,8 +134,13 @@ export default function VatGroupsSyncView() {
         title="Quản Lý Đồng Bộ Nhóm Thuế"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary"><RefreshCw size={14} /> Đồng bộ ngay từ SAP B1</button>
-          <button className="fm-btn fm-btn--secondary"><Trash2 size={14} /> Xóa dữ liệu</button>
+          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ nhóm thuế từ SAP B1 về CSDL local">
+            <RefreshCw size={14} className={busy === 'sync' ? 'fm-spin' : ''} />
+            {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
+          </button>
+          <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={doClear} title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local">
+            <Trash2 size={14} /> Xóa dữ liệu
+          </button>
         </>}
       />
       {msg && (
@@ -176,24 +181,6 @@ export default function VatGroupsSyncView() {
 
         {/* Mobile (≤640px): .fm-filterbar tự chuyển lưới 2 cột — không đặt display:flex inline */}
         <div className="fm-filterbar">
-          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ nhóm thuế từ SAP B1 về CSDL local">
-            <RefreshCw size={14} style={{ verticalAlign: -2, marginRight: 6 }} className={busy === 'sync' ? 'fm-spin' : ''} />
-            {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
-          </button>
-          <button
-            className="fm-btn fm-btn--danger fm-btn--sm"
-            disabled={busy !== null || (st?.count ?? 0) === 0}
-            onClick={doClear}
-            title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local"
-          >
-            <Trash2 size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa dữ liệu đồng bộ
-          </button>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => load(1, q, cat)}>
-            <RefreshCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Tải lại
-          </button>
-        </div>
-
-        <div className="fm-filterbar" style={{ marginTop: 8 }}>
           <input
             className="fm-input"
             data-search
