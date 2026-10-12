@@ -7,6 +7,9 @@ import { rateLimit } from '@/lib/rate-limit'
 // Chống brute-force: tối đa 10 lần thử / 10 phút / IP
 const LOGIN_MAX = 10
 const LOGIN_WINDOW_MS = 10 * 60 * 1000
+// Bucket toàn cục: X-Forwarded-For do client gửi lên nên có thể bị giả mạo
+// để xoay IP — bucket toàn cục chặn brute-force phân tán (không bypass được).
+const LOGIN_GLOBAL_MAX = 300
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,14 +17,17 @@ export async function POST(req: NextRequest) {
       req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       req.headers.get('x-real-ip')?.trim() ||
       'unknown'
-    const rl = rateLimit(`login:${ip}`, LOGIN_MAX, LOGIN_WINDOW_MS)
-    if (!rl.ok) {
-      const mins = Math.max(1, Math.round(rl.retryAfterSec / 60))
+    const tooMany = (retryAfterSec: number) => {
+      const mins = Math.max(1, Math.round(retryAfterSec / 60))
       return NextResponse.json(
         { error: `Quá nhiều lần đăng nhập — vui lòng thử lại sau khoảng ${mins} phút` },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSec) } },
       )
     }
+    const rlGlobal = rateLimit('login:global', LOGIN_GLOBAL_MAX, LOGIN_WINDOW_MS)
+    if (!rlGlobal.ok) return tooMany(rlGlobal.retryAfterSec)
+    const rl = rateLimit(`login:${ip}`, LOGIN_MAX, LOGIN_WINDOW_MS)
+    if (!rl.ok) return tooMany(rl.retryAfterSec)
 
     const { username, password } = await req.json()
     if (!username || !password) {
@@ -30,7 +36,17 @@ export async function POST(req: NextRequest) {
 
     const uname = String(username).trim().toLowerCase()
     const user = await prisma.user.findUnique({ where: { username: uname } })
-    const verdict = user ? await verifyPassword(String(password), user.password) : 'fail'
+    // Chống username enumeration qua timing attack: khi user không tồn tại vẫn
+    // chạy 1 lượt scrypt giả (thời gian tương đương verify thật) rồi mới trả 401.
+    // Hash giả này là hằng số — không phải secret, chỉ dùng để cân bằng thời gian.
+    const DUMMY_HASH = 'scrypt$16384$8$1$007c6f17c9e7e7e909f5d4014226ae86$cd74cc9cf55a565fdc81dbace008ced1076d7a3600c3383804b61b4ec1956da6'
+    let verdict: 'ok' | 'legacy' | 'fail'
+    if (user) {
+      verdict = await verifyPassword(String(password), user.password)
+    } else {
+      await verifyPassword(String(password), DUMMY_HASH) // cân bằng thời gian
+      verdict = 'fail'
+    }
     if (!user || verdict === 'fail') {
       // Thông báo chung chung để không lộ tài khoản nào tồn tại
       return NextResponse.json({ error: 'Tên đăng nhập hoặc mật khẩu không đúng' }, { status: 401 })

@@ -115,7 +115,13 @@ export async function POST(req: NextRequest) {
   void (async () => {
     try {
       const { rows, error } = await loadSalesItems(s, (p) => updateSync('items', p))
-      if (error && rows.length === 0) throw new Error(`Không tải được danh mục từ SAP B1: ${error}`)
+      // Guard kép: lỗi HOẶC danh sách rỗng đều không được xóa mirror local
+      // (SL có thể trả 200 rỗng do sai filter/quyền → xóa sạch là mất dữ liệu)
+      if (error || rows.length === 0) {
+        throw new Error(
+          error ? `Không tải được danh mục từ SAP B1: ${error}` : 'SAP B1 trả về danh sách mặt hàng rỗng — không xóa dữ liệu local để an toàn',
+        )
+      }
       updateSync('items', { phase: 'fetch', message: `Đã nhận ${rows.length} mặt hàng — đang tải bảng thuế suất…` })
       const vatMap = await vatRateMap(s)
       const now = new Date()

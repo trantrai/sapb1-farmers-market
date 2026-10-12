@@ -56,11 +56,15 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
     loadRef.current()
   })
 
+  const loadSeq = useRef(0)
   const load = useCallback(async (p = page, query = q) => {
+    // Guard chống race: gõ tìm kiếm nhanh → response cũ về sau phải bị bỏ
+    const seq = ++loadSeq.current
     try {
       const sp = new URLSearchParams({ page: String(p), pageSize: '20' })
       if (query.trim()) sp.set('q', query.trim())
       const res = await api(`/api/items/sync?${sp.toString()}`)
+      if (seq !== loadSeq.current) return
       if (res.status === 401) { window.location.reload(); return }
       const json = await res.json()
       if (!res.ok) {
@@ -81,6 +85,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
         startPolling()
       }
     } catch {
+      if (seq !== loadSeq.current) return
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       setRows([])
     }
@@ -149,7 +154,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 

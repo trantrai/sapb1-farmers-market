@@ -6,6 +6,9 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.orderTemplates?.view) {
+    return NextResponse.json({ error: 'Bạn không có quyền xem mẫu đơn hàng' }, { status: 403 })
+  }
 
   const templates = await prisma.orderTemplate.findMany({
     orderBy: [{ updatedAt: 'desc' }],
@@ -22,7 +25,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
-  if (!user.permissions.ordersNew?.create) {
+  if (!user.permissions.orderTemplates?.create) {
     return NextResponse.json({ error: 'Không có quyền tạo mẫu đơn hàng' }, { status: 403 })
   }
 

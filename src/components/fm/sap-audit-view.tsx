@@ -60,11 +60,15 @@ export default function SapAuditView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [confirmRetry, confirmClear])
 
-  const load = useCallback(async (p = page, st = status, query = q) => {
+  const loadSeq = useRef(0)
+  const load = useCallback(async (p: number, st: string, query: string) => {
+    // Guard chống race: gõ tìm kiếm nhanh → response cũ về sau phải bị bỏ
+    const seq = ++loadSeq.current
     try {
       const sp = new URLSearchParams({ page: String(p), pageSize: '20', status: st })
       if (query.trim()) sp.set('q', query.trim())
       const res = await api(`/api/sap-audit?${sp.toString()}`)
+      if (seq !== loadSeq.current) return
       if (res.status === 401) { window.location.reload(); return }
       const json = await res.json()
       if (!res.ok) {
@@ -77,12 +81,17 @@ export default function SapAuditView() {
       setTotalPages(json.totalPages ?? 1)
       setPage(json.page ?? p)
     } catch {
+      if (seq !== loadSeq.current) return
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       setRows([])
     }
-  }, [page, status, q])
+  }, [])
 
-  useEffect(() => { load(1, status, q) }, [status, q])
+  // Debounce 400ms khi gõ tìm kiếm — tránh gọi API mỗi ký tự
+  useEffect(() => {
+    const t = setTimeout(() => load(1, status, q), 400)
+    return () => clearTimeout(t)
+  }, [load, status, q])
 
   const doRetry = async (row: AuditRow) => {
     setBusyId(row.id)
@@ -148,7 +157,7 @@ export default function SapAuditView() {
         {/* Mobile (≤640px): .fm-filterbar tự chuyển sang lưới 2 cột (mục 15.6 globals.css) —
             KHÔNG đặt display:flex inline vì sẽ đè rule grid của mobile */}
         <div className="fm-filterbar">
-          <select className="fm-select" aria-label="Lọc theo trạng thái lệnh gọi" value={status} onChange={(e) => { const v = e.target.value as 'all' | 'ok' | 'error'; setStatus(v); load(1, v, q) }}>
+          <select className="fm-select" aria-label="Lọc theo trạng thái lệnh gọi" value={status} onChange={(e) => { const v = e.target.value as 'all' | 'ok' | 'error'; setStatus(v) }}>
             <option value="all">Tất cả trạng thái</option>
             <option value="ok">Chỉ thành công</option>
             <option value="error">Chỉ lỗi</option>

@@ -7,6 +7,7 @@
 
 import { db as prisma } from '@/lib/db'
 import { logSapAudit } from './sap-audit'
+import { decryptSecret } from './fm-crypto'
 
 export interface SapConfig {
   serviceLayerUrl: string
@@ -121,7 +122,7 @@ export async function loadSapSettings(): Promise<SapSettings | null> {
     serviceLayerUrl: s.serviceLayerUrl.trim(),
     companyDb: s.companyDb.trim(),
     sapUser: s.sapUser.trim(),
-    sapPassword: s.sapPassword,
+    sapPassword: decryptSecret(s.sapPassword), // giải mã AES-GCM (plaintext cũ vẫn đọc được)
     sslSkipVerify: s.sslSkipVerify,
     connected: s.connected,
     lastSyncAt: s.lastSyncAt ? s.lastSyncAt.toISOString() : null,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { SessionUser } from '@/lib/fm-shared'
-import { api, setToken } from '@/lib/fm-client'
+import { api, setToken, UNAUTHORIZED_EVENT } from '@/lib/fm-client'
 import LoginView from '@/components/fm/login-view'
 import AppShell from '@/components/fm/app-shell'
 
@@ -17,13 +17,16 @@ export default function Page() {
       .then((json) => setUser(json?.user ?? null))
       .catch(() => setUser(null))
       .finally(() => setLoading(false))
+    // Token hết hạn giữa phiên (API trả 401) → đăng xuất tập trung
+    const onUnauthorized = () => setUser(null)
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
   }, [])
 
   if (loading) {
     return (
       <div className="fm-login">
-        <div style={{ textAlign: 'center', color: 'var(--fm-text-2)', fontSize: 14 }}>
-          { }
+        <div role="status" style={{ textAlign: 'center', color: 'var(--fm-text-2)', fontSize: 14 }}>
           <img src="/logo-farmers-market.png" alt="" style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px', border: '3px solid var(--fm-yellow)' }} />
           Đang tải hệ thống…
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized, hashPassword } from '@/lib/fm-auth'
+import { rateLimit } from '@/lib/rate-limit'
 import { ROLE_OPTIONS } from '@/lib/fm-shared'
 
 const PUBLIC_SELECT = {
@@ -32,6 +33,14 @@ export async function POST(req: NextRequest) {
   if (!user) return unauthorized()
   if (!user.permissions.users?.create) {
     return NextResponse.json({ error: 'Bạn không có quyền tạo người dùng' }, { status: 403 })
+  }
+  // Chống tạo user hàng loạt (spam/abuse) — tối đa 20 lần tạo / 10 phút / người tạo
+  const rl = rateLimit(`users:create:${user.id}`, 20, 10 * 60 * 1000)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Bạn tạo người dùng quá nhanh — vui lòng thử lại sau vài phút' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+    )
   }
 
   try {
@@ -71,6 +80,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: `Vai trò "${role}" không tồn tại. Vai trò hợp lệ: ${valid.join(', ') || '—'}` },
         { status: 400 },
+      )
+    }
+    // Chống leo thang đặc quyền: chỉ Admin mới được tạo tài khoản Admin
+    // (phòng khi quyền users.create được cấp cho vai trò khác trong tương lai)
+    if (role === 'Admin' && user.role !== 'Admin') {
+      return NextResponse.json(
+        { error: 'Chỉ quản trị viên (Admin) mới được tạo tài khoản Admin' },
+        { status: 403 },
       )
     }
 

@@ -6,7 +6,7 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
-  if (!user.permissions.ordersNew?.create) {
+  if (!user.permissions.orderTemplates?.delete) {
     return NextResponse.json({ error: 'Không có quyền xóa mẫu đơn hàng' }, { status: 403 })
   }
 

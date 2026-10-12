@@ -4,7 +4,7 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
-import { calcOrderLines, orderTotals } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -63,9 +63,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (!docDate || !docDueDate) {
     return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
   }
-  const validLines = (lines ?? []).filter((l) => l.itemCode && l.quantity > 0)
-  if (validLines.length === 0) {
-    return NextResponse.json({ error: 'Đơn hàng cần ít nhất 1 dòng hàng hóa hợp lệ' }, { status: 400 })
+  const { lines: validLines, error: linesError } = validateOrderLines(lines)
+  if (linesError) {
+    return NextResponse.json({ error: linesError }, { status: 400 })
   }
 
   const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
@@ -95,10 +95,23 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: 'Chỉ có thể sửa đơn hàng đang ở trạng thái Open' }, { status: 400 })
     }
     // LineNum của dòng hiện có: ưu tiên sapLineNum lấy từ chi tiết SL khi mở form;
-    // thiếu → khớp theo ItemCode trên chứng từ hiện tại (dòng mới → null = thêm mới)
-    const resolveLn = (itemCode: string, sapLineNum?: number): number | null => {
+    // thiếu → khớp theo cặp (ItemCode, WarehouseCode) trên chứng từ hiện tại
+    // (ItemCode có thể lặp ở 2 dòng khác kho); vẫn thiếu → khớp theo thứ tự dòng.
+    // Dòng mới → null = thêm mới.
+    const usedLn = new Set<number>()
+    const resolveLn = (itemCode: string, warehouseCode: string | undefined, sapLineNum?: number, fallbackIdx?: number): number | null => {
       if (typeof sapLineNum === 'number') return sapLineNum
-      return cur.order!.lines.find((l) => l.itemCode === itemCode)?.lineNum ?? null
+      const slLines = cur.order!.lines
+      const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase()
+      const byPair = slLines.find((l) => !usedLn.has(l.lineNum) && l.itemCode === itemCode && norm(l.warehouseCode) === norm(warehouseCode))
+      if (byPair) { usedLn.add(byPair.lineNum); return byPair.lineNum }
+      const byCode = slLines.find((l) => !usedLn.has(l.lineNum) && l.itemCode === itemCode)
+      if (byCode) { usedLn.add(byCode.lineNum); return byCode.lineNum }
+      if (fallbackIdx !== undefined && fallbackIdx < slLines.length && !usedLn.has(slLines[fallbackIdx].lineNum)) {
+        usedLn.add(slLines[fallbackIdx].lineNum)
+        return slLines[fallbackIdx].lineNum
+      }
+      return null
     }
     const res = await patchOrderToSap(s, {
       docEntry,
@@ -107,10 +120,10 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       docDueDate,
       comments: remarks ?? null,
       headerDiscPct: headerPct,
-      lines: calcLines.map((l) => {
+      lines: calcLines.map((l, idx) => {
         const sub = l as { sapLineNum?: number }
         return {
-          lineNum: resolveLn(l.itemCode, sub.sapLineNum),
+          lineNum: resolveLn(l.itemCode, l.warehouseCode, sub.sapLineNum, idx),
           itemCode: l.itemCode,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
@@ -276,9 +289,13 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
   }
 
-  const order = await prisma.salesOrder.update({ where: { id }, data: { status } })
+  const order = await prisma.salesOrder.findUnique({ where: { id } })
+  if (!order) {
+    return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  }
+  const updated = await prisma.salesOrder.update({ where: { id }, data: { status } })
   clearSapOrdersCache() // trạng thái đơn đổi → danh sách phải tải lại
-  return NextResponse.json({ ok: true, order })
+  return NextResponse.json({ ok: true, order: updated })
 }
 
 // ---------- DELETE ----------
@@ -291,6 +308,24 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
 
   const { id } = await ctx.params
   try {
+    const existing = await prisma.salesOrder.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ error: 'Không tìm thấy đơn hàng cần xóa' }, { status: 404 })
+    }
+    // Không xóa đơn đã đẩy/đang đẩy sang SAP hoặc đã đóng — tránh lệch dữ liệu
+    // giữa 2 hệ thống và mất đường retry khi push timeout.
+    if (existing.sapSyncStatus === 'synced' || existing.sapSyncStatus === 'pending') {
+      return NextResponse.json(
+        { error: 'Không thể xóa đơn đã/đang đồng bộ SAP B1. Hãy xử lý chứng từ trên SAP trước.' },
+        { status: 400 },
+      )
+    }
+    if (existing.status === 'Closed') {
+      return NextResponse.json(
+        { error: 'Không thể xóa đơn đã đóng (Closed). Hãy mở lại đơn trước khi xóa.' },
+        { status: 400 },
+      )
+    }
     await prisma.salesOrder.delete({ where: { id } })
     clearSapOrdersCache() // đơn đã xóa → danh sách phải tải lại
     return NextResponse.json({ ok: true })

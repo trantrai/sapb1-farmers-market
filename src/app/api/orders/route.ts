@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parsePageParam } from '@/lib/fm-shared'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
-import { pushOrderToSap } from '@/lib/sap-push-order'
+import { pushOrderToSap, type SapPushResult } from '@/lib/sap-push-order'
+import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
-import { calcOrderLines, orderTotals } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
 
 // ---------- GET /api/orders : danh sách SO + filter + phân trang ----------
 // Khi đã cấu hình SAP B1 → lấy TOÀN BỘ chứng từ TRỰC TIẾP từ Service Layer
@@ -35,8 +37,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, order: det.order })
   }
 
-  const page = Math.max(1, Number(sp.get('page') ?? 1))
-  const pageSize = Math.min(50, Math.max(5, Number(sp.get('pageSize') ?? 8)))
+  const page = parsePageParam(sp.get('page'), 1, 1, 100000)
+  const pageSize = parsePageParam(sp.get('pageSize'), 8, 5, 50)
   const q = (sp.get('q') ?? '').trim()
   const status = sp.get('status') ?? ''
   const from = sp.get('from') ?? ''
@@ -165,9 +167,9 @@ export async function POST(req: NextRequest) {
     if (!docDate || !docDueDate) {
       return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
     }
-    const validLines = (lines ?? []).filter((l) => l.itemCode && l.quantity > 0)
-    if (validLines.length === 0) {
-      return NextResponse.json({ error: 'Đơn hàng cần ít nhất 1 dòng hàng hóa hợp lệ' }, { status: 400 })
+    const { lines: validLines, error: linesError } = validateOrderLines(lines)
+    if (linesError) {
+      return NextResponse.json({ error: linesError }, { status: 400 })
     }
 
     // Tính toán theo từng dòng (SAP B1 RDR1): LineTotal → Discount% dòng
@@ -179,7 +181,24 @@ export async function POST(req: NextRequest) {
 
     // Cấp docNum + tạo đơn trong 1 transaction: 2 request tạo đơn đồng thời
     // không thể nhận cùng docNum (trước đây findFirst + create rời nhau → trùng số).
-    const created = await prisma.$transaction(async (tx) => {
+    // Vẫn có cửa sổ đua cực hẹp giữa 2 transaction đồng thời → retry tối đa 3 lần
+    // khi dính lỗi unique-violation của docNum (P2002) thay vì trả 500.
+    const createdBy = user.username
+    let created: Awaited<ReturnType<typeof createOrderTx>> | null = null
+    let lastErr: unknown = null
+    for (let attempt = 0; attempt < 3 && !created; attempt++) {
+      try {
+        created = await createOrderTx()
+      } catch (e) {
+        lastErr = e
+        const code = (e as { code?: string })?.code
+        if (code !== 'P2002' && code !== 'P2034') throw e
+        // trùng docNum → thử lại vòng sau sẽ đọc lại số mới nhất
+      }
+    }
+    if (!created) throw lastErr ?? new Error('Không thể cấp số chứng từ')
+    async function createOrderTx() {
+      return prisma.$transaction(async (tx) => {
       const last = await tx.salesOrder.findFirst({ orderBy: { docNum: 'desc' } })
       const docNum = (last?.docNum ?? 1000) + 1
       return tx.salesOrder.create({
@@ -197,7 +216,7 @@ export async function POST(req: NextRequest) {
           headerDiscAmt,
           vatAmt,
           grandTotal,
-          createdBy: user.username,
+          createdBy,
           lines: {
             create: calcLines.map((l, i) => ({
               lineNum: i + 1,
@@ -218,28 +237,45 @@ export async function POST(req: NextRequest) {
           },
         },
         include: { lines: true },
+        })
       })
-    })
+    }
 
-    // ---- Đẩy đơn sang SAP B1 (POST /Orders). Luôn lưu local trước, 
+    // ---- Đẩy đơn sang SAP B1 (POST /Orders). Luôn lưu local trước,
     // thất bại thì đánh dấu 'pending' để đẩy lại từ danh sách đơn ----
-    const push = await pushOrderToSap({
-      cardCode,
-      docDate: created.docDate.toISOString(),
-      docDueDate: created.docDueDate.toISOString(),
-      comments: created.remarks,
-      headerDiscPct: headerPct,
-      lines: created.lines.map((l) => ({
-        itemCode: l.itemCode,
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        discPct: l.discPct,
-        taxCode: l.taxCode,
-        warehouseCode: l.warehouseCode,
-      })),
-    })
+    // Khóa theo đơn: tránh 2 lượt đẩy đồng thời tạo trùng chứng từ SAP.
+    let push: SapPushResult
+    if (acquireOrderPushLock(created.id)) {
+      try {
+        push = await pushOrderToSap({
+          cardCode,
+          docDate: created.docDate.toISOString(),
+          docDueDate: created.docDueDate.toISOString(),
+          comments: created.remarks,
+          headerDiscPct: headerPct,
+          localId: created.id,
+          lines: created.lines.map((l) => ({
+            itemCode: l.itemCode,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discPct: l.discPct,
+            taxCode: l.taxCode,
+            warehouseCode: l.warehouseCode,
+          })),
+        })
+      } finally {
+        releaseOrderPushLock(created.id)
+      }
+    } else {
+      push = { status: 'pending', error: 'Đơn đang được đẩy sang SAP ở một phiên khác — hãy bấm "Đẩy lại" sau.' }
+    }
+    // Chỉ công nhận 'synced' khi SAP trả về DocEntry hợp lệ — thiếu DocEntry
+    // thì giữ 'pending' để lần đẩy lại sau không bỏ qua SAP (tránh lệch lặng lẽ).
+    const syncedOk = push.status === 'synced' && typeof push.docEntry === 'number'
+    const finalStatus = !syncedOk && push.status === 'synced' ? 'pending' : push.status
+    const finalError = !syncedOk && push.status === 'synced' ? 'SAP không trả về DocEntry — sẽ thử đẩy lại' : (push.error ?? null)
     // Lưu LineNum do SAP cấp cho từng dòng — cần khi SỬA đơn (PATCH /Orders)
-    if (push.status === 'synced' && push.lineNums?.length) {
+    if (syncedOk && push.lineNums?.length) {
       const dbLines = [...created.lines].sort((a, b) => a.lineNum - b.lineNum)
       await prisma.$transaction(
         dbLines.map((l, i) =>
@@ -250,9 +286,9 @@ export async function POST(req: NextRequest) {
     const order = await prisma.salesOrder.update({
       where: { id: created.id },
       data: {
-        sapSyncStatus: push.status,
-        sapSyncError: push.error ?? null,
-        ...(push.status === 'synced'
+        sapSyncStatus: finalStatus,
+        sapSyncError: finalError,
+        ...(syncedOk
           ? { sapDocEntry: push.docEntry ?? null, sapDocNum: push.docNum ?? null, sapSyncedAt: new Date() }
           : {}),
       },
@@ -260,7 +296,7 @@ export async function POST(req: NextRequest) {
     })
 
     clearSapOrdersCache() // đơn mới (local + có thể đã lên SAP) → danh sách phải tải lại
-    return NextResponse.json({ ok: true, order, sap: push }, { status: 201 })
+    return NextResponse.json({ ok: true, order, sap: { ...push, status: finalStatus, error: finalError ?? push.error } }, { status: 201 })
   } catch (e) {
     console.error('POST /api/orders', e)
     return NextResponse.json({ error: 'Không thể tạo đơn hàng' }, { status: 500 })

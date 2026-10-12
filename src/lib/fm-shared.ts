@@ -164,3 +164,14 @@ export function pickEffectiveVatRate(ls: B1VatLineRow[] | null | undefined): num
   const r = best.Rate
   return r == null ? null : (Number.isFinite(Number(r)) ? Number(r) : null)
 }
+
+/**
+ * Parse số trang / kích thước trang từ query string — an toàn với giá trị
+ * không phải số ("abc", ""): rơi về default thay vì NaN (NaN làm slice()
+ * trả mảng rỗng và totalPages thành null).
+ */
+export function parsePageParam(v: string | null, def: number, min: number, max: number): number {
+  const n = Math.floor(Number(v ?? def))
+  if (!Number.isFinite(n)) return def
+  return Math.min(max, Math.max(min, n))
+}

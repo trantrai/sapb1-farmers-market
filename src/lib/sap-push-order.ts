@@ -7,7 +7,7 @@
 //                     có thể bấm "Đẩy lại" trong danh sách đơn hàng)
 // ============================================================
 
-import { loadSapSettings, isSapConfigured, sapPost, sapPatch, type SapConfig } from './sap-service-layer'
+import { loadSapSettings, isSapConfigured, sapGet, sapPost, sapPatch, type SapConfig } from './sap-service-layer'
 
 export interface SapPushLine {
   itemCode: string
@@ -31,6 +31,14 @@ export interface SapPushInput {
   /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
   headerDiscPct?: number
   lines: SapPushLine[]
+  /**
+   * Id đơn local — dùng cho idempotency khi đẩy sang SAP.
+   * Nếu SAP đã định nghĩa UDF U_FM_LocalId: trước khi POST sẽ kiểm tra
+   * chứng từ có UDF này chưa (tránh trùng khi retry sau timeout), và gắn
+   * UDF vào payload POST. Nếu SAP chưa có UDF → bỏ qua, giữ nguyên
+   * hành vi cũ (không làm hỏng đẩy đơn hiện tại).
+   */
+  localId?: string
 }
 
 export interface SapPushResult {
@@ -68,7 +76,7 @@ function buildSapLines(lines: SapPushLine[], dbLineNums?: (number | null)[]) {
 }
 
 /** Dựng payload POST /Orders theo cấu trúc Document SAP B1 (OData v2) */
-export function buildSapOrderPayload(input: SapPushInput) {
+export function buildSapOrderPayload(input: SapPushInput, withUdf = false) {
   return {
     CardCode: input.cardCode,
     DocDate: onlyDate(input.docDate),
@@ -76,8 +84,39 @@ export function buildSapOrderPayload(input: SapPushInput) {
     ...(input.comments?.trim() ? { Comments: input.comments.trim().slice(0, 254) } : {}),
     // CK đầu chứng từ: LUÔN gửi (kể cả 0) — sửa đơn về 0 phải xóa được CK cũ trên SAP
     DiscountPercent: Math.min(100, Math.max(0, Number(input.headerDiscPct) || 0)),
+    // Marker idempotency — chỉ gắn khi SAP đã định nghĩa UDF này
+    ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),
     DocumentLines: buildSapLines(input.lines),
   }
+}
+
+/** Tên UDF dùng làm marker idempotency trên chứng từ SAP */
+export const UDF_LOCAL_ID = 'U_FM_LocalId'
+
+interface SapOrderLookup {
+  value?: Array<{ DocEntry?: number; DocNum?: number }>
+}
+
+/**
+ * Tìm chứng từ SAP đã có marker localId.
+ * Trả { supported: false } khi SAP chưa định nghĩa UDF (lỗi $filter) —
+ * caller sẽ POST như bình thường, không gắn UDF.
+ */
+async function findOrderByLocalId(
+  settings: SapConfig,
+  localId: string,
+): Promise<{ supported: boolean; doc?: { DocEntry: number; DocNum?: number } }> {
+  const safe = localId.replace(/'/g, "''")
+  const res = await sapGet<SapOrderLookup>(
+    settings,
+    '/Orders',
+    { $filter: `${UDF_LOCAL_ID} eq '${safe}'`, $select: 'DocEntry,DocNum' },
+    { audit: 'off' },
+  )
+  if (!res.ok || !res.data) return { supported: false }
+  const first = res.data.value?.[0]
+  if (typeof first?.DocEntry !== 'number') return { supported: true }
+  return { supported: true, doc: { DocEntry: first.DocEntry, DocNum: first.DocNum } }
 }
 
 /** Đọc LineNum của các dòng từ response POST/PATCH (mảng trực tiếp hoặc {results}) */
@@ -96,7 +135,31 @@ export async function pushOrderToSap(input: SapPushInput): Promise<SapPushResult
   const settings = await loadSapSettings()
   if (!isSapConfigured(settings)) return { status: 'none' }
 
-  const payload = buildSapOrderPayload(input)
+  // Idempotency: trước khi POST, kiểm tra SAP đã có chứng từ mang marker
+  // localId chưa — tránh tạo trùng khi retry sau timeout/response mất.
+  // Nếu SAP chưa định nghĩa UDF → bỏ qua, giữ nguyên hành vi cũ.
+  let withUdf = false
+  if (input.localId) {
+    const existing = await findOrderByLocalId(settings, input.localId)
+    if (existing.supported && existing.doc) {
+      // Chứng từ đã tồn tại → nhận lại, KHÔNG POST nữa
+      const full = await sapGet<SapOrderResponse>(
+        settings,
+        `/Orders(${existing.doc.DocEntry})`,
+        { $select: 'DocEntry,DocNum,DocumentLines' },
+        { audit: 'off' },
+      )
+      return {
+        status: 'synced',
+        docEntry: existing.doc.DocEntry,
+        docNum: existing.doc.DocNum,
+        lineNums: extractLineNums(full.ok ? full.data : undefined),
+      }
+    }
+    withUdf = existing.supported
+  }
+
+  const payload = buildSapOrderPayload(input, withUdf)
   const res = await sapPost<SapOrderResponse>(settings, '/Orders', payload)
   if (!res.ok) {
     return { status: 'pending', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }

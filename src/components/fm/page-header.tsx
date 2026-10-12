@@ -22,7 +22,10 @@ export default function PageHeader({ breadcrumb, title, badge, actions }: PageHe
           {breadcrumb.map((crumb, i) => (
             <span key={i} className="fm-breadcrumb__item">
               {i > 0 && <span className="fm-breadcrumb__sep">›</span>}
-              <span className={i === breadcrumb.length - 1 ? 'fm-breadcrumb__current' : ''}>
+              <span
+                className={i === breadcrumb.length - 1 ? 'fm-breadcrumb__current' : ''}
+                aria-current={i === breadcrumb.length - 1 ? 'page' : undefined}
+              >
                 {crumb}
               </span>
             </span>

@@ -8,7 +8,7 @@
 // File này KHÔNG import next/* để các script bun (seed/…) dùng chung được.
 // ============================================================
 
-import { scrypt, randomBytes, timingSafeEqual, createHash } from 'crypto'
+import { scrypt, randomBytes, timingSafeEqual, createHash, createCipheriv, createDecipheriv } from 'crypto'
 
 const N = 16384
 const R = 8
@@ -61,4 +61,59 @@ export async function verifyPassword(pw: string, stored: string): Promise<'ok' |
   }
   // Hash đời cũ: sha256(pw + salt cố định) — chấp nhận 1 lần để nâng cấp
   return safeEqHex(legacyHash(pw), stored) ? 'legacy' : 'fail'
+}
+
+// ============================================================
+// MÃ HÓA SECRET LƯU DB (mật khẩu SAP B1, SMTP) — AES-256-GCM
+// Khóa suy từ FM_DATA_KEY (riêng) hoặc FM_SESSION_SECRET; dev chưa đặt
+// thì dùng khóa tạm (có cảnh báo). Định dạng: enc:v1:<ivHex>:<dataHex>
+// (data = ciphertext + auth tag 16 byte). Giá trị plaintext cũ (không có
+// prefix) được decryptSecret trả về nguyên — tương thích ngược, sẽ được
+// mã hóa lại ở lần lưu cài đặt tiếp theo.
+// ============================================================
+
+const ENC_PREFIX = 'enc:v1:'
+let dataKeyWarned = false
+
+function dataKey(): Buffer {
+  const raw = process.env.FM_DATA_KEY || process.env.FM_SESSION_SECRET || ''
+  if (raw.length >= 16) {
+    return createHash('sha256').update('fm-data-key-v1:' + raw).digest()
+  }
+  if (!dataKeyWarned) {
+    dataKeyWarned = true
+    console.warn(
+      '[fm-crypto] FM_DATA_KEY/FM_SESSION_SECRET chưa đặt — dùng khóa mã hóa tạm, ' +
+        'KHÔNG an toàn cho production. Hãy đặt FM_DATA_KEY trong .env.',
+    )
+  }
+  return createHash('sha256').update('fm-data-key-v1:dev-fallback').digest()
+}
+
+/** Mã hóa secret trước khi lưu DB */
+export function encryptSecret(plain: string): string {
+  if (!plain) return ''
+  if (plain.startsWith(ENC_PREFIX)) return plain // đã mã hóa rồi
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', dataKey(), iv)
+  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return `${ENC_PREFIX}${iv.toString('hex')}:${Buffer.concat([enc, tag]).toString('hex')}`
+}
+
+/** Giải mã secret đọc từ DB (plaintext cũ trả về nguyên) */
+export function decryptSecret(stored: string | null | undefined): string {
+  if (!stored) return ''
+  if (!stored.startsWith(ENC_PREFIX)) return stored
+  try {
+    const [, , ivHex, dataHex] = stored.split(':')
+    const iv = Buffer.from(ivHex, 'hex')
+    const data = Buffer.from(dataHex, 'hex')
+    const decipher = createDecipheriv('aes-256-gcm', dataKey(), iv)
+    decipher.setAuthTag(data.subarray(data.length - 16))
+    const enc = data.subarray(0, data.length - 16)
+    return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8')
+  } catch {
+    return '' // sai khóa / dữ liệu hỏng → coi như trống, không crash
+  }
 }

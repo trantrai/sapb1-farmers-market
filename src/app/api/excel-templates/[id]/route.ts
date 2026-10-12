@@ -6,6 +6,9 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.excelTemplates?.edit) {
+    return NextResponse.json({ error: 'Bạn không có quyền sửa mẫu Excel' }, { status: 403 })
+  }
 
   try {
     const { id } = await params
@@ -49,6 +52,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.excelTemplates?.delete) {
+    return NextResponse.json({ error: 'Bạn không có quyền xóa mẫu Excel' }, { status: 403 })
+  }
 
   try {
     const { id } = await params

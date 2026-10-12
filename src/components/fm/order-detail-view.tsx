@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, History, X, Mail } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, X, Mail } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -57,8 +57,101 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [emailMessage, setEmailMessage] = useState('')
   const [emailBusy, setEmailBusy] = useState(false)
   const [emailResult, setEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [actionBusy, setActionBusy] = useState(false)
 
   const doPrint = () => window.print()
+
+  const loadOrder = useCallback(async (signal: { cancelled: boolean }) => {
+    setLoading(true)
+    setActionMsg(null)
+    try {
+      const r = await api(`/api/orders/${orderId}`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const j: { order?: Order } & Partial<Order> = await r.json()
+      if (signal.cancelled) return
+      // API trả về { order } — unwrap để tương thích
+      const o: Order = (j.order ?? j) as Order
+      setOrder(o)
+      setError('')
+      // Lấy thông tin địa chỉ/người liên hệ + email
+      if (o.cardCode) {
+        api(`/api/partners?q=${encodeURIComponent(o.cardCode)}`)
+          .then((pr) => (pr.ok ? pr.json() : null))
+          .then((pj) => {
+            if (signal.cancelled) return
+            const p = pj?.items?.find((x: any) => x.cardCode === o.cardCode) ?? pj?.items?.[0]
+            if (p) setPartner((cur) => ({ ...cur, address: p.address, contactPerson: p.contactPerson, contactPhone: p.contactPhone }))
+          })
+          .catch(() => {})
+        // Email từ danh mục KH đã đồng bộ (local)
+        api(`/api/bpartners/sync?q=${encodeURIComponent(o.cardCode)}&pageSize=5`)
+          .then((pr) => (pr.ok ? pr.json() : null))
+          .then((pj) => {
+            if (signal.cancelled) return
+            const p = pj?.data?.find((x: any) => x.cardCode === o.cardCode)
+            if (p?.email) setPartner((cur) => ({ ...cur, email: p.email }))
+          })
+          .catch(() => {})
+      }
+    } catch {
+      if (!signal.cancelled) setError('Không tải được chi tiết đơn hàng.')
+    } finally {
+      if (!signal.cancelled) setLoading(false)
+    }
+  }, [orderId])
+
+  useEffect(() => {
+    const signal = { cancelled: false }
+    void loadOrder(signal)
+    return () => { signal.cancelled = true }
+  }, [loadOrder])
+
+  // Đóng / mở lại đơn hàng
+  const toggleClose = async () => {
+    if (!order || actionBusy) return
+    const next = order.status === 'Open' ? 'Closed' : 'Open'
+    if (!window.confirm(next === 'Closed' ? `Đóng đơn hàng #${order.docNum}? Đơn đã đóng sẽ không sửa được.` : `Mở lại đơn hàng #${order.docNum}?`)) return
+    setActionBusy(true)
+    try {
+      const res = await api(`/api/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setActionMsg({ type: 'error', text: json.error ?? 'Không thể cập nhật trạng thái đơn hàng' })
+        return
+      }
+      setActionMsg({ type: 'success', text: next === 'Closed' ? `Đã đóng đơn hàng #${order.docNum}.` : `Đã mở lại đơn hàng #${order.docNum}.` })
+      await loadOrder({ cancelled: false })
+    } catch {
+      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  // Đẩy đơn sang SAP B1 ngay
+  const syncNow = async () => {
+    if (!order || actionBusy) return
+    setActionBusy(true)
+    try {
+      const res = await api(`/api/orders/${order.id}/sync`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.ok) {
+        setActionMsg({ type: 'error', text: json.error ?? json.sap?.error ?? 'Không thể đẩy đơn sang SAP B1' })
+        return
+      }
+      setActionMsg({ type: 'success', text: `Đã đẩy đơn #${order.docNum} sang SAP B1 — DocNum ${json.order?.sapDocNum ?? json.sap?.DocNum ?? '?'}.` })
+      await loadOrder({ cancelled: false })
+    } catch {
+      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+    } finally {
+      setActionBusy(false)
+    }
+  }
 
   const openEmail = () => {
     if (!order) return
@@ -246,15 +339,15 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
             <tfoot>
               <tr>
                 <td colSpan={10} style={{ textAlign: 'right' }}>Tổng trước VAT:</td>
-                <td className="fm-num">{formatVND(order.totalBeforeDisc)} ₫</td>
+                <td className="fm-num">{formatVND(order.totalBeforeDisc)}</td>
               </tr>
               <tr>
                 <td colSpan={10} style={{ textAlign: 'right' }}>Tiền VAT:</td>
-                <td className="fm-num">{formatVND(order.vatAmt)} ₫</td>
+                <td className="fm-num">{formatVND(order.vatAmt)}</td>
               </tr>
               <tr>
                 <td colSpan={10} style={{ textAlign: 'right' }}>TỔNG CỘNG THANH TOÁN:</td>
-                <td className="fm-num">{formatVND(order.grandTotal)} ₫</td>
+                <td className="fm-num">{formatVND(order.grandTotal)}</td>
               </tr>
             </tfoot>
           </table>
@@ -262,14 +355,19 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
       </div>
 
       {/* Nút thao tác */}
+      {actionMsg && (
+        <div className={`fm-alert ${actionMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={actionMsg.type === 'error' ? 'alert' : 'status'} style={{ marginBottom: 12 }}>
+          {actionMsg.text}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
           <Pencil size={15} /> Sửa đơn hàng
         </button>
-        <button className="fm-btn fm-btn--secondary">
-          <Lock size={15} /> Đóng đơn hàng (Closed)
+        <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
+          <Lock size={15} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
         </button>
-        <button className="fm-btn fm-btn--secondary">
+        <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
           <CloudUpload size={15} /> Đẩy sang SAP B1 ngay
         </button>
         <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
@@ -279,10 +377,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
           <Mail size={15} /> Gửi email
         </button>
         <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
-          <Download size={15} /> Xuất PDF
-        </button>
-        <button className="fm-btn fm-btn--secondary">
-          <History size={15} /> Nhật ký
+          <Download size={15} /> Xem trước bản in
         </button>
       </div>
 
@@ -340,7 +435,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
             </div>
 
             {emailResult && (
-              <div className={`fm-alert ${emailResult.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }}>
+              <div className={`fm-alert ${emailResult.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role={emailResult.type === 'error' ? 'alert' : 'status'}>
                 <div><b>{emailResult.type === 'success' ? 'Thành công' : 'Lỗi'}</b> {emailResult.text}</div>
               </div>
             )}

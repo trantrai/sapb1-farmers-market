@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Save, ShieldCheck, UsersRound, ArrowRight, History, PlusCircle } from 'lucide-react'
+import { useCallback, useEffect, useEffectEvent, useState } from 'react'
+import { Save, ShieldCheck, UsersRound, ArrowRight } from 'lucide-react'
 import { MODULE_LABELS, ACTION_LABELS, parsePerm, ActionKey, ModuleKey, SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -19,7 +19,7 @@ interface UserRow {
   role: string
 }
 
-const MODULE_KEYS: ModuleKey[] = ['orders', 'ordersNew', 'users', 'settings', 'roles']
+const MODULE_KEYS: ModuleKey[] = ['orders', 'ordersNew', 'users', 'settings', 'roles', 'excelTemplates', 'orderTemplates']
 const ACTIONS: ActionKey[] = ['view', 'create', 'edit', 'delete']
 
 interface Props {
@@ -60,11 +60,17 @@ export default function RolesView({ user, onGoUsers }: Props) {
     return () => window.removeEventListener('beforeunload', onBefore)
   }, [dirty])
 
-  useEffect(() => {
-    const role = roles.find((r) => r.id === selectedId)
-    // Đồng bộ draft quyền theo role được chọn (hợp lệ, không cần defer)
+  // Đồng bộ draft quyền theo role được chọn — là EVENT khởi tạo (không phải
+  // effect phản ứng), bọc bằng useEffectEvent để rõ ý định và tránh render
+  // dây chuyền khi roles ref đổi sau mỗi lần lưu.
+  const syncDraft = useEffectEvent((roleId: string | null, roleList: typeof roles) => {
+    const role = roleId ? roleList.find((r) => r.id === roleId) : undefined
     setPermDraft(role ? parsePerm(role.permissions) : null)
     setDirty(false)
+  })
+
+  useEffect(() => {
+    syncDraft(selectedId, roles)
   }, [selectedId, roles])
 
   const toggle = (mod: ModuleKey, act: ActionKey) => {
@@ -125,8 +131,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
         title="Phân Quyền Vai Trò (RBAC)"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--secondary"><History size={14} /> Lịch sử cấp quyền</button>
-          <button className="fm-btn fm-btn--primary"><PlusCircle size={14} /> Thêm vai trò mới</button>
+          <span className="fm-hint">Bấm vào vai trò để xem và chỉnh ma trận quyền</span>
         </>}
       />
       {msg && (
@@ -142,6 +147,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
           <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ShieldCheck size={18} /> Vai trò
           </h2>
+          <div role="radiogroup" aria-label="Danh sách vai trò">
           {roles.map((r) => {
             const n = users.filter((u) => u.role === r.name).length
             const mods = parsePerm(r.permissions)
@@ -149,9 +155,9 @@ export default function RolesView({ user, onGoUsers }: Props) {
             return (
               <div
                 key={r.id}
-                role="button"
+                role="radio"
                 tabIndex={0}
-                aria-pressed={r.id === selectedId}
+                aria-checked={r.id === selectedId}
                 aria-label={`Chọn vai trò ${r.label}`}
                 onClick={() => setSelectedId(r.id)}
                 onKeyDown={(e) => {
@@ -177,6 +183,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
               </div>
             )
           })}
+          </div>
 
           {selected && roleUsers.length > 0 && (
             <div style={{ marginTop: 14, borderTop: '1px solid var(--fm-line)', paddingTop: 12 }}>
@@ -221,7 +228,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
                           {ACTIONS.map((act) => (
                             <td key={act} data-label={ACTION_LABELS[act]}>
                               <label className="fm-switch" title={`${ACTION_LABELS[act]} — ${MODULE_LABELS[mod]}`}>
-                                <input type="checkbox" checked={permDraft[mod][act]} onChange={() => toggle(mod, act)} disabled={!canEdit} />
+                                <input type="checkbox" checked={permDraft[mod][act]} onChange={() => toggle(mod, act)} disabled={!canEdit} aria-label={`${ACTION_LABELS[act]} — ${MODULE_LABELS[mod]}`} />
                                 <span className="track" />
                               </label>
                             </td>

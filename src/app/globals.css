@@ -190,7 +190,7 @@
   --fm-line-2:        #E1DFDD;
   --fm-text:          #1B1A19;
   --fm-text-2:        #605E5C;   /* Metadata, phụ đề */
-  --fm-text-3:        #8A8886;
+  --fm-text-3:        #6B6966; /* tăng tương phản 3.35:1 → 5.2:1 (đạt WCAG 1.4.3 ≥ 4.5:1) */
 
   /* ---------- Typography ---------- */
   --fm-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -1373,4 +1373,10 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-print-area { display: block !important; }
   body { background: #fff !important; }
   @page { size: A4; margin: 15mm; }
+}
+
+/* Screen-reader only: ẩn visually nhưng vẫn đọc được bằng screen reader (WCAG 4.1.2) */
+.fm-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }

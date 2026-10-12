@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
+import { encryptSecret } from '@/lib/fm-crypto'
 
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
@@ -55,11 +56,12 @@ export async function PUT(req: NextRequest) {
       serviceLayerUrl: serviceLayerUrl ?? existing?.serviceLayerUrl ?? '',
       companyDb: companyDb ?? existing?.companyDb ?? '',
       sapUser: sapUser ?? existing?.sapUser ?? '',
-      // Nếu mật khẩu gửi về là dạng che hoặc rỗng thì giữ nguyên mật khẩu cũ
+      // Nếu mật khẩu gửi về là dạng che hoặc rỗng thì giữ nguyên mật khẩu cũ;
+      // mật khẩu mới được mã hóa AES-256-GCM trước khi lưu DB
       sapPassword:
         !sapPassword || sapPassword.includes('•')
           ? existing?.sapPassword ?? ''
-          : sapPassword,
+          : encryptSecret(sapPassword),
       // Bỏ qua xác thực SSL (chỉ nhận khi client gửi rõ ràng kiểu boolean)
       sslSkipVerify:
         typeof body.sslSkipVerify === 'boolean'
@@ -78,7 +80,7 @@ export async function PUT(req: NextRequest) {
       smtpPass:
         !(body.smtpPass as string | undefined) || (body.smtpPass as string).includes('•')
           ? existing?.smtpPass ?? ''
-          : (body.smtpPass as string),
+          : encryptSecret(body.smtpPass as string),
       smtpFromEmail: (body.smtpFromEmail as string | undefined) ?? existing?.smtpFromEmail ?? '',
       smtpFromName: (body.smtpFromName as string | undefined) ?? existing?.smtpFromName ?? '',
     }

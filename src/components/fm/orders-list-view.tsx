@@ -130,7 +130,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [source, setSource] = useState('')
   const [sapWarn, setSapWarn] = useState('')
 
+  const loadSeq = useRef(0)
   const load = useCallback(async () => {
+    // Guard chống race: filter đổi nhanh → response cũ về sau phải bị bỏ,
+    // không được đè lên dữ liệu mới
+    const seq = ++loadSeq.current
     try {
       const sp = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
       if (q) sp.set('q', q)
@@ -139,6 +143,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       if (to) sp.set('to', to)
       if (dueFilter) sp.set('due', dueFilter)
       const res = await api(`/api/orders?${sp.toString()}`)
+      if (seq !== loadSeq.current) return
       if (res.status === 401) { window.location.reload(); return }
       const json = await res.json()
       setOrders(json.data ?? [])
@@ -147,7 +152,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       setSource(json.source ?? '')
       setSapWarn(json.warning ?? '')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [page, pageSize, q, status, from, to, dueFilter])
 
@@ -308,7 +313,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         title="Danh Sách Sale Order"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--secondary"><RefreshCw size={14} /> Đồng bộ lại</button>
+          <button className="fm-btn fm-btn--secondary" onClick={() => load()}><RefreshCw size={14} /> Tải lại</button>
           <button className="fm-btn fm-btn--secondary" onClick={exportExcel}><Download size={14} /> Xuất Excel</button>
         </>}
       />
@@ -410,7 +415,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                     <th>SAP B1</th>
                     <th className="fm-num">Tổng trước VAT</th>
                     <th className="fm-num">Tổng tiền</th>
-                    <th></th>
+                    <th><span className="fm-sr-only">Thao tác</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -449,11 +454,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <button className="fm-icon-btn" title="Nhân bản đơn hàng" onClick={() => onGoDuplicate({ ...toEditData(o), id: undefined })}>
+                        <button className="fm-icon-btn" title="Nhân bản đơn hàng" aria-label="Nhân bản đơn hàng" onClick={() => onGoDuplicate({ ...toEditData(o), id: undefined })}>
                           <Copy size={14} />
                         </button>
                         {canDelete && o.source !== 'sap' && (
-                          <button className="fm-row-del" title="Xóa đơn hàng" onClick={() => deleteOrder(o)}>
+                          <button className="fm-row-del" title="Xóa đơn hàng" aria-label="Xóa đơn hàng" onClick={() => deleteOrder(o)}>
                             <Trash2 size={14} />
                           </button>
                         )}

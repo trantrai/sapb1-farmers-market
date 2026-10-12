@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Plus, Pencil, Trash2, Download, Star, X, Save } from 'lucide-react'
 import { api } from '@/lib/fm-client'
@@ -45,7 +45,14 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [formDefault, setFormDefault] = useState(false)
-  const [formMapping, setFormMapping] = useState<Record<string, string>>({})
+  const [formMapping, setFormMapping] = useState<Array<{ id: string; col: string; field: string }>>([])
+  // Counter id ổn định cho dòng mapping (không dùng index/length để tránh trùng sau khi xóa)
+  const mappingIdRef = useRef(0)
+  const nextMappingId = () => `m${++mappingIdRef.current}`
+  const toMappingRows = (mapping: Record<string, string>) =>
+    Object.entries(mapping).map(([col, field]) => ({ id: nextMappingId(), col, field }))
+  const mappingRecord = (): Record<string, string> =>
+    Object.fromEntries(formMapping.filter((r) => r.col.trim()).map((r) => [r.col.trim(), r.field]))
 
   const load = useCallback(async () => {
     setTemplates(null)
@@ -64,9 +71,15 @@ export default function ExcelTemplatesView({ onBack }: Props) {
     }
   }, [])
 
+  // Nạp danh sách khi mount: logic setState nằm trong useEffectEvent để
+  // không vi phạm react-hooks/set-state-in-effect (event, không phải effect)
+  const onMountLoad = useEffectEvent(() => {
+    void load()
+  })
+
   useEffect(() => {
-    load()
-  }, [load])
+    onMountLoad()
+  }, [])
 
   const openForm = (t?: ExcelTemplate) => {
     if (t) {
@@ -74,13 +87,16 @@ export default function ExcelTemplatesView({ onBack }: Props) {
       setFormName(t.name)
       setFormDesc(t.description ?? '')
       setFormDefault(t.isDefault)
-      setFormMapping({ ...t.mapping })
+      setFormMapping(toMappingRows(t.mapping))
     } else {
       setEditing(null)
       setFormName('')
       setFormDesc('')
       setFormDefault(false)
-      setFormMapping({ 'Mã hàng': 'itemCode', 'Số lượng': 'quantity' })
+      setFormMapping([
+        { id: nextMappingId(), col: 'Mã hàng', field: 'itemCode' },
+        { id: nextMappingId(), col: 'Số lượng', field: 'quantity' },
+      ])
     }
     setShowForm(true)
   }
@@ -90,7 +106,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
       setMsg({ type: 'error', text: 'Tên template không được để trống' })
       return
     }
-    if (Object.keys(formMapping).length === 0) {
+    if (formMapping.length === 0) {
       setMsg({ type: 'error', text: 'Mapping không được để trống' })
       return
     }
@@ -99,7 +115,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
         name: formName.trim(),
         description: formDesc.trim() || null,
         isDefault: formDefault,
-        mapping: formMapping,
+        mapping: mappingRecord(),
       }
       const res = editing
         ? await api(`/api/excel-templates/${editing.id}`, {
@@ -185,8 +201,8 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   }
 
   const addMappingRow = () => {
-    const col = `Cột ${Object.keys(formMapping).length + 1}`
-    setFormMapping({ ...formMapping, [col]: 'itemCode' })
+    const col = `Cột ${formMapping.length + 1}`
+    setFormMapping([...formMapping, { id: nextMappingId(), col, field: 'itemCode' }])
   }
 
   return (
@@ -203,9 +219,9 @@ export default function ExcelTemplatesView({ onBack }: Props) {
       />
 
       {msg && (
-        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`}>
+        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b> {msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -241,13 +257,13 @@ export default function ExcelTemplatesView({ onBack }: Props) {
                       )}
                     </td>
                     <td>
-                      <button className="fm-icon-btn" title="Tải template mẫu" onClick={() => downloadSample(t)}>
+                      <button className="fm-icon-btn" title="Tải template mẫu" aria-label="Tải template mẫu" onClick={() => downloadSample(t)}>
                         <Download size={15} />
                       </button>
-                      <button className="fm-icon-btn" title="Sửa" onClick={() => openForm(t)}>
+                      <button className="fm-icon-btn" title="Sửa" aria-label="Sửa template" onClick={() => openForm(t)}>
                         <Pencil size={15} />
                       </button>
-                      <button className="fm-icon-btn fm-icon-btn--danger" title="Xóa" onClick={() => setConfirmDelete(t)}>
+                      <button className="fm-icon-btn fm-icon-btn--danger" title="Xóa" aria-label="Xóa template" onClick={() => setConfirmDelete(t)}>
                         <Trash2 size={15} />
                       </button>
                     </td>
@@ -269,12 +285,12 @@ export default function ExcelTemplatesView({ onBack }: Props) {
             </div>
             <div className="fm-modal__body">
               <div className="fm-field">
-                <label className="fm-label">Tên template *</label>
-                <input className="fm-input" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="VD: Template nhập hàng" />
+                <label className="fm-label" htmlFor="et-name">Tên template *</label>
+                <input id="et-name" className="fm-input" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="VD: Template nhập hàng" />
               </div>
               <div className="fm-field" style={{ marginTop: 12 }}>
-                <label className="fm-label">Mô tả</label>
-                <input className="fm-input" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} placeholder="Mô tả ngắn về template" />
+                <label className="fm-label" htmlFor="et-desc">Mô tả</label>
+                <input id="et-desc" className="fm-input" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} placeholder="Mô tả ngắn về template" />
               </div>
               <div className="fm-field" style={{ marginTop: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -284,25 +300,28 @@ export default function ExcelTemplatesView({ onBack }: Props) {
               </div>
 
               <h3 style={{ margin: '18px 0 8px', fontSize: 14 }}>Mapping cột Excel → Trường đơn hàng</h3>
-              {Object.entries(formMapping).map(([col, field]) => (
-                <div key={col} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              {formMapping.map((row) => (
+                <div key={row.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                   <input
                     className="fm-input"
-                    value={col}
+                    value={row.col}
                     onChange={(e) => {
-                      const nv = { ...formMapping }
-                      delete nv[col]
-                      nv[e.target.value] = field
-                      setFormMapping(nv)
+                      const v = e.target.value
+                      setFormMapping((rows) => rows.map((r) => (r.id === row.id ? { ...r, col: v } : r)))
                     }}
                     placeholder="Tên cột Excel"
+                    aria-label="Tên cột Excel"
                     style={{ flex: 1 }}
                   />
                   <span>→</span>
                   <select
                     className="fm-select"
-                    value={field}
-                    onChange={(e) => setFormMapping({ ...formMapping, [col]: e.target.value })}
+                    value={row.field}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setFormMapping((rows) => rows.map((r) => (r.id === row.id ? { ...r, field: v } : r)))
+                    }}
+                    aria-label={`Trường đơn hàng cho cột ${row.col || 'mới'}`}
                     style={{ flex: 1 }}
                   >
                     {EXCEL_FIELDS.map((f) => (
@@ -311,12 +330,9 @@ export default function ExcelTemplatesView({ onBack }: Props) {
                   </select>
                   <button
                     className="fm-icon-btn fm-icon-btn--danger"
-                    onClick={() => {
-                      const nv = { ...formMapping }
-                      delete nv[col]
-                      setFormMapping(nv)
-                    }}
+                    onClick={() => setFormMapping((rows) => rows.filter((r) => r.id !== row.id))}
                     title="Xóa dòng mapping"
+                    aria-label={`Xóa mapping cột ${row.col || 'mới'}`}
                   >
                     <Trash2 size={14} />
                   </button>

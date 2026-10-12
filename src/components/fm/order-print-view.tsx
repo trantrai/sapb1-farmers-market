@@ -113,15 +113,15 @@ export default function OrderPrintView({ order, partner }: Props) {
         <tfoot>
           <tr>
             <td colSpan={8} style={{ textAlign: 'right' }}>Tổng tiền hàng:</td>
-            <td className="fm-num">{formatVND(order.totalBeforeDisc)} ₫</td>
+            <td className="fm-num">{formatVND(order.totalBeforeDisc)}</td>
           </tr>
           <tr>
             <td colSpan={8} style={{ textAlign: 'right' }}>Tiền VAT:</td>
-            <td className="fm-num">{formatVND(order.vatAmt)} ₫</td>
+            <td className="fm-num">{formatVND(order.vatAmt)}</td>
           </tr>
           <tr className="fm-print__grand">
             <td colSpan={8} style={{ textAlign: 'right' }}>TỔNG CỘNG THANH TOÁN:</td>
-            <td className="fm-num">{formatVND(order.grandTotal)} ₫</td>
+            <td className="fm-num">{formatVND(order.grandTotal)}</td>
           </tr>
         </tfoot>
       </table>

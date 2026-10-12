@@ -38,6 +38,8 @@ interface Props {
   minChars?: number
   /** Nhãn gợi ý khi chưa nhập đủ ký tự (chế độ minChars) */
   minCharsHint?: string
+  /** Ẩn label khỏi giao diện nhưng vẫn giữ cho screen reader (WCAG 4.1.2) */
+  hideLabel?: boolean
 }
 
 // ============================================================
@@ -102,7 +104,7 @@ function mapResponse(json: { data?: Record<string, string | number>[]; source?: 
 }
 
 /** Autocomplete chọn CardCode / ItemCode (Bước 1 & 2 của form SO) */
-export default function Autocomplete({ label, required, placeholder, fetchUrl, value, onChange, error, minChars, minCharsHint }: Props) {
+export default function Autocomplete({ label, required, placeholder, fetchUrl, value, onChange, error, minChars, minCharsHint, hideLabel }: Props) {
   const [query, setQuery] = useState('')
   const [all, setAll] = useState<ACOption[] | null>(null) // toàn bộ danh sách đã tải (hoặc kết quả tìm trực tiếp)
   const [meta, setMeta] = useState<{ source: string; error: string }>({ source: '', error: '' })
@@ -295,7 +297,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
 
   return (
     <div className="fm-field" ref={boxRef}>
-      <label className="fm-label" htmlFor={inputId}>
+      <label className={`fm-label${hideLabel ? ' fm-sr-only' : ''}`} htmlFor={inputId}>
         {label}
         {required && <span className="fm-label__req">*</span>}
       </label>

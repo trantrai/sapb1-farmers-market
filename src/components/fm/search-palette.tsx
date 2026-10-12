@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Search, ClipboardList, Boxes, Contact, CornerDownLeft, Loader2 } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 
@@ -63,17 +63,22 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
+  // Reset trạng thái mỗi khi mở palette — là EVENT khởi tạo, bọc bằng
+  // useEffectEvent để tách khỏi logic effect (focus + cleanup timer)
+  const resetOnOpen = useEffectEvent(() => {
+    setQuery('')
+    setResult(null)
+    setActiveIdx(0)
+    setLoading(false)
+  })
+
   // Focus input mỗi khi mở palette
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setResult(null)
-      setActiveIdx(0)
-      setLoading(false)
-      // Đợi modal mount xong mới focus
-      const t = setTimeout(() => inputRef.current?.focus(), 30)
-      return () => clearTimeout(t)
-    }
+    if (!open) return
+    resetOnOpen()
+    // Đợi modal mount xong mới focus
+    const t = setTimeout(() => inputRef.current?.focus(), 30)
+    return () => clearTimeout(t)
   }, [open ])
 
   // Debounce 300ms gọi API tìm kiếm

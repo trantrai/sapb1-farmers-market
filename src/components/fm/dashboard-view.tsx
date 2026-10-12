@@ -105,7 +105,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
         actions={
           <>
             <button type="button" className="fm-btn fm-btn--secondary" onClick={load}>
-              <RefreshCw size={15} /> Đồng bộ SAP B1
+              <RefreshCw size={15} /> Tải lại số liệu
             </button>
             <button type="button" className="fm-btn fm-btn--primary" onClick={onGoCreate}>
               <PlusCircle size={16} /> Tạo Sale Order mới
@@ -196,7 +196,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                     <th>Hạn giao</th>
                     <th>Tình trạng</th>
                     <th className="fm-num">Tổng tiền</th>
-                    <th></th>
+                    <th><span className="fm-sr-only">Thao tác</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -269,7 +269,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             ))}
           </div>
         </div>
-        <div style={{ width: '100%', height: 280, marginTop: 12 }}>
+        <div
+          style={{ width: '100%', height: 280, marginTop: 12 }}
+          role="img"
+          aria-label={charts ? `Biểu đồ cột doanh số ${chartRange} ngày qua. ` + charts.revenueByDay.filter((d) => d.total > 0).map((d) => `${d.day}: ${formatVND(d.total)}`).join('; ') : 'Đang tải biểu đồ doanh số'}
+        >
           {!charts ? (
             <div className="fm-skeleton" style={{ height: 280 }} />
           ) : charts.revenueByDay.every((d) => d.total === 0) ? (
@@ -291,7 +295,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
         <div className="fm-card">
           <h2 className="fm-card__title">Top 5 khách hàng theo doanh số</h2>
-          <div style={{ width: '100%', height: 280 }}>
+          <div
+            style={{ width: '100%', height: 280 }}
+            role="img"
+            aria-label={charts ? 'Biểu đồ tròn top khách hàng. ' + charts.topCustomers.map((c) => `${c.cardName}: ${formatVND(c.total)}`).join('; ') : 'Đang tải biểu đồ'}
+          >
             {!charts ? (
               <div className="fm-skeleton" style={{ height: 280 }} />
             ) : charts.topCustomers.length === 0 ? (
@@ -324,7 +332,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
 
         <div className="fm-card">
           <h2 className="fm-card__title">Top 5 mặt hàng bán chạy</h2>
-          <div style={{ width: '100%', height: 280 }}>
+          <div
+            style={{ width: '100%', height: 280 }}
+            role="img"
+            aria-label={charts ? 'Biểu đồ cột top mặt hàng bán chạy. ' + charts.topItems.map((it) => `${it.itemName}: ${it.quantity} — ${formatVND(it.total)}`).join('; ') : 'Đang tải biểu đồ'}
+          >
             {!charts ? (
               <div className="fm-skeleton" style={{ height: 280 }} />
             ) : charts.topItems.length === 0 ? (

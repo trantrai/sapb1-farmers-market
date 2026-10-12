@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import Autocomplete, { ACOption } from './autocomplete'
+import PageHeader from './page-header'
 import { formatVND, formatNum } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
@@ -458,16 +459,18 @@ export default function OrderFormView({
 
 
   // ---- Điền sẵn dữ liệu đơn khi vào chế độ SỬA ----
-  useEffect(() => {
-    if (!editOrder) return
+  // Khởi tạo form là EVENT (chạy 1 lần khi vào chế độ sửa), không phải effect
+  // phản ứng — bọc bằng useEffectEvent để rõ ý định và tránh reset form nếu
+  // identity của editOrder đổi giữa lúc nhập liệu.
+  const initEditForm = useEffectEvent((o: NonNullable<typeof editOrder>) => {
     // Khởi tạo form từ editOrder (đồng bộ, hợp lệ — chạy 1 lần khi vào chế độ sửa)
-    setPartner({ code: editOrder.cardCode, name: editOrder.cardName })
-    setDocDate((editOrder.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
-    setDocDueDate((editOrder.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
-    setRemarks(editOrder.remarks ?? '')
-    setHeaderWh(editOrder.warehouseCode ?? '')
-    setHeaderDiscPct(editOrder.headerDiscPct ?? 0)
-    const prefilled: DraftLine[] = editOrder.lines.map((l) => ({
+    setPartner({ code: o.cardCode, name: o.cardName })
+    setDocDate((o.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setDocDueDate((o.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setRemarks(o.remarks ?? '')
+    setHeaderWh(o.warehouseCode ?? '')
+    setHeaderDiscPct(o.headerDiscPct ?? 0)
+    const prefilled: DraftLine[] = o.lines.map((l) => ({
       key: nextKey(),
       item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
       quantity: l.quantity,
@@ -476,7 +479,7 @@ export default function OrderFormView({
       vatPct: l.vatPct ?? 0,
       taxCode: l.taxCode || undefined,
       uom: l.uom || undefined,
-      warehouseCode: l.warehouseCode || editOrder.warehouseCode || undefined,
+      warehouseCode: l.warehouseCode || o.warehouseCode || undefined,
       priceSource: 'manual', // không tự giải lại giá khi sửa đơn — giữ nguyên số liệu gốc
       dbId: l.dbId,
       sapLineNum: l.sapLineNum,
@@ -488,7 +491,25 @@ export default function OrderFormView({
     setFieldErr({})
     // Kiểm tra ATP cho các dòng đã điền
     for (const l of prefilled) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
+  })
+
+  useEffect(() => {
+    if (!editOrder) return
+    initEditForm(editOrder)
   }, [editOrder])
+
+  // Đóng modal bằng Escape (WCAG — dialog phải đóng được bằng bàn phím)
+  useEffect(() => {
+    if (!tplModal && !priceHistFor) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setTplModal(false)
+        setPriceHistFor(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tplModal, priceHistFor])
 
   const totals = useMemo(() => {
     // Dùng đúng bộ tính toán của máy chủ (order-calc) để số trên màn hình
@@ -522,8 +543,15 @@ export default function OrderFormView({
   }
   const addLine = () =>
     setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
-  const removeLine = (key: number) =>
+  const removeLine = (key: number) => {
+    setAtp((m) => {
+      if (!(key in m)) return m
+      const nv = { ...m }
+      delete nv[key]
+      return nv
+    })
     setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls))
+  }
 
   // ---- Kho hàng xuất bán: tải danh sách kho (GET /Warehouses qua /api/warehouses) ----
   useEffect(() => {
@@ -548,12 +576,12 @@ export default function OrderFormView({
   // Đổi kho trên header → áp dụng cho TẤT CẢ dòng hàng + kiểm tra lại ATP
   const applyHeaderWarehouse = (code: string) => {
     setHeaderWh(code)
-    setLines((ls) => {
-      ls.forEach((l) => {
-        if (l.item) void checkAtp(l.key, l.item.code, code)
-      })
-      return ls.map((l) => ({ ...l, warehouseCode: code || undefined }))
-    })
+    // checkAtp GỌI NGOÀI updater: updater của setState phải pure —
+    // StrictMode double-invoke updater sẽ làm API ATP bị gọi trùng lặp
+    for (const l of lines) {
+      if (l.item) void checkAtp(l.key, l.item.code, code)
+    }
+    setLines((ls) => ls.map((l) => ({ ...l, warehouseCode: code || undefined })))
   }
 
   // Giải đơn giá theo quy tắc: GIÁ ĐẶC BIỆT theo Mặt hàng + Khách hàng (OSPP) →
@@ -663,6 +691,11 @@ export default function OrderFormView({
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng #${editOrder?.docNum}` : 'Tạo đơn hàng mới']}
+        title={isEdit ? `Cập Nhật Sale Order #${editOrder?.docNum}` : 'Tạo Sale Order Mới'}
+        badge="Cập nhật tức thời"
+      />
       {error && (
         <div className="fm-alert fm-alert--error" role="alert">
           <div><b>{isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể lưu đơn hàng'}</b>{error}</div>
@@ -715,7 +748,7 @@ export default function OrderFormView({
           </div>
         )}
         {tplMsg && (
-          <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role="status">
+          <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role={tplMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{tplMsg.text}</div>
             <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setTplMsg(null)}>✕</button>
           </div>
@@ -738,12 +771,13 @@ export default function OrderFormView({
           />
           {/* Thông tin khách hàng: địa chỉ + người liên hệ (từ đồng bộ SAP B1) */}
           <div className="fm-field">
-            <label>Địa chỉ</label>
-            <input className="fm-input" value={partner?.address || ''} readOnly placeholder="—" tabIndex={-1} />
+            <label className="fm-label" htmlFor="fm-partner-addr">Địa chỉ</label>
+            <input id="fm-partner-addr" className="fm-input" value={partner?.address || ''} readOnly placeholder="—" tabIndex={-1} />
           </div>
           <div className="fm-field">
-            <label>Người liên hệ</label>
+            <label className="fm-label" htmlFor="fm-partner-contact">Người liên hệ</label>
             <input
+              id="fm-partner-contact"
               className="fm-input"
               value={partner?.contactPerson ? `${partner.contactPerson}${partner.contactPhone ? ` · ${partner.contactPhone}` : ''}` : ''}
               readOnly placeholder="—" tabIndex={-1}
@@ -882,7 +916,8 @@ export default function OrderFormView({
                     <td data-label="Dòng">{idx + 1}</td>
                     <td data-label="Hàng hóa (ItemCode)" data-full>
                       <Autocomplete
-                        label=""
+                        label="Hàng hóa"
+                        hideLabel
                         placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
                         fetchUrl="/api/items"
                         minChars={2}
@@ -1078,9 +1113,9 @@ export default function OrderFormView({
           />
         </div>
         {importMsg && (
-          <div className={`fm-alert ${importMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginTop: 10 }}>
+          <div className={`fm-alert ${importMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginTop: 10 }} role={importMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{importMsg.text}</div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setImportMsg(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportMsg(null)}>✕</button>
           </div>
         )}
       </div>
@@ -1137,6 +1172,7 @@ export default function OrderFormView({
             <button
               className="fm-btn fm-btn--ghost"
               onClick={() => {
+                if (!window.confirm('Xóa toàn bộ dữ liệu đã nhập và bắt đầu lại?')) return
                 setPartner(null); setRemarks('')
                 setHeaderDiscPct(0)
                 setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
@@ -1154,7 +1190,7 @@ export default function OrderFormView({
       {/* Modal lưu thành mẫu đơn hàng */}
       {tplModal && (
         <div className="fm-backdrop" onClick={() => setTplModal(false)}>
-          <div className="fm-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+          <div className="fm-modal" role="dialog" aria-modal="true" aria-label="Lưu thành mẫu đơn hàng" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
             <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <BookmarkPlus size={17} /> Lưu thành mẫu đơn hàng
             </h3>
@@ -1185,7 +1221,7 @@ export default function OrderFormView({
               />
             </div>
             {tplMsg && (
-              <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role="status">
+              <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role={tplMsg.type === 'error' ? 'alert' : 'status'}>
                 <div>{tplMsg.text}</div>
               </div>
             )}
@@ -1236,7 +1272,7 @@ export default function OrderFormView({
       {/* Modal lịch sử giá theo khách hàng */}
       {priceHistFor && (
         <div className="fm-backdrop" onClick={() => setPriceHistFor(null)}>
-          <div className="fm-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+          <div className="fm-modal" role="dialog" aria-modal="true" aria-label="Lịch sử giá" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <History size={17} /> Lịch sử giá
             </h3>

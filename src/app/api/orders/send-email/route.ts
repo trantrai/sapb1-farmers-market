@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
+import { decryptSecret } from '@/lib/fm-crypto'
 
 const esc = (v: unknown) =>
   String(v ?? '')
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
       host: settings.smtpHost,
       port: settings.smtpPort || 587,
       secure: (settings.smtpPort || 587) === 465,
-      auth: { user: settings.smtpUser, pass: settings.smtpPass },
+      auth: { user: settings.smtpUser, pass: decryptSecret(settings.smtpPass) },
     })
 
     const fromName = settings.smtpFromName || 'Farmers Market'

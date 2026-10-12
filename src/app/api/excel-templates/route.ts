@@ -6,6 +6,9 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.excelTemplates?.view) {
+    return NextResponse.json({ error: 'Bạn không có quyền xem mẫu Excel' }, { status: 403 })
+  }
 
   const templates = await prisma.excelTemplate.findMany({
     orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -22,6 +25,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.excelTemplates?.create) {
+    return NextResponse.json({ error: 'Bạn không có quyền tạo mẫu Excel' }, { status: 403 })
+  }
 
   try {
     const body = (await req.json()) as {

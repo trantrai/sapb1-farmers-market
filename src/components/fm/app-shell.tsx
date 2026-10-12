@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
@@ -136,9 +136,11 @@ export default function AppShell({ user, onLogout }: Props) {
   const syncMenu = menu.filter((m) => m.group === 'sync')
   const adminMenu = menu.filter((m) => m.group === 'admin')
 
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = (t: string) => {
     setToast(t)
-    setTimeout(() => setToast(null), 5000)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 5000)
   }
 
   const go = (v: ViewKey) => {
@@ -306,9 +308,8 @@ export default function AppShell({ user, onLogout }: Props) {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <button className="fm-header__bell" aria-label="Thông báo">
+            <button className="fm-header__bell" aria-label="Thông báo" title="Chưa có thông báo mới">
               <Bell size={20} />
-              <span className="fm-header__dot" />
             </button>
             <div className="fm-header__user">
               <span className="fm-header__avatar">
@@ -415,18 +416,21 @@ export default function AppShell({ user, onLogout }: Props) {
         <button
           className={`fm-bottomnav__item${view !== 'dashboard' && !menu.slice(0, 4).some((m) => m.key === view) ? ' is-active' : ''}`}
           onClick={() => setDrawerOpen(true)}
+          aria-expanded={drawerOpen}
+          aria-label="Mở menu điều hướng"
         >
           <LayoutGrid size={16} />
           <span>Menu</span>
         </button>
       </nav>
 
-      {/* Backdrop cho mobile drawer */}
+      {/* Backdrop cho mobile drawer — là button thật để bàn phím cũng đóng được */}
       {drawerOpen && (
-        <div
+        <button
           className="fm-drawer-backdrop"
           onClick={() => setDrawerOpen(false)}
-          aria-hidden="true"
+          aria-label="Đóng menu"
+          style={{ border: 0, padding: 0, cursor: 'default' }}
         />
       )}
 

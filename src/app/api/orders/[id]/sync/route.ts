@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { pushOrderToSap } from '@/lib/sap-push-order'
+import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -27,42 +28,61 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       { status: 400 },
     )
   }
-
-  const push = await pushOrderToSap({
-    cardCode: order.cardCode,
-    docDate: order.docDate.toISOString(),
-    docDueDate: order.docDueDate.toISOString(),
-    comments: order.remarks,
-    lines: order.lines.map((l) => ({
-      itemCode: l.itemCode,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      discPct: l.discPct,
-      taxCode: l.taxCode,
-      warehouseCode: l.warehouseCode,
-    })),
-  })
-
-  // Lưu LineNum do SAP cấp cho từng dòng — cần khi SỬA đơn (PATCH /Orders)
-  if (push.status === 'synced' && push.lineNums?.length) {
-    const dbLines = [...order.lines].sort((a, b) => a.lineNum - b.lineNum)
-    await prisma.$transaction(
-      dbLines.map((l, i) =>
-        prisma.salesOrderLine.update({ where: { id: l.id }, data: { sapLineNum: push.lineNums?.[i] ?? null } }),
-      ),
+  // Khóa chống đẩy song song: 2 request cùng lúc không thể tạo trùng chứng từ SAP
+  if (!acquireOrderPushLock(id)) {
+    return NextResponse.json(
+      { error: 'Đơn này đang được đẩy sang SAP B1 ở một phiên khác — vui lòng đợi xong rồi thử lại.' },
+      { status: 409 },
     )
   }
 
-  const updated = await prisma.salesOrder.update({
-    where: { id: order.id },
-    data: {
-      sapSyncStatus: push.status,
-      sapSyncError: push.error ?? null,
-      ...(push.status === 'synced'
-        ? { sapDocEntry: push.docEntry ?? null, sapDocNum: push.docNum ?? null, sapSyncedAt: new Date() }
-        : {}),
-    },
-  })
+  try {
+    const push = await pushOrderToSap({
+      cardCode: order.cardCode,
+      docDate: order.docDate.toISOString(),
+      docDueDate: order.docDueDate.toISOString(),
+      comments: order.remarks,
+      localId: order.id,
+      lines: order.lines.map((l) => ({
+        itemCode: l.itemCode,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discPct: l.discPct,
+        taxCode: l.taxCode,
+        warehouseCode: l.warehouseCode,
+      })),
+    })
 
-  return NextResponse.json({ ok: push.status === 'synced', order: updated, sap: push })
+    // Chỉ công nhận 'synced' khi SAP trả về DocEntry hợp lệ
+    const syncedOk = push.status === 'synced' && typeof push.docEntry === 'number'
+    const finalStatus = !syncedOk && push.status === 'synced' ? 'pending' : push.status
+    const finalError = !syncedOk && push.status === 'synced'
+      ? 'SAP không trả về DocEntry — sẽ thử đẩy lại'
+      : (push.error ?? null)
+
+    // Lưu LineNum do SAP cấp cho từng dòng — cần khi SỬA đơn (PATCH /Orders)
+    if (syncedOk && push.lineNums?.length) {
+      const dbLines = [...order.lines].sort((a, b) => a.lineNum - b.lineNum)
+      await prisma.$transaction(
+        dbLines.map((l, i) =>
+          prisma.salesOrderLine.update({ where: { id: l.id }, data: { sapLineNum: push.lineNums?.[i] ?? null } }),
+        ),
+      )
+    }
+
+    const updated = await prisma.salesOrder.update({
+      where: { id: order.id },
+      data: {
+        sapSyncStatus: finalStatus,
+        sapSyncError: finalError,
+        ...(syncedOk
+          ? { sapDocEntry: push.docEntry ?? null, sapDocNum: push.docNum ?? null, sapSyncedAt: new Date() }
+          : {}),
+      },
+    })
+
+    return NextResponse.json({ ok: syncedOk, order: updated, sap: { ...push, status: finalStatus, error: finalError ?? push.error } })
+  } finally {
+    releaseOrderPushLock(id)
+  }
 }

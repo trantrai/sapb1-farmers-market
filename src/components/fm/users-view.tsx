@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound, Download } from 'lucide-react'
+import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -122,8 +122,7 @@ export default function UsersView({ user }: Props) {
         title="Quản Lý Người Dùng"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary"><UserPlus size={14} /> Thêm người dùng mới</button>
-          <button className="fm-btn fm-btn--secondary"><Download size={14} /> Xuất Excel</button>
+          <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}><UserPlus size={14} /> Thêm người dùng mới</button>
         </>}
       />
       {alert && (
@@ -233,6 +232,7 @@ export default function UsersView({ user }: Props) {
                               checked={u.active}
                               disabled={!canEdit || isMe}
                               onChange={() => toggleActive(u)}
+                              aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`}
                             />
                             <span className="track" />
                           </label>{' '}
@@ -277,7 +277,7 @@ export default function UsersView({ user }: Props) {
                     </div>
                     <div className="fm-ucard__foot">
                       <label className="fm-switch" title={u.active ? 'Vô hiệu hóa' : 'Kích hoạt lại'}>
-                        <input type="checkbox" checked={u.active} disabled={!canEdit || isMe} onChange={() => toggleActive(u)} />
+                        <input type="checkbox" checked={u.active} disabled={!canEdit || isMe} onChange={() => toggleActive(u)} aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`} />
                         <span className="track" />
                       </label>
                       <span style={{ fontSize: 12, fontWeight: 600, color: u.active ? 'var(--fm-green)' : 'var(--fm-red)' }}>
@@ -414,8 +414,9 @@ function UserModal({  mode,
         )}
 
         <div className="fm-field">
-          <label className="fm-label">Tên đăng nhập <span className="fm-label__req">*</span></label>
+          <label className="fm-label" htmlFor="um-username">Tên đăng nhập <span className="fm-label__req">*</span></label>
           <input
+            id="um-username"
             className="fm-input"
             placeholder="vd: nhanvien2"
             value={username}
@@ -426,13 +427,14 @@ function UserModal({  mode,
         </div>
 
         <div className="fm-field">
-          <label className="fm-label">Họ và tên <span className="fm-label__req">*</span></label>
-          <input className="fm-input" placeholder="vd: Nguyễn Thị Hoa" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <label className="fm-label" htmlFor="um-fullname">Họ và tên <span className="fm-label__req">*</span></label>
+          <input id="um-fullname" className="fm-input" placeholder="vd: Nguyễn Thị Hoa" value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </div>
 
         <div className="fm-field">
-          <label className="fm-label">Vai trò <span className="fm-label__req">*</span></label>
+          <label className="fm-label" htmlFor="um-role">Vai trò <span className="fm-label__req">*</span></label>
           <select
+            id="um-role"
             className="fm-select"
             value={role}
             onChange={(e) => setRole(e.target.value)}
@@ -452,10 +454,11 @@ function UserModal({  mode,
         </div>
 
         <div className="fm-field">
-          <label className="fm-label">
+          <label className="fm-label" htmlFor="um-password">
             {mode === 'create' ? <>Mật khẩu <span className="fm-label__req">*</span></> : 'Đặt lại mật khẩu'}
           </label>
           <input
+            id="um-password"
             type="password"
             className="fm-input"
             placeholder={mode === 'create' ? 'Tối thiểu 8 ký tự' : 'Bỏ trống nếu giữ nguyên mật khẩu cũ'}

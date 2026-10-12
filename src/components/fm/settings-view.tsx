@@ -123,20 +123,21 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         </h2>
         <div className="fm-form-grid">
           <div className="fm-field">
-            <label className="fm-label">Service Layer URL <span className="fm-label__req">*</span></label>
-            <input className="fm-input" placeholder="https://sapb1…:50000/b1s/v1" value={s.serviceLayerUrl} onChange={(e) => update({ serviceLayerUrl: e.target.value })} disabled={!canEdit} />
+            <label className="fm-label" htmlFor="sap-url">Service Layer URL <span className="fm-label__req">*</span></label>
+            <input id="sap-url" className="fm-input" placeholder="https://sapb1…:50000/b1s/v1" value={s.serviceLayerUrl} onChange={(e) => update({ serviceLayerUrl: e.target.value })} disabled={!canEdit} />
           </div>
           <div className="fm-field">
-            <label className="fm-label">Company DB <span className="fm-label__req">*</span></label>
-            <input className="fm-input" placeholder="FM_LIVE" value={s.companyDb} onChange={(e) => update({ companyDb: e.target.value })} disabled={!canEdit} />
+            <label className="fm-label" htmlFor="sap-db">Company DB <span className="fm-label__req">*</span></label>
+            <input id="sap-db" className="fm-input" placeholder="FM_LIVE" value={s.companyDb} onChange={(e) => update({ companyDb: e.target.value })} disabled={!canEdit} />
           </div>
           <div className="fm-field">
-            <label className="fm-label">SAP User <span className="fm-label__req">*</span></label>
-            <input className="fm-input" placeholder="manager" value={s.sapUser} onChange={(e) => update({ sapUser: e.target.value })} disabled={!canEdit} />
+            <label className="fm-label" htmlFor="sap-user">SAP User <span className="fm-label__req">*</span></label>
+            <input id="sap-user" className="fm-input" placeholder="manager" value={s.sapUser} onChange={(e) => update({ sapUser: e.target.value })} disabled={!canEdit} />
           </div>
           <div className="fm-field">
-            <label className="fm-label">SAP Password {s.hasPassword ? '' : <span className="fm-label__req">*</span>}</label>
+            <label className="fm-label" htmlFor="sap-pass">SAP Password {s.hasPassword ? '' : <span className="fm-label__req">*</span>}</label>
             <input
+              id="sap-pass"
               type="password"
               className="fm-input"
               autoComplete="new-password"
@@ -164,7 +165,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy !== null}>
             <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
-            {busy === 'save' ? 'Đang lưu…' : 'Lưu cài đặt'}
+            {busy === 'save' ? 'Đang lưu…' : 'Lưu tất cả cài đặt'}
           </button>
           <button className="fm-btn fm-btn--secondary" onClick={testConn} disabled={!canEdit || busy !== null}>
             <PlugZap size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
@@ -214,7 +215,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy !== null}>
             <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
-            {busy === 'save' ? 'Đang lưu…' : 'Lưu cài đặt'}
+            {busy === 'save' ? 'Đang lưu…' : 'Lưu tất cả cài đặt'}
           </button>
         </div>
       </div>
@@ -301,7 +302,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy !== null}>
             <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
-            {busy === 'save' ? 'Đang lưu…' : 'Lưu cài đặt'}
+            {busy === 'save' ? 'Đang lưu…' : 'Lưu tất cả cài đặt'}
           </button>
           {!canEdit && (
             <span className="fm-chip fm-chip--role" style={{ alignSelf: 'center' }}>

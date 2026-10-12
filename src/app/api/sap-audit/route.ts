@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parsePageParam } from '@/lib/fm-shared'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 
@@ -17,8 +18,8 @@ export async function GET(req: NextRequest) {
   }
 
   const sp = req.nextUrl.searchParams
-  const page = Math.max(1, Number(sp.get('page') ?? 1))
-  const pageSize = Math.min(100, Math.max(5, Number(sp.get('pageSize') ?? 20)))
+  const page = parsePageParam(sp.get('page'), 1, 1, 100000)
+  const pageSize = parsePageParam(sp.get('pageSize'), 20, 5, 100)
   const status = sp.get('status') ?? 'all'
   const q = (sp.get('q') ?? '').trim()
 
