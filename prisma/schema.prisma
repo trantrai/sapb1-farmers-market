@@ -62,8 +62,29 @@ model Item {
   taxCode   String?   // Mã nhóm thuế bán (SalesVATGroup, vd S2/S8)
   barcode   String?   // Mã vạch (BarCode)
   syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
+  /** Loại BOM theo SAP B1 ProductTrees: none | template (iTemplateTree) | production (iProductionTree) */
+  bomType   String    @default("none")
 
   @@unique([sapDatabaseId, itemCode]) // cùng ItemCode có thể tồn tại ở nhiều DB
+}
+
+// ==================== BOM (định mức nguyên vật liệu — SAP B1 ProductTrees) ====================
+// Lưu công thức BOM đã chuẩn hóa: số lượng con cho 1 ĐƠN VỊ cha
+// (= ProductTreeLines.Quantity / ProductTrees.Quantity).
+model BomComponent {
+  id            String @id @default(cuid())
+  sapDatabaseId String @default("") // DB SAP nguồn ("" = dữ liệu cũ chưa gán)
+  parentItemCode String // TreeCode — mã mặt hàng cha (mặt hàng BOM)
+  childItemCode  String // mã thành phần con
+  childItemName  String @default("")
+  /** Số lượng con cho 1 đơn vị cha (đã chuẩn hóa theo Tree Quantity) */
+  quantity      Float
+  uom           String @default("")
+  sortOrder     Int    @default(0)
+  syncedAt      DateTime?
+
+  @@unique([sapDatabaseId, parentItemCode, childItemCode])
+  @@index([sapDatabaseId, parentItemCode])
 }
 
 // ==================== SALE ORDER ====================
@@ -116,6 +137,11 @@ model SalesOrderLine {
   grandTotal Float      @default(0) // Sau CK + VAT của dòng
   order      SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sapLineNum Int?       // LineNum do SAP B1 cấp khi đẩy đơn (PATCH /Orders khi sửa đơn cần LineNum)
+  // ---------- Dòng thành phần BOM ----------
+  isBomChild  Boolean @default(false) // true = dòng thành phần con của mặt hàng BOM
+  bomGroupKey String?  // khóa nhóm: dòng cha và các dòng con cùng nhóm BOM
+  bomEditable Boolean @default(true)  // cho phép sửa SL con (BOM Template) hay không (BOM Production)
+  bomQtyPerParent Float? // định mức: số lượng con cho 1 đơn vị cha (để quy đổi lại khi sửa SL cha)
 
   @@index([orderId])
 }

@@ -17,6 +17,9 @@ interface OrderLine {
   discPct: number
   vatPct: number
   lineTotal: number
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
 }
 
 interface Order {
@@ -319,11 +322,17 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
               {order.lines.map((line, i) => {
                 const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
                 const vatAmt = afterDisc * (line.vatPct / 100)
+                const isChild = Boolean(line.isBomChild)
+                const isParent = Boolean(!isChild && line.bomGroupKey)
                 return (
-                  <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td><b>{line.itemCode}</b></td>
-                    <td>{line.itemName}</td>
+                  <tr key={i} className={isChild ? 'is-bom-child' : ''}>
+                    <td>{isChild ? '' : i + 1}</td>
+                    <td>
+                      {isChild && <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>}
+                      <b>{line.itemCode}</b>
+                      {isParent && <span className="fm-badge fm-badge--bom" style={{ marginLeft: 6 }}>BOM</span>}
+                    </td>
+                    <td>{line.itemName}{isChild && <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>Thành phần BOM · giá 0đ</div>}</td>
                     <td className="fm-num">{line.quantity}</td>
                     <td>{line.uom}</td>
                     <td>{line.warehouseCode || '—'}</td>

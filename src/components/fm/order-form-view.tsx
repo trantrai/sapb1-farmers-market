@@ -27,6 +27,17 @@ interface DraftLine {
   /** CHẾ ĐỘ SỬA ĐƠN: id dòng local (đơn local) hoặc LineNum trên SAP (đơn SAP) */
   dbId?: string
   sapLineNum?: number
+  // ---------- BOM ----------
+  /** Loại BOM của dòng cha: 'template' | 'production' (undefined = hàng thường) */
+  bomType?: 'template' | 'production'
+  /** true = dòng thành phần con của mặt hàng BOM */
+  isBomChild?: boolean
+  /** Khóa nhóm BOM: dòng cha và các dòng con cùng nhóm */
+  bomGroupKey?: string
+  /** Dòng con có được sửa số lượng không (template: có, production: không) */
+  bomEditable?: boolean
+  /** Định mức: số lượng con cho 1 đơn vị cha (dòng con) */
+  bomQtyPerParent?: number
 }
 
 // ---------- Chế độ SỬA đơn hàng đang Open ----------
@@ -44,6 +55,11 @@ export interface EditOrderLine {
   discPct?: number
   vatPct?: number
   taxCode?: string
+  // ---------- BOM ----------
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
+  bomQtyPerParent?: number | null
 }
 export interface EditOrderData {
   id?: string
@@ -483,7 +499,20 @@ export default function OrderFormView({
       priceSource: 'manual', // không tự giải lại giá khi sửa đơn — giữ nguyên số liệu gốc
       dbId: l.dbId,
       sapLineNum: l.sapLineNum,
+      // ---------- BOM ----------
+      isBomChild: l.isBomChild ?? false,
+      bomGroupKey: l.bomGroupKey ?? undefined,
+      bomEditable: l.bomEditable ?? true,
+      bomQtyPerParent: l.bomQtyPerParent ?? undefined,
     }))
+    // Suy loại BOM của dòng cha từ dòng con (production → con khóa SL)
+    for (const pl of prefilled) {
+      if (pl.isBomChild || !pl.bomGroupKey) continue
+      const kids = prefilled.filter((k) => k.isBomChild && k.bomGroupKey === pl.bomGroupKey)
+      if (kids.length > 0) {
+        pl.bomType = kids.some((k) => k.bomEditable === false) ? 'production' : 'template'
+      }
+    }
     setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
     setAtp({})
     setError('')
@@ -538,19 +567,111 @@ export default function OrderFormView({
   }, [lines, headerDiscPct])
 
   const updateLine = (key: number, patch: Partial<DraftLine>) => {
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+    setLines((ls) => {
+      const parent = ls.find((l) => l.key === key)
+      const next = ls.map((l) => (l.key === key ? { ...l, ...patch } : l))
+      // Đổi SL dòng cha BOM → tự quy đổi SL các dòng con theo công thức
+      // (SL con = SL cha × định mức). Áp dụng cho cả Template và Production.
+      if (parent?.bomType && parent.bomGroupKey && patch.quantity !== undefined) {
+        const pq = Number(patch.quantity) || 0
+        return next.map((l) =>
+          l.isBomChild && l.bomGroupKey === parent.bomGroupKey
+            ? { ...l, quantity: Math.round(pq * (l.bomQtyPerParent ?? 0) * 1000) / 1000 }
+            : l,
+        )
+      }
+      return next
+    })
     setFieldErr((fe) => ({ ...fe, [key]: '' }))
   }
+
+  // ---------- BOM: bung thành phần con khi chọn mặt hàng BOM ----------
+  // - Template: hiện dòng con, cho sửa SL con, giá con = 0
+  // - Production: hiện dòng con, KHÔNG cho sửa SL (khóa theo công thức), giá con = 0
+  // Đổi SL cha → các dòng con tự quy đổi theo định mức (xử lý trong updateLine)
+  const expandBom = async (parentKey: number, itemCode: string) => {
+    // Xóa mặt hàng → gỡ nhóm con cũ ngay tại chỗ, không cần gọi API
+    if (!itemCode) {
+      setLines((ls) => {
+        const parent = ls.find((l) => l.key === parentKey)
+        if (!parent?.bomGroupKey) return ls
+        return ls
+          .filter((l) => l.key === parentKey || l.bomGroupKey !== parent.bomGroupKey)
+          .map((l) => (l.key === parentKey ? { ...l, bomType: undefined, bomGroupKey: undefined } : l))
+      })
+      return
+    }
+    let def: { bomType?: string; components?: { childItemCode: string; childItemName: string; qtyPerParent: number; uom: string }[] } | null = null
+    try {
+      const res = await api(`/api/bom?parentItemCode=${encodeURIComponent(itemCode)}`)
+      def = await res.json()
+    } catch {
+      return
+    }
+    const wh = headerWh || undefined
+    // updater của setState phải pure (StrictMode double-invoke) → gom thông tin
+    // dòng con ra biến ngoài rồi mới gọi checkAtp (side-effect) sau setLines
+    let newChildren: { key: number; code: string; wh?: string }[] = []
+    setLines((ls) => {
+      const parent = ls.find((l) => l.key === parentKey)
+      // Người dùng đã đổi sang mặt hàng khác trong lúc chờ → bỏ qua
+      if (!parent || parent.item?.code !== itemCode) return ls
+      // Gỡ nhóm con cũ (nếu đổi từ BOM này sang BOM khác / hàng thường)
+      const withoutOld = parent.bomGroupKey
+        ? ls.filter((l) => l.key === parentKey || l.bomGroupKey !== parent.bomGroupKey)
+        : ls
+      const isBom = def?.bomType === 'template' || def?.bomType === 'production'
+      const groupKey = `bom_${parentKey}`
+      const parentQty = Number(parent.quantity) || 0
+      const children: DraftLine[] = isBom
+        ? (def!.components ?? []).map((c) => ({
+            key: nextKey(),
+            item: { code: c.childItemCode, name: c.childItemName || c.childItemCode, uom: c.uom || '' },
+            quantity: Math.round(parentQty * Number(c.qtyPerParent || 0) * 1000) / 1000,
+            unitPrice: 0, // thành phần con giá bán luôn = 0
+            discPct: 0,
+            vatPct: 0,
+            uom: c.uom || undefined,
+            warehouseCode: parent.warehouseCode || wh,
+            isBomChild: true,
+            bomGroupKey: groupKey,
+            bomEditable: def!.bomType === 'template',
+            bomQtyPerParent: Number(c.qtyPerParent || 0),
+          }))
+        : []
+      const idx = withoutOld.findIndex((l) => l.key === parentKey)
+      const next = [...withoutOld]
+      next.splice(idx + 1, 0, ...children)
+      next[idx] = {
+        ...next[idx],
+        bomType: isBom ? (def!.bomType as 'template' | 'production') : undefined,
+        bomGroupKey: isBom ? groupKey : undefined,
+      }
+      newChildren = children.map((ch) => ({ key: ch.key, code: ch.item!.code, wh: ch.warehouseCode }))
+      return next
+    })
+    // Kiểm tra ATP cho các thành phần con mới bung
+    for (const ch of newChildren) void checkAtp(ch.key, ch.code, ch.wh)
+    setFieldErr((fe) => ({ ...fe, [parentKey]: '' }))
+  }
+
   const addLine = () =>
     setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
   const removeLine = (key: number) => {
     setAtp((m) => {
-      if (!(key in m)) return m
       const nv = { ...m }
       delete nv[key]
       return nv
     })
-    setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls))
+    // Xóa dòng cha BOM → xóa cả nhóm thành phần con
+    setLines((ls) => {
+      const target = ls.find((l) => l.key === key)
+      const gk = target?.bomGroupKey
+      const next = gk ? ls.filter((l) => l.bomGroupKey !== gk) : ls.filter((l) => l.key !== key)
+      return next.length > 0
+        ? next
+        : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }]
+    })
   }
 
   // ---- Kho hàng xuất bán: tải danh sách kho (GET /Warehouses qua /api/warehouses) ----
@@ -632,9 +753,13 @@ export default function OrderFormView({
           taxCode: l.taxCode || l.item!.taxCode || undefined,
           warehouseCode: l.warehouseCode || headerWh || undefined,
           quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discPct: clampPct(l.discPct),
+          unitPrice: l.isBomChild ? 0 : l.unitPrice,
+          discPct: l.isBomChild ? 0 : clampPct(l.discPct),
           vatPct: clampPct(l.vatPct),
+          isBomChild: l.isBomChild ?? false,
+          bomGroupKey: l.bomGroupKey ?? null,
+          bomEditable: l.bomEditable ?? true,
+          bomQtyPerParent: l.bomQtyPerParent ?? null,
         })),
       }
       const res = await api(isEdit ? `/api/orders/${editOrder!.id}` : '/api/orders', {
@@ -911,10 +1036,22 @@ export default function OrderFormView({
                 const lineTotal = l.quantity * l.unitPrice
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
+                const isChild = Boolean(l.isBomChild)
                 return (
-                  <tr key={l.key} className={l.item ? '' : 'is-draft'}>
-                    <td data-label="Dòng">{idx + 1}</td>
+                  <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}`}>
+                    <td data-label="Dòng">{isChild ? '' : idx + 1}</td>
                     <td data-label="Hàng hóa (ItemCode)" data-full>
+                      {isChild ? (
+                        <div style={{ paddingLeft: 18 }}>
+                          <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>
+                          <b>{l.item?.code}</b>
+                          <div style={{ fontSize: 11.5, color: 'var(--fm-text-2)' }}>{l.item?.name}</div>
+                          <span className="fm-badge fm-badge--bom" title="Thành phần con của mặt hàng BOM — giá bán 0đ">
+                            Thành phần BOM{l.bomEditable === false ? ' · khóa SL' : ''}
+                          </span>
+                        </div>
+                      ) : (
+                      <>
                       <Autocomplete
                         label="Hàng hóa"
                         hideLabel
@@ -940,10 +1077,22 @@ export default function OrderFormView({
                           if (v) {
                             void resolvePrice(l.key, v.code, partner?.code ?? null)
                             void checkAtp(l.key, v.code, wh) // ATP check tự động sau khi chọn mặt hàng
+                            // Mặt hàng BOM → tự bung thành phần con (Template/Production)
+                            void expandBom(l.key, v.code)
+                          } else {
+                            // Xóa mặt hàng → gỡ luôn nhóm con BOM cũ
+                            void expandBom(l.key, '')
                           }
                         }}
                         error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                       />
+                      {l.bomType && (
+                        <span className="fm-badge fm-badge--bom" style={{ marginTop: 4 }} title={l.bomType === 'template' ? 'BOM Template: thành phần con được chỉnh số lượng, giá con = 0' : 'BOM Production: thành phần con khóa theo công thức, giá con = 0'}>
+                          {l.bomType === 'template' ? 'BOM Template' : 'BOM Production'}
+                        </span>
+                      )}
+                      </>
+                    )}
                     </td>
                     <td data-label="Số lượng">
                       <input
@@ -954,6 +1103,8 @@ export default function OrderFormView({
                         aria-label={`Số lượng dòng ${l.key}`}
                         className="fm-line-input"
                         value={l.quantity || ''}
+                        disabled={l.isBomChild && l.bomEditable === false}
+                        title={l.isBomChild && l.bomEditable === false ? 'BOM Production: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
                     </td>
@@ -1017,6 +1168,9 @@ export default function OrderFormView({
                       )}
                     </td>
                     <td data-label="Đơn giá (₫)">
+                      {l.isBomChild ? (
+                        <span className="fm-line-meta" title="Thành phần BOM: giá bán luôn = 0đ">0</span>
+                      ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                         <input
                           type="number"
@@ -1049,6 +1203,7 @@ export default function OrderFormView({
                           )
                         })()}
                       </div>
+                      )}
                     </td>
                     <td data-label="CK (%)">
                       <input
@@ -1060,6 +1215,8 @@ export default function OrderFormView({
                         aria-label={`Chiết khấu % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
                         value={l.discPct || ''}
+                        disabled={Boolean(l.isBomChild)}
+                        title={l.isBomChild ? 'Thành phần BOM: không chiết khấu (giá = 0)' : undefined}
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
                       />
                     </td>
@@ -1086,9 +1243,13 @@ export default function OrderFormView({
                     </td>
                     <td className="fm-num" data-label="Sau CK (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
                     <td data-label="Xóa dòng">
+                      {l.isBomChild ? (
+                        <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
+                      ) : (
                       <button className="fm-row-del" title="Xóa dòng" aria-label={`Xóa dòng ${l.key}`} onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
                         <Trash2 size={14} />
                       </button>
+                      )}
                     </td>
                   </tr>
                 )

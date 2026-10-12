@@ -7,6 +7,7 @@ import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-loc
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
+import { normalizeBomLines } from '@/lib/order-bom'
 
 // ---------- GET /api/orders : danh sách SO + filter + phân trang ----------
 // Khi đã cấu hình SAP B1 → lấy TOÀN BỘ chứng từ TRỰC TIẾP từ Service Layer
@@ -163,7 +164,7 @@ export async function POST(req: NextRequest) {
       warehouseCode?: string
       /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
       headerDiscPct?: number
-      lines: Array<{ itemCode: string; itemName: string; uom: string; quantity: number; unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string }>
+      lines: Array<{ itemCode: string; itemName: string; uom: string; quantity: number; unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string; isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null }>
     }
 
     if (!cardCode || !cardName) {
@@ -172,22 +173,33 @@ export async function POST(req: NextRequest) {
     if (!docDate || !docDueDate) {
       return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
     }
+
+    // Database SAP đích của đơn: lấy theo phiên đăng nhập; đơn ghi nhận lại để
+    // mọi lần đẩy/retry/sửa sau này luôn dùng đúng DB này (không lẫn DB khác).
+    // Cần dbId TRƯỚC validate BOM để đọc công thức từ đúng mirror.
+    const orderSap = await loadSapSettings(user.databaseId)
+    const orderDbId = orderSap?.dbId ?? null
+
     const { lines: validLines, error: linesError } = validateOrderLines(lines)
     if (linesError) {
       return NextResponse.json({ error: linesError }, { status: 400 })
+    }
+    // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
+    const { lines: bomLines, error: bomError } = await normalizeBomLines(orderDbId, validLines)
+    if (bomError) {
+      return NextResponse.json({ error: bomError }, { status: 400 })
     }
 
     // Tính toán theo từng dòng (SAP B1 RDR1): LineTotal → Discount% dòng
     // → CK ĐẦU CHỨNG TỪ (phân bổ về dòng) → Vat%
     const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
-    const calcLines = calcOrderLines(validLines, headerPct)
+    const calcLines = calcOrderLines(bomLines, headerPct)
     const totals = orderTotals(calcLines)
     const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = totals
 
     // Database SAP đích của đơn: lấy theo phiên đăng nhập; đơn ghi nhận lại để
     // mọi lần đẩy/retry/sửa sau này luôn dùng đúng DB này (không lẫn DB khác)
-    const orderSap = await loadSapSettings(user.databaseId)
-    const orderDbId = orderSap?.dbId ?? null
+    // (orderSap / orderDbId đã lấy ở trên để validate BOM)
 
     // Cấp docNum + tạo đơn trong 1 transaction: 2 request tạo đơn đồng thời
     // không thể nhận cùng docNum (trước đây findFirst + create rời nhau → trùng số).
@@ -244,6 +256,10 @@ export async function POST(req: NextRequest) {
               vatPct: l.vatPct,
               vatAmt: l.vatAmt,
               grandTotal: l.grandTotal,
+              isBomChild: l.isBomChild ?? false,
+              bomGroupKey: (l.bomGroupKey as string | null | undefined) ?? null,
+              bomEditable: l.bomEditable ?? true,
+              bomQtyPerParent: l.bomQtyPerParent ?? null,
             })),
           },
         },

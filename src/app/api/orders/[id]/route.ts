@@ -5,6 +5,7 @@ import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
+import { normalizeBomLines } from '@/lib/order-bom'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -54,6 +55,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       dbId?: string; sapLineNum?: number
       itemCode: string; itemName: string; uom: string; quantity: number
       unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string
+      isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null
     }>
   }
 
@@ -63,13 +65,23 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (!docDate || !docDueDate) {
     return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
   }
+  // DB của đơn (để validate BOM đúng mirror) — đơn 'sap-*' chưa có local → dùng DB phiên
+  const orderDbHint = id.startsWith('sap-')
+    ? null
+    : await prisma.salesOrder.findUnique({ where: { id }, select: { sapDatabaseId: true } })
+  const bomDbId = orderDbHint?.sapDatabaseId ?? user.databaseId ?? null
   const { lines: validLines, error: linesError } = validateOrderLines(lines)
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
+  // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
+  const { lines: bomLines, error: bomError } = await normalizeBomLines(bomDbId, validLines)
+  if (bomError) {
+    return NextResponse.json({ error: bomError }, { status: 400 })
+  }
 
   const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
-  const calcLines = calcOrderLines(validLines, headerPct)
+  const calcLines = calcOrderLines(bomLines, headerPct)
   const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = orderTotals(calcLines)
 
   // ---------- 0) Đơn lấy TRỰC TIẾP từ SAP B1 (id dạng 'sap-<DocEntry>', chưa có bản ghi local) ----------
@@ -263,6 +275,10 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             vatAmt: l.vatAmt,
             grandTotal: l.grandTotal,
             sapLineNum: (l as { dbId?: string }).dbId ? lineNumOf.get((l as { dbId?: string }).dbId as string) ?? null : null,
+            isBomChild: l.isBomChild ?? false,
+            bomGroupKey: (l.bomGroupKey as string | null | undefined) ?? null,
+            bomEditable: l.bomEditable ?? true,
+              bomQtyPerParent: l.bomQtyPerParent ?? null,
           })),
         },
       },

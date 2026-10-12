@@ -3,6 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { loadSalesItems, vatRateMap, numv, clearItemsCache } from '@/lib/fm-items'
+import { loadProductTrees, indexTrees } from '@/lib/fm-bom'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
 
 // ============================================================
@@ -135,10 +136,20 @@ export async function POST(req: NextRequest) {
       }
       updateSync('items', { phase: 'fetch', message: `Đã nhận ${rows.length} mặt hàng — đang tải bảng thuế suất…` })
       const vatMap = await vatRateMap(s)
+
+      // ---------- BOM: tải ProductTrees (Template + Production) từ SAP B1 ----------
+      updateSync('items', { phase: 'fetch', message: 'Đang tải công thức BOM (ProductTrees) từ SAP B1…' })
+      const { trees, error: bomError } = await loadProductTrees(s)
+      if (bomError) {
+        // BOM sync thất bại không chặn sync mặt hàng — chỉ ghi log, mirror BOM giữ nguyên
+        console.warn('POST /api/items/sync — không tải được ProductTrees:', bomError)
+      }
+      const bomIndex = indexTrees(trees)
       const now = new Date()
 
       const payload = rows.map((it) => {
         const price = it.ItemPrices?.find((p) => numv(p.PriceList) === 1)?.Price
+        const bomDef = bomIndex.get(it.ItemCode)
         return {
           sapDatabaseId: syncDbId,
           itemCode: it.ItemCode,
@@ -148,6 +159,7 @@ export async function POST(req: NextRequest) {
           stock: numv(it.QuantityOnStock),
           taxCode: it.SalesVATGroup ?? null,
           barcode: it.BarCode ?? null,
+          bomType: bomDef?.bomType ?? 'none',
           syncedAt: now,
         }
       })
@@ -161,11 +173,44 @@ export async function POST(req: NextRequest) {
           await tx.item.createMany({ data: payload.slice(i, i + 500) })
           updateSync('items', { processed: Math.min(i + 500, payload.length) })
         }
+        // ---------- Mirror BOM: thay toàn bộ công thức của DB này ----------
+        await tx.bomComponent.deleteMany({ where: { sapDatabaseId: syncDbId } })
+        const bomRows: {
+          sapDatabaseId: string
+          parentItemCode: string
+          childItemCode: string
+          childItemName: string
+          quantity: number
+          uom: string
+          sortOrder: number
+          syncedAt: Date
+        }[] = []
+        for (const def of bomIndex.values()) {
+          for (const c of def.components) {
+            bomRows.push({
+              sapDatabaseId: syncDbId,
+              parentItemCode: def.parentItemCode,
+              childItemCode: c.childItemCode,
+              childItemName: c.childItemName,
+              quantity: c.qtyPerParent,
+              uom: c.uom,
+              sortOrder: c.sortOrder,
+              syncedAt: now,
+            })
+          }
+        }
+        for (let i = 0; i < bomRows.length; i += 500) {
+          await tx.bomComponent.createMany({ data: bomRows.slice(i, i + 500) })
+        }
       })
 
       // Cache autocomplete chứa dữ liệu cũ — ép tải lại (theo DB)
       clearItemsCache(syncDbId)
-      endSync('items', { message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} mặt hàng bán được từ SAP B1.`, processed: payload.length })
+      const bomCount = bomIndex.size
+      endSync('items', {
+        message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} mặt hàng bán được từ SAP B1${bomCount > 0 ? ` + ${bomCount} công thức BOM` : ''}.`,
+        processed: payload.length,
+      })
     } catch (e) {
       console.error('POST /api/items/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ mặt hàng'
@@ -190,6 +235,7 @@ export async function DELETE(req: NextRequest) {
   const s = await loadSapSettings(user.databaseId)
   const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
   await prisma.item.deleteMany({ where: dbScope })
+  await prisma.bomComponent.deleteMany({ where: dbScope })
   clearItemsCache(s?.dbId)
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu mặt hàng đã đồng bộ.' })
 }

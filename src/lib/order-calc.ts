@@ -15,6 +15,14 @@ export interface OrderLineInput {
   vatPct?: number
   taxCode?: string
   warehouseCode?: string
+  /** true = dòng thành phần con của mặt hàng BOM (giá bán luôn = 0) */
+  isBomChild?: boolean
+  /** Khóa nhóm BOM: dòng cha và các dòng con cùng nhóm */
+  bomGroupKey?: string | null
+  /** Cho phép sửa số lượng con (BOM Template) hay không (BOM Production) */
+  bomEditable?: boolean
+  /** Định mức: số lượng con cho 1 đơn vị cha (dòng con BOM) */
+  bomQtyPerParent?: number | null
 }
 
 export interface CalcLine extends OrderLineInput {
@@ -47,6 +55,12 @@ export function validateOrderLines<T extends Partial<OrderLineInput>>(
   if (kept.length === 0) return { lines: [], error: 'Đơn hàng cần ít nhất 1 dòng hàng hóa hợp lệ' }
   for (const l of kept) {
     const code = String(l.itemCode)
+    // Dòng thành phần BOM: giá bán luôn = 0 — chuẩn hóa ngay tại đây,
+    // không tin giá client gửi lên.
+    if (l.isBomChild) {
+      ;(l as { unitPrice?: unknown }).unitPrice = 0
+      ;(l as { discPct?: unknown }).discPct = 0
+    }
     const price = Number(l.unitPrice)
     if (!Number.isFinite(price) || price < 0) {
       return { lines: [], error: `Đơn giá không hợp lệ cho mặt hàng ${code} (phải là số >= 0)` }
@@ -56,6 +70,18 @@ export function validateOrderLines<T extends Partial<OrderLineInput>>(
       const n = Number(v)
       if (!Number.isFinite(n) || n < 0 || n > 100) {
         return { lines: [], error: `${k} của mặt hàng ${code} phải từ 0–100%` }
+      }
+    }
+  }
+  // Dòng con BOM phải thuộc về 1 nhóm có dòng cha trong cùng đơn
+  const parentKeys = new Set(
+    kept.filter((l) => !l.isBomChild && typeof l.bomGroupKey === 'string' && l.bomGroupKey).map((l) => l.bomGroupKey as string),
+  )
+  for (const l of kept) {
+    if (l.isBomChild) {
+      const gk = typeof l.bomGroupKey === 'string' ? l.bomGroupKey : ''
+      if (!gk || !parentKeys.has(gk)) {
+        return { lines: [], error: `Dòng thành phần ${String(l.itemCode)} thiếu dòng cha BOM trong đơn` }
       }
     }
   }
