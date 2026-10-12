@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy } from 'lucide-react'
+import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy, Printer, Mail, BookmarkPlus } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -845,6 +845,40 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                 {closingId === detail.id ? 'Đang cập nhật…' : detail.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng (Open)'}
               </button>
             )}
+            <button
+              className="fm-btn fm-btn--secondary"
+              title="Mở trang chi tiết đầy đủ để in đơn hàng"
+              onClick={() => { setDetail(null); onGoDetail(detail.id) }}
+            >
+              <Printer size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
+              In đơn hàng
+            </button>
+            <button
+              className="fm-btn fm-btn--secondary"
+              title="Mở trang chi tiết đầy đủ để gửi email đơn hàng"
+              onClick={() => { setDetail(null); onGoDetail(detail.id) }}
+            >
+              <Mail size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
+              Gửi email
+            </button>
+            {canEdit && (
+              <button
+                className="fm-btn fm-btn--secondary"
+                title="Tạo đơn hàng mới với dữ liệu từ đơn này"
+                onClick={() => { setDetail(null); onGoDuplicate(toEditData(detail)) }}
+              >
+                <Copy size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
+                Nhân bản
+              </button>
+            )}
+            <button
+              className="fm-btn fm-btn--secondary"
+              title="Mở trang chi tiết đầy đủ để lưu đơn này thành mẫu"
+              onClick={() => { setDetail(null); onGoDetail(detail.id) }}
+            >
+              <BookmarkPlus size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
+              Lưu thành mẫu
+            </button>
           </div>
         </div>
       )}
