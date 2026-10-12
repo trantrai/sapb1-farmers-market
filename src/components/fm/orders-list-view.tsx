@@ -126,26 +126,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   /** Lọc nhanh theo hạn giao: '' | 'overdue' (quá hạn) | 'dueSoon' (sắp đến hạn 3 ngày) */
   const [dueFilter, setDueFilter] = useState<'' | 'overdue' | 'dueSoon'>('')
 
-  const [detail, setDetail] = useState<Order | null>(null)
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [source, setSource] = useState('')
   const [sapWarn, setSapWarn] = useState('')
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailPartner, setDetailPartner] = useState<{ address?: string | null; contactPerson?: string | null; contactPhone?: string | null } | null>(null)
-  const [detailError, setDetailError] = useState('')
-  const [detailRetryTick, setDetailRetryTick] = useState(0)
-  const modalRef = useRef<HTMLDivElement>(null)
-
-  // Modal chi tiết: đưa focus vào modal khi mở + đóng bằng Escape
-  useEffect(() => {
-    if (!detail) return
-    modalRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDetail(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [detail])
 
   const load = useCallback(async () => {
     try {
@@ -170,79 +153,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
   useEffect(() => { load() }, [load, refreshKey])
 
-  // Đơn lấy trực tiếp từ SAP B1 chưa có dòng hàng → tải khi mở modal chi tiết.
-  // Đơn local thiếu dòng (hiếm) → tải từ /api/orders/[id].
-  useEffect(() => {
-    if (!detail || detail.lines.length > 0 || detailLoading) return
-    const isSap = detail.source === 'sap' && !!detail.sapDocEntry
-    const isLocal = detail.source !== 'sap'
-    if (!isSap && !isLocal) return
-    const url = isSap ? `/api/orders?docEntry=${detail.sapDocEntry}` : `/api/orders/${detail.id}`
-    let cancelled = false
-    api(url)
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok || !json.ok) throw new Error(json.error ?? `Lỗi HTTP ${res.status}`)
-        const loaded = json.order
-        if (!cancelled && loaded) setDetail((d) => (d && d.id === loaded.id ? { ...d, ...loaded, source: d.source } : d))
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          const msg = e instanceof Error ? e.message : 'Lỗi không rõ'
-          setDetailError(msg)
-          setAlert({ type: 'error', msg: `Không lấy được dòng hàng: ${msg}` })
-        }
-      })
-      .finally(() => { if (!cancelled) setDetailLoading(false) })
-    return () => { cancelled = true }
-  }, [detail, detailRetryTick])
-
   const resetFilter = () => { setQ(''); setStatus(''); setFrom(''); setTo(''); setDueFilter(''); setPage(1) }
 
   const openDetail = (o: Order) => {
-    setDetailError('')
-    setDetail(o)
-    setDetailPartner(null)
-    // Đơn chưa có dòng hàng → effect sẽ tải, bật loading trước
-    if (o.lines.length === 0) setDetailLoading(true)
-    if (o.cardCode) {
-      fetch(`/api/partners?q=${encodeURIComponent(o.cardCode)}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j) => {
-          const p = j?.items?.find((x: any) => x.cardCode === o.cardCode) ?? j?.items?.[0]
-          if (p) setDetailPartner({ address: p.address ?? null, contactPerson: p.contactPerson ?? null, contactPhone: p.contactPhone ?? null })
-        })
-        .catch(() => {})
-    }
-  }
-
-  const retryDetailLines = () => {
-    setDetail((d) => (d ? { ...d, lines: [] } : d))
-    setDetailRetryTick((t) => t + 1)
-  }
-
-  const [closingId, setClosingId] = useState<string | null>(null)
-  const closeOrder = async (o: Order) => {
-    if (closingId) return // chống bấm đúp gửi 2 request
-    setClosingId(o.id)
-    try {
-      const next = o.status === 'Open' ? 'Closed' : 'Open'
-      const res = await api(`/api/orders/${o.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
-      })
-      const json = await res.json()
-      if (!res.ok) {
-        setAlert({ type: 'error', msg: json.error ?? 'Không thể cập nhật trạng thái' })
-        return
-      }
-      setAlert({ type: 'success', msg: `Đã ${next === 'Closed' ? 'đóng' : 'mở lại'} đơn hàng #${o.docNum}` })
-      load()
-      setDetail((d) => (d && d.id === o.id ? { ...d, status: next } : d))
-    } finally {
-      setClosingId(null)
-    }
+    // Chi tiết đơn mở dạng full-page (đồng nhất với màn tạo mới), không dùng modal
+    onGoDetail(o.id)
   }
 
   const deleteOrder = async (o: Order) => {
@@ -254,7 +169,6 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       return
     }
     setAlert({ type: 'success', msg: `Đã xóa đơn hàng #${o.docNum}` })
-    setDetail(null)
     load()
   }
 
@@ -382,7 +296,6 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         setAlert({ type: 'success', msg: `Đã đẩy đơn #${o.docNum} sang SAP B1 — DocNum ${json.order?.sapDocNum}` })
       }
       load()
-      setDetail((d) => (d && d.id === o.id && json.order ? { ...d, ...json.order } : d))
     } finally {
       setSyncingId(null)
     }
@@ -626,262 +539,6 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         )}
       </div>
 
-      {/* Modal chi tiết */}
-      {detail && (
-        <div className="fm-backdrop" onClick={() => setDetail(null)}>
-          <div ref={modalRef} tabIndex={-1} className="fm-modal fm-modal--wide fm-scroll" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Chi tiết Sale Order #${detail.docNum}`}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, color: 'var(--fm-navy)', fontSize: 20 }}>
-                Sale Order #{detail.docNum}{' '}
-                {isOverdue(detail.docDueDate, detail.status) ? (
-                  <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(detail.docDueDate)} ngày</span>
-                ) : isDueSoon(detail.docDueDate, detail.status) ? (
-                  <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(detail.docDueDate)} ngày</span>
-                ) : detail.status === 'Open' ? (
-                  <span className="fm-chip fm-chip--open">Open</span>
-                ) : (
-                  <span className="fm-chip fm-chip--closed">Closed</span>
-                )}
-              </h3>
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng chi tiết đơn hàng" onClick={() => setDetail(null)}>✕</button>
-            </div>
-
-            <dl className="fm-view-detail">
-              <div><dt>Mã khách hàng</dt><dd>{detail.cardCode}</dd></div>
-              <div><dt>Tên khách hàng</dt><dd>{detail.cardName}</dd></div>
-              <div><dt>Địa chỉ</dt><dd>{detailPartner?.address || '—'}</dd></div>
-              <div><dt>Người liên hệ</dt><dd>{detailPartner?.contactPerson ? `${detailPartner.contactPerson}${detailPartner.contactPhone ? ` · ${detailPartner.contactPhone}` : ''}` : '—'}</dd></div>
-              <div><dt>Ngày chứng từ</dt><dd>{formatDateVN(detail.docDate)}</dd></div>
-              <div><dt>Ngày giao hàng</dt><dd>{formatDateVN(detail.docDueDate)}</dd></div>
-              <div><dt>Người tạo</dt><dd>{detail.source === 'sap' ? 'SAP B1 (chứng từ gốc)' : detail.createdBy}</dd></div>
-              <div><dt>Ghi chú</dt><dd>{detail.remarks || '—'}</dd></div>
-              <div>
-                <dt>SAP B1</dt>
-                <dd>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {sapChip(detail, canCreate, syncingId === detail.id, () => syncOrder(detail))}
-                    {detail.sapSyncStatus === 'pending' && detail.sapSyncError && (
-                      <small style={{ color: 'var(--fm-red)' }}>{detail.sapSyncError}</small>
-                    )}
-                    {detail.sapSyncStatus === 'synced' && detail.sapSyncedAt && (
-                      <small style={{ color: 'var(--fm-text-3)' }}>
-                        DocEntry {detail.sapDocEntry ?? '—'} · đồng bộ lúc {formatDateVN(detail.sapSyncedAt)}
-                      </small>
-                    )}
-                  </span>
-                </dd>
-              </div>
-            </dl>
-
-            {/* Bảng 11 cột — chỉ desktop; mobile dùng card fm-lcard bên dưới */}
-            <div className="fm-table-wrap fm-scroll fm-only-desktop" style={{ overflowX: 'auto', marginBottom: 14 }}>
-              <table className="fm-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Mã hàng</th>
-                    <th>Tên hàng</th>
-                    <th className="fm-num">SL</th>
-                    <th>DVT</th>
-                    <th>Kho</th>
-                    <th className="fm-num">Đơn giá</th>
-                    <th className="fm-num">CK (%)</th>
-                    <th className="fm-num">Thành tiền sau CK</th>
-                    <th className="fm-num">VAT (%)</th>
-                    <th className="fm-num">Tiền dòng (sau VAT)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.lines.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} style={{ textAlign: 'center', padding: 18 }}>
-                        {detailLoading ? (
-                          <span style={{ color: 'var(--fm-text-2)' }}>
-                            {detail.source === 'sap' ? 'Đang tải dòng hàng từ SAP B1…' : 'Đang tải dòng hàng…'}
-                          </span>
-                        ) : detailError ? (
-                          <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                            <span style={{ color: 'var(--fm-red)' }}>⚠ Không tải được dòng hàng — {detailError}</span>
-                            <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" onClick={retryDetailLines}>
-                              <RotateCcw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Thử lại
-                            </button>
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--fm-text-2)' }}>Không có dòng hàng nào</span>
-                        )}
-                      </td>
-                    </tr>
-                  ) : (
-                    detail.lines.map((l) => {
-                    const afterDisc = l.lineTotal - (l.discAmt || 0)
-                    return (
-                      <tr key={l.id}>
-                        <td>{l.lineNum}</td>
-                        <td>{l.itemCode}</td>
-                        <td>{l.itemName}</td>
-                        <td className="fm-num">{formatNum(l.quantity)}</td>
-                        <td>{l.uom}</td>
-                        <td>{l.warehouseCode || '—'}</td>
-                        <td className="fm-num">{formatVND(l.unitPrice)}</td>
-                        <td className="fm-num">{formatNum(l.discPct || 0)}%</td>
-                        <td className="fm-num">{formatVND(afterDisc)}</td>
-                        <td className="fm-num">{formatNum(l.vatPct ?? 0)}%</td>
-                        <td className="fm-num"><b>{formatVND(l.grandTotal || afterDisc)}</b></td>
-                      </tr>
-                    )
-                    })
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={8}>Tổng trước chiết khấu</td>
-                    <td className="fm-num">{formatVND(detail.totalBeforeDisc)}</td>
-                    <td colSpan={2}></td>
-                  </tr>
-                  <tr>
-                    <td colSpan={8}>Chiết khấu các dòng</td>
-                    <td className="fm-num">{detail.discountAmt > 0 ? `−${formatVND(detail.discountAmt)}` : formatVND(0)}</td>
-                    <td colSpan={2}></td>
-                  </tr>
-                  {(detail.headerDiscAmt ?? 0) > 0 && (
-                    <tr>
-                      <td colSpan={8}>Chiết khấu đầu chứng từ ({detail.headerDiscPct ?? 0}%)</td>
-                      <td className="fm-num">−{formatVND(detail.headerDiscAmt ?? 0)}</td>
-                      <td colSpan={2}></td>
-                    </tr>
-                  )}
-                  <tr>
-                    <td colSpan={8}>Thuế VAT các dòng</td>
-                    <td className="fm-num">{formatVND(detail.vatAmt ?? 0)}</td>
-                    <td colSpan={2}></td>
-                  </tr>
-                  <tr>
-                    <td colSpan={10}>TỔNG CỘNG</td>
-                    <td className="fm-num"><b>{formatVND(detail.grandTotal)}</b></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Card dòng hàng (mobile) — thay bảng 11 cột cuộn ngang trong bottom-sheet */}
-            <div className="fm-only-mobile" style={{ marginBottom: 14 }}>
-              {detail.lines.length === 0 ? (
-                <div className="fm-empty" style={{ border: '1px dashed var(--fm-line)', borderRadius: 'var(--fm-r-lg)' }}>
-                  {detailLoading ? (
-                    <span style={{ color: 'var(--fm-text-2)' }}>
-                      {detail.source === 'sap' ? 'Đang tải dòng hàng từ SAP B1…' : 'Đang tải dòng hàng…'}
-                    </span>
-                  ) : detailError ? (
-                    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                      <span style={{ color: 'var(--fm-red)' }}>⚠ Không tải được dòng hàng — {detailError}</span>
-                      <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" onClick={retryDetailLines}>
-                        <RotateCcw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Thử lại
-                      </button>
-                    </span>
-                  ) : (
-                    'Không có dòng hàng nào'
-                  )}
-                </div>
-              ) : (
-                <>
-                  {detail.lines.map((l) => {
-                    const afterDiscM = l.lineTotal - (l.discAmt || 0)
-                    return (
-                      <div key={l.id} className="fm-lcard">
-                        <div className="fm-lcard__head">
-                          <span className="fm-lcard__num">{l.lineNum}</span>
-                          <div style={{ minWidth: 0 }}>
-                            <div className="fm-lcard__name">{l.itemName}</div>
-                            <div className="fm-lcard__code">{l.itemCode}{l.uom ? ` · ${l.uom}` : ''}</div>
-                          </div>
-                        </div>
-                        <div className="fm-lcard__grid">
-                          <div><span className="k">Số lượng</span><span className="v">{formatNum(l.quantity)}</span></div>
-                          <div><span className="k">Kho</span><span className="v">{l.warehouseCode || '—'}</span></div>
-                          <div><span className="k">Đơn giá</span><span className="v">{formatVND(l.unitPrice)}</span></div>
-                          <div><span className="k">CK (%)</span><span className="v">{formatNum(l.discPct || 0)}%</span></div>
-                          <div><span className="k">Mã thuế</span><span className="v">{l.taxCode || '—'}</span></div>
-                          <div><span className="k">VAT (%)</span><span className="v">{formatNum(l.vatPct ?? 0)}%</span></div>
-                          <div><span className="k">Sau CK</span><span className="v">{formatVND(afterDiscM)}</span></div>
-                        </div>
-                        <div className="fm-lcard__total">
-                          <span>Tiền dòng (sau VAT)</span>
-                          <b>{formatVND(l.grandTotal || afterDiscM)}</b>
-                        </div>
-                      </div>
-                    )
-                  })}
-                  <div className="fm-totals fm-totals--card">
-                    <div className="fm-totals__row"><span>Tổng trước chiết khấu</span><b>{formatVND(detail.totalBeforeDisc)}</b></div>
-                    <div className="fm-totals__row"><span>Chiết khấu các dòng</span><b>{detail.discountAmt > 0 ? `−${formatVND(detail.discountAmt)}` : formatVND(0)}</b></div>
-                    {(detail.headerDiscAmt ?? 0) > 0 && (
-                      <div className="fm-totals__row"><span>Chiết khấu đầu chứng từ ({detail.headerDiscPct ?? 0}%)</span><b>−{formatVND(detail.headerDiscAmt ?? 0)}</b></div>
-                    )}
-                    <div className="fm-totals__row"><span>Thuế VAT các dòng</span><b>{formatVND(detail.vatAmt ?? 0)}</b></div>
-                    <div className="fm-totals__grand"><span>TỔNG CỘNG</span><span>{formatVND(detail.grandTotal)}</span></div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {canEdit && detail.status === 'Open' && (
-              <button
-                className="fm-btn fm-btn--primary"
-                title={editable(detail) ? 'Sửa nội dung đơn hàng đang Open (cập nhật trực tiếp lên SAP B1)' : 'Không sửa được — chưa tải được dòng hàng của chứng từ'}
-                disabled={!editable(detail)}
-                onClick={() => onGoEdit(toEditData(detail))}
-              >
-                <Pencil size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-                Sửa đơn hàng
-              </button>
-            )}
-            {canEdit && detail.source !== 'sap' && (
-              <button
-                className={`fm-btn ${detail.status === 'Open' ? 'fm-btn--secondary' : 'fm-btn--ghost'}`}
-                disabled={closingId === detail.id}
-                onClick={() => closeOrder(detail)}
-              >
-                <LockOpen size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-                {closingId === detail.id ? 'Đang cập nhật…' : detail.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng (Open)'}
-              </button>
-            )}
-            <button
-              className="fm-btn fm-btn--secondary"
-              title="Mở trang chi tiết đầy đủ để in đơn hàng"
-              onClick={() => { setDetail(null); onGoDetail(detail.id) }}
-            >
-              <Printer size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-              In đơn hàng
-            </button>
-            <button
-              className="fm-btn fm-btn--secondary"
-              title="Mở trang chi tiết đầy đủ để gửi email đơn hàng"
-              onClick={() => { setDetail(null); onGoDetail(detail.id) }}
-            >
-              <Mail size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-              Gửi email
-            </button>
-            {canEdit && (
-              <button
-                className="fm-btn fm-btn--secondary"
-                title="Tạo đơn hàng mới với dữ liệu từ đơn này"
-                onClick={() => { setDetail(null); onGoDuplicate(toEditData(detail)) }}
-              >
-                <Copy size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-                Nhân bản
-              </button>
-            )}
-            <button
-              className="fm-btn fm-btn--secondary"
-              title="Mở trang chi tiết đầy đủ để lưu đơn này thành mẫu"
-              onClick={() => { setDetail(null); onGoDetail(detail.id) }}
-            >
-              <BookmarkPlus size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-              Lưu thành mẫu
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
