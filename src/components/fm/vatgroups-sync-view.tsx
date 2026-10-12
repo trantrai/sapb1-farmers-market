@@ -157,12 +157,6 @@ export default function VatGroupsSyncView() {
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Percent size={18} /> Đồng bộ Nhóm thuế từ SAP B1
         </h2>
-        <p className="fm-card__desc">
-          Tạo bản sao danh mục <b>VAT Group</b> (/VatGroups — OVTG) từ SAP B1 vào CSDL của hệ thống này,
-          gồm cả dòng <b>Bán (S)</b> và <b>Mua (P)</b>. Thuế suất hiển thị là mức <b>hiệu lực hôm nay</b>
-          {' '}tra từ lịch sử suất (/VatGroups_Lines — VTG1); tra không được sẽ để trống.
-          Danh sách này cũng là nguồn tra thuế suất dự phòng cho tạo đơn hàng.
-        </p>
 
         {/* Trạng thái đồng bộ */}
         <div className="fm-statusbar">

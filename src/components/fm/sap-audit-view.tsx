@@ -144,10 +144,6 @@ export default function SapAuditView() {
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <History size={18} /> Nhật ký gọi SAP B1 Service Layer
         </h2>
-        <p className="fm-card__desc">
-          Ghi lại mọi lệnh gọi Service Layer: <b>POST</b> (đẩy đơn /Login…) luôn được ghi; <b>GET</b> ghi khi lỗi
-          và tổng kết các lần lấy-all. Bấm <b>Retry</b> để gửi lại lệnh gốc — POST /Orders sẽ tạo chứng từ MỚI trên SAP.
-        </p>
 
         {/* Mobile (≤640px): .fm-filterbar tự chuyển sang lưới 2 cột (mục 15.6 globals.css) —
             KHÔNG đặt display:flex inline vì sẽ đè rule grid của mobile */}

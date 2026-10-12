@@ -98,9 +98,6 @@ export function SyncProgressCard({ progress }: { progress: SyncProgress | null }
         {determinate ? ` — ${pct}%` : ''}
         {progress.phase === 'fetch' && progress.fetched > 0 ? ` · đã nhận ${progress.fetched.toLocaleString('vi-VN')}` : ''}
       </div>
-      <div className="fm-hint" style={{ marginTop: 4, opacity: 0.75 }}>
-        Đồng bộ chạy nền trên máy chủ — bạn có thể chuyển sang trang khác và quay lại, tiến trình vẫn tiếp diễn.
-      </div>
     </div>
   )
 }

@@ -159,9 +159,6 @@ export default function UsersView({ user }: Props) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div>
             <h2 className="fm-card__title">Người dùng hệ thống</h2>
-            <p className="fm-card__desc">
-              Tạo tài khoản, phân vai trò, đặt lại mật khẩu và vô hiệu hóa người dùng. Quyền hạn được quyết định bởi ma trận phân quyền của vai trò.
-            </p>
           </div>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}>
@@ -426,7 +423,6 @@ function UserModal({  mode,
             disabled={mode === 'edit'}
             autoComplete="off"
           />
-          <div className="fm-hint">{mode === 'edit' ? 'Tên đăng nhập không thể thay đổi' : '3–24 ký tự: chữ thường, số, dấu chấm, gạch dưới'}</div>
         </div>
 
         <div className="fm-field">

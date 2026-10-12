@@ -159,12 +159,6 @@ export default function PartnersSyncView() {
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <UsersRound size={18} /> Đồng bộ Khách hàng từ SAP B1
         </h2>
-        <p className="fm-card__desc">
-          Tạo bản sao danh mục <b>Business Partners — Customers</b> (/BusinessPartners, chỉ <b>CardType = C</b>)
-          từ SAP B1 vào CSDL của hệ thống này: phục vụ tra cứu nhanh thông tin liên hệ và làm dữ liệu
-          dự phòng cho form tạo đơn khi Service Layer mất kết nối.
-          Nhà cung cấp và khách hàng tiềm năng không nằm trong phạm vi đồng bộ.
-        </p>
 
         {/* Trạng thái đồng bộ */}
         <div className="fm-statusbar">

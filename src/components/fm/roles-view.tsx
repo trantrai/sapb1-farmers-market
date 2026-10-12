@@ -142,7 +142,6 @@ export default function RolesView({ user, onGoUsers }: Props) {
           <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ShieldCheck size={18} /> Vai trò
           </h2>
-          <p className="fm-card__desc">Chọn vai trò để chỉnh ma trận quyền.</p>
           {roles.map((r) => {
             const n = users.filter((u) => u.role === r.name).length
             const mods = parsePerm(r.permissions)
@@ -201,9 +200,6 @@ export default function RolesView({ user, onGoUsers }: Props) {
         {/* Ma trận quyền */}
         <div className="fm-card fm-roles-grid__main">
           <h2 className="fm-card__title">Ma trận quyền {selected ? `— ${selected.label}` : ''}</h2>
-          <p className="fm-card__desc">
-            Quyết định module nào hiển thị trên menu và thao tác nào được phép. Thay đổi áp dụng cho mọi người dùng của vai trò.
-          </p>
 
           {permDraft && selected ? (
             <>

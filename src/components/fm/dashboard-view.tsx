@@ -129,7 +129,6 @@ export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div>
             <h2 className="fm-card__title">Đơn hàng gần đây</h2>
-            <p className="fm-card__desc">5 Sale Order mới nhất — bấm “Danh sách đơn hàng” để xem tất cả.</p>
           </div>
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={onGoOrders}>
             Xem tất cả

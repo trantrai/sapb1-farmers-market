@@ -106,19 +106,14 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Link2 size={18} /> Kết nối SAP Business One — Service Layer (OData v2)
         </h2>
-        <p className="fm-card__desc">
-          Cấu hình dùng chung cho toàn hệ thống. Sale Order tạo mới sẽ đẩy sang SAP B1 qua endpoint này.
-        </p>
         <div className="fm-form-grid">
           <div className="fm-field">
             <label className="fm-label">Service Layer URL <span className="fm-label__req">*</span></label>
             <input className="fm-input" placeholder="https://sapb1…:50000/b1s/v1" value={s.serviceLayerUrl} onChange={(e) => update({ serviceLayerUrl: e.target.value })} disabled={!canEdit} />
-            <div className="fm-hint">Địa chỉ gốc của B1 Service Layer, kết thúc bằng /b1s/v1</div>
           </div>
           <div className="fm-field">
             <label className="fm-label">Company DB <span className="fm-label__req">*</span></label>
             <input className="fm-input" placeholder="FM_LIVE" value={s.companyDb} onChange={(e) => update({ companyDb: e.target.value })} disabled={!canEdit} />
-            <div className="fm-hint">Tên CSDL công ty trong SAP B1</div>
           </div>
           <div className="fm-field">
             <label className="fm-label">SAP User <span className="fm-label__req">*</span></label>
@@ -135,7 +130,6 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               onChange={(e) => update({ sapPassword: e.target.value })}
               disabled={!canEdit}
             />
-            <div className="fm-hint">Được lưu trên máy chủ, không hiển thị lại. Bỏ trống nếu không muốn đổi.</div>
           </div>
         </div>
 
@@ -149,11 +143,6 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           />
           <span>
             <b>Bỏ qua xác thực SSL (Skip SSL verification)</b>
-            <span className="fm-hint" style={{ display: 'block' }}>
-              Bật khi Service Layer dùng HTTPS với chứng chỉ tự ký (self-signed) — lỗi thường gặp:
-              <i> unable to verify the first certificate / self-signed certificate in chain</i>.
-              Chỉ nên bật cho máy chủ nội bộ, không khuyến nghị cho môi trường sản xuất có chứng chỉ công khai hợp lệ.
-            </span>
           </span>
         </label>
 

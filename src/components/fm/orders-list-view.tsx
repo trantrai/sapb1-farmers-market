@@ -332,12 +332,6 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div>
             <h2 className="fm-card__title">Danh sách Sale Order</h2>
-            <p className="fm-card__desc">
-              {source === 'sap'
-                ? 'Truy vấn trực tiếp từ SAP B1 (ORDR/RDR1) qua Service Layer, gộp với các đơn local chưa đẩy.'
-                : 'Dữ liệu đồng bộ theo cấu trúc SAP B1 — ORDR / RDR1.'}{' '}
-              Tổng {total} chứng từ.
-            </p>
           </div>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={onGoCreate}>

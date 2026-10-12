@@ -160,11 +160,6 @@ export default function ItemsSyncView() {
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Boxes size={18} /> Đồng bộ Mặt hàng từ SAP B1
         </h2>
-        <p className="fm-card__desc">
-          Tạo bản sao danh mục <b>Sales Item</b> (mặt hàng bán được) từ SAP B1 vào CSDL của hệ thống này:
-          phục vụ tìm kiếm nhanh, kiểm tra giá/thuế/tồn và làm dữ liệu dự phòng khi Service Layer mất kết nối.
-          Đồng bộ lại để cập nhật giá mới nhất.
-        </p>
 
         {/* Trạng thái đồng bộ */}
         <div className="fm-statusbar">
