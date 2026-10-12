@@ -6,6 +6,7 @@ import { formatVND, formatDateVN, formatNum, isOverdue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import type { EditOrderData } from './order-form-view'
+import PageHeader from './page-header'
 
 interface Line {
   id: string
@@ -59,6 +60,8 @@ interface Props {
   onGoCreate: () => void
   /** Mở form SỬA đơn đang Open */
   onGoEdit: (data: EditOrderData) => void
+  /** Mở trang chi tiết đơn */
+  onGoDetail: (orderId: string) => void
   refreshKey: number
 }
 
@@ -105,7 +108,7 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
   )
 }
 
-export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey }: Props) {
+export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail, refreshKey }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -310,6 +313,15 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Chức năng chính', 'Danh sách đơn hàng']}
+        title="Danh Sách Sale Order"
+        badge="Cập nhật tức thời"
+        actions={<>
+          <button className="fm-btn fm-btn--secondary">Đồng bộ lại</button>
+          <button className="fm-btn fm-btn--secondary">Xuất Excel</button>
+        </>}
+      />
       {alert && (
         <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
           <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{alert.msg}</div>

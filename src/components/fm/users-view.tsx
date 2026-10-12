@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
+import PageHeader from './page-header'
 
 interface UserRow {
   id: string
@@ -117,6 +118,15 @@ export default function UsersView({ user }: Props) {
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Quản trị & Hệ thống', 'Quản lý người dùng']}
+        title="Quản Lý Người Dùng"
+        badge="Cập nhật tức thời"
+        actions={<>
+          <button className="fm-btn fm-btn--primary">Thêm người dùng mới</button>
+          <button className="fm-btn fm-btn--secondary">Xuất Excel</button>
+        </>}
+      />
       {alert && (
         <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
           <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{alert.msg}</div>

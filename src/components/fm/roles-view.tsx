@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Save, ShieldCheck, UsersRound, ArrowRight } from 'lucide-react'
 import { MODULE_LABELS, ACTION_LABELS, parsePerm, ActionKey, ModuleKey, SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
+import PageHeader from './page-header'
 
 interface RoleRow {
   id: string
@@ -118,6 +119,15 @@ export default function RolesView({ user, onGoUsers }: Props) {
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Quản trị & Hệ thống', 'Phân quyền RBAC']}
+        title="Phân Quyền Vai Trò (RBAC)"
+        badge="Cập nhật tức thời"
+        actions={<>
+          <button className="fm-btn fm-btn--secondary">Lịch sử cấp quyền</button>
+          <button className="fm-btn fm-btn--primary">Thêm vai trò mới</button>
+        </>}
+      />
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{msg.text}</div>

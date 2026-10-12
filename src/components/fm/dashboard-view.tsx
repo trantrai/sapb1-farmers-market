@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet } from 'lucide-react'
+import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
+import PageHeader from './page-header'
 
 interface RecentOrder {
   id: string
@@ -24,7 +25,7 @@ interface Stats {
   recent: RecentOrder[]
 }
 
-export default function DashboardView({ onGoOrders }: { onGoOrders: () => void }) {
+export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: () => void; onGoCreate: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loadError, setLoadError] = useState(false)
 
@@ -58,6 +59,21 @@ export default function DashboardView({ onGoOrders }: { onGoOrders: () => void }
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Bảng điều khiển', 'Tổng quan hệ thống']}
+        title="Tổng Quan Hệ Thống"
+        badge="Cập nhật tức thời"
+        actions={
+          <>
+            <button type="button" className="fm-btn fm-btn--secondary" onClick={load}>
+              <RefreshCw size={15} /> Đồng bộ SAP B1
+            </button>
+            <button type="button" className="fm-btn fm-btn--primary" onClick={onGoCreate}>
+              <PlusCircle size={16} /> Tạo Sale Order mới
+            </button>
+          </>
+        }
+      />
       {loadFailed && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
           <div><b>Không tải được số liệu tổng quan.</b> Kiểm tra kết nối mạng rồi thử lại.</div>

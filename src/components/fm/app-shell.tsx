@@ -10,6 +10,7 @@ import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import DashboardView from './dashboard-view'
 import OrdersListView from './orders-list-view'
+import OrderDetailView from './order-detail-view'
 import OrderFormView, { type EditOrderData } from './order-form-view'
 import UsersView from './users-view'
 import SettingsView from './settings-view'
@@ -19,7 +20,7 @@ import ItemsSyncView from './items-sync-view'
 import VatGroupsSyncView from './vatgroups-sync-view'
 import PartnersSyncView from './bpartners-sync-view'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners'
 
 interface MenuItem {
   key: ViewKey
@@ -27,26 +28,28 @@ interface MenuItem {
   label: string
   short: string
   icon: React.ReactNode
-  group: 'fn' | 'admin'
+  group: 'main' | 'sync' | 'admin'
+  badge?: string
 }
 
 const MENU: MenuItem[] = [
-  { key: 'dashboard', module: 'orders', label: 'Tổng quan', short: 'Tổng quan', icon: <LayoutDashboard size={16} />, group: 'fn' },
-  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng', short: 'Đơn hàng', icon: <ClipboardList size={16} />, group: 'fn' },
-  { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng', short: 'Tạo đơn', icon: <PlusCircle size={16} />, group: 'fn' },
-  { key: 'users', module: 'users', label: 'Người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
+  { key: 'dashboard', module: 'orders', label: 'Tổng quan hệ thống', short: 'Tổng quan', icon: <LayoutDashboard size={16} />, group: 'main' },
+  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng', short: 'Đơn hàng', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
+  { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng mới', short: 'Tạo đơn', icon: <PlusCircle size={16} />, group: 'main' },
+  { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
+  { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
+  { key: 'partners', module: 'settings', label: 'Đồng bộ Khách hàng', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
+  { key: 'users', module: 'users', label: 'Quản lý người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
+  { key: 'roles', module: 'roles', label: 'Phân quyền RBAC', short: 'Phân quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
   { key: 'settings', module: 'settings', label: 'Cài đặt SAP B1', short: 'Cài đặt', icon: <Settings size={16} />, group: 'admin' },
   { key: 'sapAudit', module: 'settings', label: 'Service Layer Audit', short: 'SL Audit', icon: <History size={16} />, group: 'admin' },
-  { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'admin' },
-  { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'admin' },
-  { key: 'partners', module: 'settings', label: 'Đồng bộ Khách hàng', short: 'Khách hàng', icon: <Contact size={16} />, group: 'admin' },
-  { key: 'roles', module: 'roles', label: 'Phân quyền', short: 'Phân quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
 ]
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   dashboard: 'Tổng quan hệ thống',
   orders: 'Danh sách Sale Order',
   ordersNew: 'Tạo / Cập nhật Sale Order',
+  orderDetail: 'Chi tiết Sale Order',
   users: 'Quản lý người dùng',
   settings: 'Cài đặt kết nối SAP B1',
   sapAudit: 'Service Layer Audit — nhật ký & Retry',
@@ -68,6 +71,7 @@ export default function AppShell({ user, onLogout }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
 
   // Đóng drawer mobile bằng phím Escape
   useEffect(() => {
@@ -83,7 +87,8 @@ export default function AppShell({ user, onLogout }: Props) {
     () => MENU.filter((m) => user.permissions?.[m.module]?.view),
     [user],
   )
-  const fnMenu = menu.filter((m) => m.group === 'fn')
+  const mainMenu = menu.filter((m) => m.group === 'main')
+  const syncMenu = menu.filter((m) => m.group === 'sync')
   const adminMenu = menu.filter((m) => m.group === 'admin')
 
   const showToast = (t: string) => {
@@ -115,10 +120,7 @@ export default function AppShell({ user, onLogout }: Props) {
     >
       {m.icon}
       <span>{m.label}</span>
-      {m.key === 'orders' && <span className="fm-badge-count">SO</span>}
-      {m.key === 'items' && <span className="fm-badge-count">Item</span>}
-      {m.key === 'vatGroups' && <span className="fm-badge-count">VAT</span>}
-      {m.key === 'partners' && <span className="fm-badge-count">KH</span>}
+      {m.badge && <span className="fm-badge-count">{m.badge}</span>}
     </div>
   )
 
@@ -131,12 +133,12 @@ export default function AppShell({ user, onLogout }: Props) {
             <div className="fm-logo__badge">F</div>
             <div className="fm-logo__name">
               FARMERS MARKET
-              <small>SAP B1 · Sale Order</small>
+              <small>SAP B1 • v1.1 Demo</small>
             </div>
           </div>
           <button
             className="fm-burger"
-            style={{ background: '#F5F5F5', border: '1px solid var(--fm-line)', color: 'var(--fm-text)', width: 44, height: 44 }}
+            style={{ background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)', color: '#fff', width: 44, height: 44 }}
             aria-label="Đóng menu"
             onClick={() => setDrawerOpen(false)}
           >
@@ -144,24 +146,43 @@ export default function AppShell({ user, onLogout }: Props) {
           </button>
         </div>
 
-        {fnMenu.length > 0 && <div className="fm-menu-group">Chức năng</div>}
-        <nav aria-label="Menu chức năng">{fnMenu.map(renderNavItem)}</nav>
+        {/* Box trạng thái SAP Service Layer */}
+        <div className="fm-sap-status">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="fm-sap-status__icon">⇄</span>
+            <span>SAP Service Layer</span>
+          </div>
+          <span className="fm-sap-status__live">
+            <span className="fm-sap-status__dot" />
+            Live
+          </span>
+        </div>
+
+        {mainMenu.length > 0 && <div className="fm-menu-group">Chức Năng Chính</div>}
+        <nav aria-label="Menu chức năng chính">{mainMenu.map(renderNavItem)}</nav>
+
+        {syncMenu.length > 0 && (
+          <>
+            <div className="fm-menu-group" style={{ marginTop: 10 }}>Đồng Bộ Dữ Liệu</div>
+            <nav aria-label="Menu đồng bộ">{syncMenu.map(renderNavItem)}</nav>
+          </>
+        )}
 
         {adminMenu.length > 0 && (
           <>
-            <div className="fm-menu-group" style={{ marginTop: 10 }}>Quản trị</div>
+            <div className="fm-menu-group" style={{ marginTop: 10 }}>Quản Trị &amp; Hệ Thống</div>
             <nav aria-label="Menu quản trị">{adminMenu.map(renderNavItem)}</nav>
           </>
         )}
 
         {menu.length === 0 && (
-          <div style={{ color: 'var(--fm-text-2)', fontSize: 12, padding: 12 }}>Không có quyền truy cập</div>
+          <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 12, padding: 12 }}>Không có quyền truy cập</div>
         )}
 
-        <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid var(--fm-line)' }}>
-          <div style={{ padding: '4px 12px 10px', fontSize: 11.5, color: 'var(--fm-text-3)', lineHeight: 1.5 }}>
-            <Sprout size={13} style={{ verticalAlign: -2, marginRight: 4, color: 'var(--fm-accent)' }} />
-            Phiên bản 1.1 · CSDL demo
+        <div style={{ marginTop: 'auto', paddingTop: 12 }}>
+          <div style={{ padding: '4px 12px 8px', fontSize: 11.5, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 600, color: 'rgba(255,255,255,.8)' }}>Phiên làm việc</div>
+            <div>SAP Service 200 OK</div>
           </div>
           <div
             className="fm-menu-item"
@@ -177,15 +198,15 @@ export default function AppShell({ user, onLogout }: Props) {
             }}
           >
             <LogOut size={16} />
-            <span>Đăng xuất</span>
+            <span>Thoát</span>
           </div>
         </div>
       </aside>
 
       {/* ===== Main ===== */}
       <div className="fm-main">
-        <div className="fm-pagehead">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <header className="fm-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, maxWidth: 560 }}>
             <button
               className="fm-burger"
               aria-label="Mở menu"
@@ -194,30 +215,73 @@ export default function AppShell({ user, onLogout }: Props) {
             >
               <MenuIcon size={17} />
             </button>
-            <h1 className="fm-pagehead__title" title={VIEW_TITLES[view]} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{VIEW_TITLES[view]}</h1>
+            <div className="fm-search">
+              <span className="fm-search__icon">⌕</span>
+              <input
+                className="fm-search__input"
+                placeholder="Tìm kiếm mã hàng, SO, khách hàng (Ctrl+K)..."
+                aria-label="Tìm kiếm"
+              />
+              <kbd className="fm-search__kbd">Ctrl K</kbd>
+            </div>
           </div>
-          <div className="fm-pagehead__user">
-            <span className="fm-pagehead__avatar">
-              {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
-            </span>
-            <span>
-              <b style={{ color: 'var(--fm-text)' }}>{user.fullName}</b>
-              <span className="fm-pagehead__role-label"> · {user.roleLabel}</span>
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <button className="fm-header__bell" aria-label="Thông báo">
+              <span style={{ fontSize: 20 }}>🔔</span>
+              <span className="fm-header__dot" />
+            </button>
+            <div className="fm-header__user">
+              <span className="fm-header__avatar">
+                {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
+              </span>
+              <span className="fm-header__info">
+                <b>{user.fullName}</b>
+                <small>Quản trị viên SAP</small>
+              </span>
+            </div>
           </div>
-        </div>
+        </header>
 
         <main className="fm-page">
           <div className="fm-view" key={view}>
             {view === 'dashboard' && (
-              <DashboardView onGoOrders={() => go('orders')} />
+              <DashboardView onGoOrders={() => go('orders')} onGoCreate={() => { setEditOrder(null); go('ordersNew') }} />
             )}
             {view === 'orders' && (
               <OrdersListView
                 user={user}
                 onGoCreate={() => { setEditOrder(null); go('ordersNew') }}
                 onGoEdit={(data) => { setEditOrder(data); go('ordersNew') }}
+                onGoDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
                 refreshKey={refreshKey}
+              />
+            )}
+            {view === 'orderDetail' && detailOrderId && (
+              <OrderDetailView
+                orderId={detailOrderId}
+                onBack={() => go('orders')}
+                onEdit={(orderId) => {
+                  // Lấy dữ liệu đơn để sửa
+                  api(`/api/orders/${orderId}`).then(async (r) => {
+                    if (r.ok) {
+                      const o = await r.json()
+                      setEditOrder({
+                        id: o.id,
+                        docNum: o.docNum,
+                        cardCode: o.cardCode,
+                        cardName: o.cardName,
+                        docDate: o.docDate,
+                        docDueDate: o.docDueDate,
+                        status: o.status,
+                        warehouseCode: o.warehouseCode,
+                        remarks: o.remarks,
+                        headerDiscPct: o.headerDiscPct,
+                        lines: o.lines,
+                      })
+                      go('ordersNew')
+                    }
+                  })
+                }}
               />
             )}
             {view === 'ordersNew' && (

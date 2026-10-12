@@ -46,6 +46,10 @@ export default function LoginView({ onLogin }: Props) {
           <div className="fm-login__logo" aria-hidden="true">F</div>
           <h1 className="fm-login__title">FARMERS MARKET</h1>
           <p className="fm-login__subtitle">Hệ thống Sale Order — SAP Business One</p>
+          <div className="fm-login__live">
+            <span className="fm-login__live-dot" />
+            SAP B1 Service Layer v1.1
+          </div>
         </div>
 
         {error && (
@@ -93,9 +97,8 @@ export default function LoginView({ onLogin }: Props) {
             </div>
           </div>
 
-          <button type="submit" className="fm-btn fm-btn--primary" style={{ width: '100%', marginTop: 6 }} disabled={loading}>
-            <LogIn size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
-            {loading ? 'Đang xử lý…' : 'Đăng nhập'}
+          <button type="submit" className="fm-login__submit" disabled={loading}>
+            {loading ? 'Đang xử lý…' : 'Đăng nhập hệ thống →'}
           </button>
         </form>
 

@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { History, RefreshCw, RotateCcw, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import PageHeader from './page-header'
 
 // ============================================================
 // SERVICE LAYER AUDIT — nhật ký mọi lệnh gọi SAP B1 Service Layer
@@ -120,6 +121,15 @@ export default function SapAuditView() {
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Quản trị & Hệ thống', 'Service Layer Audit']}
+        title="Nhật Ký Gọi SAP B1 Service Layer"
+        badge="Cập nhật tức thời"
+        actions={<>
+          <button className="fm-btn fm-btn--secondary">Tải lại</button>
+          <button className="fm-btn fm-btn--secondary">Xóa log</button>
+        </>}
+      />
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>

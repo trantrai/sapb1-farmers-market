@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { PlugZap, Save, Link2 } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import PageHeader from './page-header'
 
 interface SettingsData {
   serviceLayerUrl: string
@@ -76,6 +77,11 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Quản trị & Hệ thống', 'Cài đặt SAP B1']}
+        title="Cài Đặt Kết Nối SAP Business One"
+        badge="Cập nhật tức thời"
+      />
       {/* Banner trạng thái kết nối */}
       <div className={`fm-conn-banner ${s.connected ? 'fm-conn-banner--ok' : 'fm-conn-banner--fail'}`} style={{ flexWrap: 'wrap' }}>
         <span className="dot" />

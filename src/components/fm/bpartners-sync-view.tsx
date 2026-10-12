@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { UsersRound, RefreshCw, Trash2, Search, DatabaseZap } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
+import PageHeader from './page-header'
 
 // ============================================================
 // ĐỒNG BỘ KHÁCH HÀNG — quản lý bản mirror danh mục khách hàng
@@ -128,6 +129,16 @@ export default function PartnersSyncView() {
 
   return (
     <div>
+      <PageHeader
+        breadcrumb={['Đồng bộ dữ liệu', 'Đồng bộ Khách hàng']}
+        title="Quản Lý Đồng Bộ Khách Hàng"
+        badge="Cập nhật tức thời"
+        actions={<>
+          <button className="fm-btn fm-btn--primary">Đồng bộ ngay từ SAP B1</button>
+          <button className="fm-btn fm-btn--secondary">Tải lại</button>
+          <button className="fm-btn fm-btn--secondary">Xuất File</button>
+        </>}
+      />
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>
