@@ -126,8 +126,12 @@ export default function SapAuditView() {
         title="Nhật Ký Gọi SAP B1 Service Layer"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--secondary">Tải lại</button>
-          <button className="fm-btn fm-btn--secondary">Xóa log</button>
+          <button className="fm-btn fm-btn--secondary" onClick={() => load(1, status, q)}>
+            <RefreshCw size={14} /> Tải lại
+          </button>
+          <button className="fm-btn fm-btn--secondary" onClick={() => setConfirmClear(true)}>
+            <Trash2 size={14} /> Xóa log
+          </button>
         </>}
       />
       {msg && (
@@ -163,12 +167,6 @@ export default function SapAuditView() {
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && load(1, status, q)}
           />
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => load(1, status, q)}>
-            <RefreshCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Tải lại
-          </button>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ color: 'var(--fm-red)' }} onClick={() => setConfirmClear(true)} title="Xóa toàn bộ nhật ký">
-            <Trash2 size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa log
-          </button>
           <span className="fm-chip fm-chip--role">{total} bản ghi</span>
         </div>
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Save, ShieldCheck, UsersRound, ArrowRight } from 'lucide-react'
+import { Save, ShieldCheck, UsersRound, ArrowRight, History, PlusCircle } from 'lucide-react'
 import { MODULE_LABELS, ACTION_LABELS, parsePerm, ActionKey, ModuleKey, SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -124,8 +124,8 @@ export default function RolesView({ user, onGoUsers }: Props) {
         title="Phân Quyền Vai Trò (RBAC)"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--secondary">Lịch sử cấp quyền</button>
-          <button className="fm-btn fm-btn--primary">Thêm vai trò mới</button>
+          <button className="fm-btn fm-btn--secondary"><History size={14} /> Lịch sử cấp quyền</button>
+          <button className="fm-btn fm-btn--primary"><PlusCircle size={14} /> Thêm vai trò mới</button>
         </>}
       />
       {msg && (

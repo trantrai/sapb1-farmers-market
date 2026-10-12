@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { UsersRound, RefreshCw, Trash2, Search, DatabaseZap } from 'lucide-react'
+import { UsersRound, RefreshCw, Trash2, Search, DatabaseZap, RotateCcw, Download } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
 import PageHeader from './page-header'
@@ -134,9 +134,9 @@ export default function PartnersSyncView() {
         title="Quản Lý Đồng Bộ Khách Hàng"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary">Đồng bộ ngay từ SAP B1</button>
-          <button className="fm-btn fm-btn--secondary">Tải lại</button>
-          <button className="fm-btn fm-btn--secondary">Xuất File</button>
+          <button className="fm-btn fm-btn--primary"><RefreshCw size={14} /> Đồng bộ ngay từ SAP B1</button>
+          <button className="fm-btn fm-btn--secondary"><RotateCcw size={14} /> Tải lại</button>
+          <button className="fm-btn fm-btn--secondary"><Download size={14} /> Xuất File</button>
         </>}
       />
       {msg && (

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound } from 'lucide-react'
+import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound, Download } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -123,8 +123,8 @@ export default function UsersView({ user }: Props) {
         title="Quản Lý Người Dùng"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary">Thêm người dùng mới</button>
-          <button className="fm-btn fm-btn--secondary">Xuất Excel</button>
+          <button className="fm-btn fm-btn--primary"><UserPlus size={14} /> Thêm người dùng mới</button>
+          <button className="fm-btn fm-btn--secondary"><Download size={14} /> Xuất Excel</button>
         </>}
       />
       {alert && (

@@ -135,8 +135,8 @@ export default function VatGroupsSyncView() {
         title="Quản Lý Đồng Bộ Nhóm Thuế"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary">Đồng bộ ngay từ SAP B1</button>
-          <button className="fm-btn fm-btn--secondary">Xóa dữ liệu</button>
+          <button className="fm-btn fm-btn--primary"><RefreshCw size={14} /> Đồng bộ ngay từ SAP B1</button>
+          <button className="fm-btn fm-btn--secondary"><Trash2 size={14} /> Xóa dữ liệu</button>
         </>}
       />
       {msg && (

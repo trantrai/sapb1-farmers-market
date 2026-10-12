@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil } from 'lucide-react'
+import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -318,8 +318,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
         title="Danh Sách Sale Order"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--secondary">Đồng bộ lại</button>
-          <button className="fm-btn fm-btn--secondary">Xuất Excel</button>
+          <button className="fm-btn fm-btn--secondary"><RefreshCw size={14} /> Đồng bộ lại</button>
+          <button className="fm-btn fm-btn--secondary"><Download size={14} /> Xuất Excel</button>
         </>}
       />
       {alert && (

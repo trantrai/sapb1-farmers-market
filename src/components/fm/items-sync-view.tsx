@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Boxes, RefreshCw, Trash2, Search, DatabaseZap } from 'lucide-react'
+import { Boxes, RefreshCw, Trash2, Search, DatabaseZap, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
 import PageHeader from './page-header'
@@ -135,9 +135,9 @@ export default function ItemsSyncView() {
         title="Quản Lý Đồng Bộ Mặt Hàng (Items)"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary">Đồng bộ ngay từ SAP B1</button>
-          <button className="fm-btn fm-btn--secondary">Tải lại</button>
-          <button className="fm-btn fm-btn--secondary">Xóa cache local</button>
+          <button className="fm-btn fm-btn--primary"><RefreshCw size={14} /> Đồng bộ ngay từ SAP B1</button>
+          <button className="fm-btn fm-btn--secondary"><RotateCcw size={14} /> Tải lại</button>
+          <button className="fm-btn fm-btn--secondary"><Trash2 size={14} /> Xóa cache local</button>
         </>}
       />
       {msg && (
