@@ -628,14 +628,12 @@ export default function OrderFormView({
                     <td data-label="VAT (%)">
                       <input
                         type="number"
-                        min={0}
-                        max={100}
-                        step="1"
-                        inputMode="decimal"
                         aria-label={`VAT % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
                         value={l.vatPct || ''}
-                        onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)) })}
+                        readOnly
+                        tabIndex={-1}
+                        title="VAT % tự điền theo mã thuế"
                       />
                     </td>
                     <td className="fm-num" data-label="Sau CK (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>

@@ -734,6 +734,9 @@
 .fm-line-input { border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: var(--fm-r-sm); font-size: 13px; width: 100%; box-sizing: border-box; font-family: var(--fm-font); color: var(--fm-text); }
 .fm-line-input:hover { border-color: var(--fm-line-2); background: #FAFAFA; }
 .fm-line-input:focus { outline: none; border-color: var(--fm-primary); background: var(--fm-surface); box-shadow: 0 0 0 2px var(--fm-primary-soft); }
+.fm-line-input[readonly] { background: var(--fm-cream); color: var(--fm-text-2); cursor: default; }
+.fm-line-input[readonly]:hover { border-color: transparent; background: var(--fm-cream); }
+.fm-line-input[readonly]:focus { border-color: transparent; background: var(--fm-cream); box-shadow: none; }
 
 /* Ô thông tin chỉ-đọc trên lưới chi tiết (Đơn vị tính, Mã thuế) — tự điền sau khi chọn mặt hàng */
 .fm-line-meta { display: inline-block; padding: 3px 6px; font-size: 12.5px; font-weight: 600; color: var(--fm-primary); background: var(--fm-primary-soft); border-radius: var(--fm-r-sm); white-space: nowrap; }
