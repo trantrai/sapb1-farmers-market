@@ -29,6 +29,8 @@ model BusinessPartner {
   address   String?
   phone     String?
   email     String?   // EmailAddress (dòng đồng bộ từ SAP B1)
+  contactPerson String? // Người liên hệ chính (ContactEmployees[0].Name trên SAP B1)
+  contactPhone  String? // SĐT người liên hệ (ContactEmployees[0].Phone1/MobilePhone)
   groupType String    @default("Khách hàng") // Khách hàng | Nhà cung cấp
   syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
 }

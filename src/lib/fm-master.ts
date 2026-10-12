@@ -145,6 +145,24 @@ export interface B1Partner {
   Address?: string
   Phone1?: string
   EmailAddress?: string
+  /** Người liên hệ (ComplexType — trả inline, không cần $expand) */
+  ContactEmployees?: Array<{
+    Name?: string
+    FirstName?: string
+    LastName?: string
+    Phone1?: string
+    MobilePhone?: string
+    E_Mail?: string
+  }>
+  /** Địa chỉ chi tiết (ComplexType — trả inline) */
+  BPAddresses?: Array<{
+    AddressName?: string
+    AddressType?: string // 'S' = ShipTo, 'B' = BillTo
+    Street?: string
+    City?: string
+    ZipCode?: string
+    Country?: string
+  }>
 }
 
 let bpCache: { ts: number; rows: B1Partner[] } | null = null
@@ -157,7 +175,7 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
   // ① Lọc ngay trên SL: CardType eq 'C' (điều kiện and-only, an toàn mọi bản SL)
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục khách hàng (/BusinessPartners) từ SAP B1…' })
   const r1 = await sapGetAll<B1Partner>(s, '/BusinessPartners', {
-    $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress',
+    $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses',
     $filter: `CardType eq 'C'`,
     $orderby: 'CardCode',
   })

@@ -11,6 +11,12 @@ export interface ACOption {
   extra?: string
   /** dòng thông tin phụ bên dưới: địa chỉ / Đơn vị · Mã thuế · Barcode */
   sub?: string
+  /** khách hàng: địa chỉ đầy đủ */
+  address?: string
+  /** khách hàng: người liên hệ chính */
+  contactPerson?: string
+  /** khách hàng: SĐT người liên hệ */
+  contactPhone?: string
   /** mặt hàng: đơn giá Price List 1, đơn vị, mã thuế, thuế suất, barcode */
   price?: number
   uom?: string
@@ -82,6 +88,9 @@ function mapResponse(json: { data?: Record<string, string | number>[]; source?: 
       name: String(d.cardName ?? d.itemName ?? ''),
       extra: isItem ? (price > 0 ? `${fmtVND(price)} ₫` : '') : ((d.phone as string) ?? ''),
       sub: sub || undefined,
+      address: !isItem ? ((d.address as string) ?? '') : undefined,
+      contactPerson: !isItem ? ((d.contactPerson as string) ?? '') : undefined,
+      contactPhone: !isItem ? ((d.contactPhone as string) ?? '') : undefined,
       price: isItem && price > 0 ? price : undefined,
       uom: isItem ? ((d.uom as string) ?? '') : undefined,
       taxCode: isItem ? ((d.taxCode as string) ?? '') : undefined,

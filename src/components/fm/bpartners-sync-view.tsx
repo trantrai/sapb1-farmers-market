@@ -20,6 +20,8 @@ interface PartnerRow {
   address: string | null
   phone: string | null
   email: string | null
+  contactPerson: string | null
+  contactPhone: string | null
   syncedAt: string | null
 }
 
@@ -199,6 +201,7 @@ export default function PartnersSyncView() {
                 <th style={{ width: 110 }}>Mã KH</th>
                 <th style={{ minWidth: 180 }}>Tên đơn vị</th>
                 <th style={{ minWidth: 160 }}>Địa chỉ</th>
+                <th style={{ minWidth: 140 }}>Người liên hệ</th>
                 <th style={{ width: 120 }}>Điện thoại</th>
                 <th style={{ minWidth: 150 }}>Email</th>
                 <th style={{ width: 150 }}>Đồng bộ lúc</th>
@@ -206,11 +209,11 @@ export default function PartnersSyncView() {
             </thead>
             <tbody>
               {rows === null && (
-                <tr><td colSpan={6}><div className="fm-empty">Đang tải danh mục…</div></td></tr>
+                <tr><td colSpan={7}><div className="fm-empty">Đang tải danh mục…</div></td></tr>
               )}
               {rows !== null && rows.length === 0 && total === 0 && (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <div className="fm-empty">
                       Chưa có dữ liệu đồng bộ. {st?.configured
                         ? 'Bấm "Đồng bộ ngay từ SAP B1" để tải danh mục khách hàng về CSDL.'
@@ -220,13 +223,14 @@ export default function PartnersSyncView() {
                 </tr>
               )}
               {rows !== null && rows.length === 0 && total > 0 && (
-                <tr><td colSpan={6}><div className="fm-empty">Không có khách hàng nào khớp từ khóa “{q}”.</div></td></tr>
+                <tr><td colSpan={7}><div className="fm-empty">Không có khách hàng nào khớp từ khóa “{q}”.</div></td></tr>
               )}
               {rows?.map((r) => (
                 <tr key={r.id}>
                   <td data-label="Mã KH"><b>{r.cardCode}</b></td>
                   <td data-label="Tên đơn vị">{r.cardName}</td>
                   <td data-label="Địa chỉ" data-full>{r.address || '—'}</td>
+                  <td data-label="Người liên hệ">{r.contactPerson ? <>{r.contactPerson}{r.contactPhone ? <><br /><small style={{ color: 'var(--fm-text-2)' }}>{r.contactPhone}</small></> : null}</> : '—'}</td>
                   <td data-label="Điện thoại">{r.phone || '—'}</td>
                   <td data-label="Email" data-full>{r.email || '—'}</td>
                   <td data-label="Đồng bộ lúc">{r.syncedAt ? fmtTime(r.syncedAt) : '—'}</td>

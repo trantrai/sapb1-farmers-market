@@ -6,14 +6,14 @@
 // ============================================================
 /// <reference types="bun-types" />
 
-interface MockBP { CardCode: string; CardName: string; Address: string; Phone1: string; CardType: string }
+interface MockBP { CardCode: string; CardName: string; Address: string; Phone1: string; CardType: string; ContactEmployees?: Array<{ Name?: string; Phone1?: string; MobilePhone?: string }> }
 interface MockItem { ItemCode: string; ItemName: string; InventoryUOM: string; SalesUnit: string; BarCode: string; SalesVATGroup: string; QuantityOnStock: number; SalesItem: string; ItemPrices: { PriceList: number; Price: number }[] }
 
 const PARTNERS: MockBP[] = [
-  { CardCode: 'C20001', CardName: 'Cửa hàng Rau Sạch Đà Lạt', Address: '12 Nguyễn Trãi, Q.1, TP.HCM', Phone1: '0903123456', CardType: 'C' },
-  { CardCode: 'C20002', CardName: 'Siêu Thị Xanh Quận 7', Address: '45 Nguyễn Hữu Thọ, Q.7', Phone1: '0912888777', CardType: 'C' },
+  { CardCode: 'C20001', CardName: 'Cửa hàng Rau Sạch Đà Lạt', Address: '12 Nguyễn Trãi, Q.1, TP.HCM', Phone1: '0903123456', CardType: 'C', ContactEmployees: [{ Name: 'Nguyễn Văn An', Phone1: '0903111222', MobilePhone: '0903111222' }] },
+  { CardCode: 'C20002', CardName: 'Siêu Thị Xanh Quận 7', Address: '45 Nguyễn Hữu Thọ, Q.7', Phone1: '0912888777', CardType: 'C', ContactEmployees: [{ Name: 'Trần Thị Bình', MobilePhone: '0912999888' }] },
   { CardCode: 'C20003', CardName: 'Hộ kinh doanh Lê Thị Bé', Address: '78 Lò Đúc, Hà Nội', Phone1: '0987654321', CardType: 'C' },
-  { CardCode: 'C20004', CardName: 'Nhà hàng Cả Mắm', Address: '9 Võ Văn Tần, Q.3', Phone1: '0909123123', CardType: 'C' },
+  { CardCode: 'C20004', CardName: 'Nhà hàng Cả Mắm', Address: '9 Võ Văn Tần, Q.3', Phone1: '0909123123', CardType: 'C', ContactEmployees: [{ Name: 'Lê Văn Cường', Phone1: '0909333444' }] },
   { CardCode: 'C20005', CardName: 'Công ty CP Thực phẩm Sạch VN', Address: '22 Trường Chinh, Đà Nẵng', Phone1: '0240123456', CardType: 'C' },
   { CardCode: 'C20006', CardName: 'Trường Mầm non Hạt Mầm', Address: '34 Đường số 7, Bình Thạnh', Phone1: '02835123456', CardType: 'C' },
   { CardCode: 'N30001', CardName: 'Nông trại Cúc Phương', Address: 'Ninh Bình', Phone1: '', CardType: 'S' },

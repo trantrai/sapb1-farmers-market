@@ -25,6 +25,22 @@ export default function OrderDetailView({ user, order, onBack, onGoEdit, onChang
   const [retryTick, setRetryTick] = useState(0)
   const [closingId, setClosingId] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
+  /** Thông tin KH từ danh mục (địa chỉ + người liên hệ) — tải riêng vì đơn không lưu snapshot */
+  const [custInfo, setCustInfo] = useState<{ address?: string; contactPerson?: string; contactPhone?: string } | null>(null)
+
+  useEffect(() => {
+    if (!detail.cardCode) return
+    let cancelled = false
+    api(`/api/partners?q=${encodeURIComponent(detail.cardCode)}`)
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        const list: Array<{ cardCode?: string; address?: string; contactPerson?: string; contactPhone?: string }> = json.data ?? []
+        const hit = list.find((p) => p.cardCode === detail.cardCode) ?? list[0]
+        if (!cancelled && hit) setCustInfo({ address: hit.address, contactPerson: hit.contactPerson, contactPhone: hit.contactPhone })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [detail.cardCode])
 
   // Đơn lấy trực tiếp từ SAP B1 chưa có dòng hàng → tải khi mở trang chi tiết.
   // Đơn local thiếu dòng (hiếm) → tải từ /api/orders/[id].
@@ -290,6 +306,8 @@ export default function OrderDetailView({ user, order, onBack, onGoEdit, onChang
           <div className="fm-field"><span className="fm-label">Ngày giao hàng</span><div style={{ fontWeight: 600 }}>{formatDateVN(detail.docDueDate)}</div></div>
           <div className="fm-field"><span className="fm-label">Người tạo</span><div style={{ fontWeight: 600 }}>{detail.source === 'sap' ? 'SAP B1 (chứng từ gốc)' : detail.createdBy}</div></div>
           <div className="fm-field"><span className="fm-label">Ghi chú</span><div style={{ fontWeight: 600 }}>{detail.remarks || '—'}</div></div>
+          <div className="fm-field"><span className="fm-label">Địa chỉ</span><div style={{ fontWeight: 600 }}>{custInfo?.address || '—'}</div></div>
+          <div className="fm-field"><span className="fm-label">Người liên hệ</span><div style={{ fontWeight: 600 }}>{custInfo?.contactPerson ? <>{custInfo.contactPerson}{custInfo.contactPhone ? <span style={{ fontWeight: 400, color: 'var(--fm-text-2)' }}> · {custInfo.contactPhone}</span> : null}</> : '—'}</div></div>
           <div className="fm-field">
             <span className="fm-label">SAP B1</span>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

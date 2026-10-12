@@ -8,6 +8,13 @@ interface B1Partner {
   CardName: string
   Address?: string
   Phone1?: string
+  ContactEmployees?: Array<{
+    Name?: string
+    FirstName?: string
+    LastName?: string
+    Phone1?: string
+    MobilePhone?: string
+  }>
 }
 
 // Chuẩn hóa tìm kiếm không phân biệt hoa/thường + dấu tiếng Việt
@@ -26,7 +33,7 @@ async function loadCustomers(s: {
 }): Promise<{ rows: B1Partner[]; error?: string }> {
   if (partnersCache && Date.now() - partnersCache.ts < PARTNERS_TTL) return { rows: partnersCache.rows }
   const live = await sapGetAll<B1Partner>(s, '/BusinessPartners', {
-    $select: 'CardCode,CardName,Address,Phone1',
+    $select: 'CardCode,CardName,Address,Phone1,ContactEmployees',
     $filter: `CardType eq 'C'`,
     $orderby: 'CardCode',
   })
@@ -39,14 +46,22 @@ async function loadCustomers(s: {
   return { rows: [], error: live.error ?? 'Lỗi Service Layer' }
 }
 
-const toUi = (p: B1Partner) => ({
-  id: '',
-  cardCode: p.CardCode,
-  cardName: p.CardName ?? p.CardCode,
-  address: p.Address ?? '',
-  phone: p.Phone1 ?? '',
-  groupType: 'Khách hàng',
-})
+const toUi = (p: B1Partner) => {
+  const ce = Array.isArray(p.ContactEmployees) ? p.ContactEmployees : []
+  const c = ce.find((x) => (x.Name ?? '').trim() !== '') ?? ce[0]
+  const contactPerson = c ? ((c.Name ?? '').trim() || [c.FirstName, c.LastName].filter(Boolean).join(' ').trim() || '') : ''
+  const contactPhone = c ? ((c.Phone1 ?? '').trim() || (c.MobilePhone ?? '').trim() || '') : ''
+  return {
+    id: '',
+    cardCode: p.CardCode,
+    cardName: p.CardName ?? p.CardCode,
+    address: p.Address ?? '',
+    phone: p.Phone1 ?? '',
+    contactPerson,
+    contactPhone,
+    groupType: 'Khách hàng',
+  }
+}
 
 // GET /api/partners?q= — chọn khách hàng trong form SO
 // Ưu tiên query TRỰC TIẾP từ SAP B1 Service Layer khi đã cấu hình

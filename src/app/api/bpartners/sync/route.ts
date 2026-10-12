@@ -24,6 +24,27 @@ async function lastSyncAt(): Promise<Date | null> {
   return agg._max.syncedAt ?? null
 }
 
+/** Người liên hệ chính: ContactEmployees[0] (ưu tiên có tên) */
+function primaryContact(p: { ContactEmployees?: Array<{ Name?: string; FirstName?: string; LastName?: string; Phone1?: string; MobilePhone?: string }> }): { name: string | null; phone: string | null } {
+  const list = Array.isArray(p.ContactEmployees) ? p.ContactEmployees : []
+  const c = list.find((x) => (x.Name ?? '').trim() !== '') ?? list[0]
+  if (!c) return { name: null, phone: null }
+  const name = (c.Name ?? '').trim() || [c.FirstName, c.LastName].filter(Boolean).join(' ').trim() || null
+  const phone = (c.Phone1 ?? '').trim() || (c.MobilePhone ?? '').trim() || null
+  return { name, phone }
+}
+
+/** Địa chỉ đầy đủ: ưu tiên địa chỉ BillTo trong BPAddresses, fallback sang trường Address */
+function fullAddress(p: { Address?: string; BPAddresses?: Array<{ AddressType?: string; Street?: string; City?: string; ZipCode?: string; Country?: string }> }): string | null {
+  const list = Array.isArray(p.BPAddresses) ? p.BPAddresses : []
+  const billTo = list.find((a) => a.AddressType === 'B') ?? list[0]
+  if (billTo) {
+    const parts = [billTo.Street, billTo.City, billTo.ZipCode, billTo.Country].map((x) => (x ?? '').trim()).filter(Boolean)
+    if (parts.length > 0) return parts.join(', ')
+  }
+  return (p.Address ?? '').trim() || null
+}
+
 // ---------- GET: danh sách local + trạng thái ----------
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
@@ -117,15 +138,20 @@ export async function POST(req: NextRequest) {
         throw new Error(`Không tải được khách hàng từ SAP B1: ${error ?? '/BusinessPartners trả danh sách rỗng'}`)
       }
       const now = new Date()
-      const payload = rows.map((p) => ({
-        cardCode: p.CardCode,
-        cardName: p.CardName ?? p.CardCode,
-        address: p.Address ?? null,
-        phone: p.Phone1 ?? null,
-        email: p.EmailAddress ?? null,
-        groupType: 'Khách hàng',
-        syncedAt: now,
-      }))
+      const payload = rows.map((p) => {
+        const contact = primaryContact(p)
+        return {
+          cardCode: p.CardCode,
+          cardName: p.CardName ?? p.CardCode,
+          address: fullAddress(p),
+          phone: p.Phone1 ?? null,
+          email: p.EmailAddress ?? null,
+          contactPerson: contact.name,
+          contactPhone: contact.phone,
+          groupType: 'Khách hàng',
+          syncedAt: now,
+        }
+      })
 
       updateSync('partners', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} khách hàng vào CSDL…`, total: payload.length, processed: 0 })
       // Mirror trọn vẹn: bảng local phản ánh đúng danh mục khách hàng trên SAP
