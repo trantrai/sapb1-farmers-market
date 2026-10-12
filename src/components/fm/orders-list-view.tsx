@@ -7,6 +7,7 @@ import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import type { EditOrderData } from './order-form-view'
 import PageHeader from './page-header'
+import * as XLSX from 'xlsx'
 
 interface Line {
   id: string
@@ -254,6 +255,78 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     load()
   }
 
+  /** Xuất Excel danh sách đơn hàng theo bộ lọc hiện tại */
+  const exportExcel = () => {
+    if (orders.length === 0) {
+      setAlert({ type: 'error', msg: 'Không có đơn hàng nào để xuất' })
+      return
+    }
+    const statusLabel = (s: string) => (s === 'Open' ? 'Mở' : s === 'Closed' ? 'Đóng' : s === 'Cancelled' ? 'Hủy' : s)
+
+    // Sheet 1: Danh sách đơn hàng
+    const headerRows = orders.map((o, i) => ({
+      'STT': i + 1,
+      'Số CT': o.docNum,
+      'Ngày CT': formatDateVN(o.docDate),
+      'Ngày giao': formatDateVN(o.docDueDate),
+      'Mã KH': o.cardCode,
+      'Tên khách hàng': o.cardName,
+      'Trạng thái': statusLabel(o.status),
+      'Tổng tiền': o.grandTotal,
+      'Ghi chú': o.remarks ?? '',
+    }))
+    const ws1 = XLSX.utils.json_to_sheet(headerRows)
+
+    // Sheet 2: Chi tiết dòng hàng
+    const detailRows: Record<string, string | number>[] = []
+    for (const o of orders) {
+      for (const l of o.lines) {
+        detailRows.push({
+          'Số CT': o.docNum,
+          'Mã hàng': l.itemCode,
+          'Tên hàng': l.itemName,
+          'Số lượng': l.quantity,
+          'Đơn vị': l.uom,
+          'Đơn giá': l.unitPrice,
+          'CK%': l.discPct,
+          'VAT%': l.vatPct,
+          'Thành tiền': l.grandTotal,
+        })
+      }
+    }
+    const ws2 = XLSX.utils.json_to_sheet(detailRows)
+
+    // Style header: in đậm + nền vàng nhạt
+    const headerStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'FFFDE7' } } }
+    for (const ws of [ws1, ws2]) {
+      const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: 0, c })]
+        if (cell) cell.s = headerStyle
+      }
+    }
+
+    // Độ rộng cột
+    ws1['!cols'] = [
+      { wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 32 }, { wch: 12 }, { wch: 16 }, { wch: 30 },
+    ]
+    ws2['!cols'] = [
+      { wch: 10 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, { wch: 10 },
+      { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 16 },
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws1, 'Don hang')
+    XLSX.utils.book_append_sheet(wb, ws2, 'Chi tiet')
+
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const fname = `DonHang_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.xlsx`
+    XLSX.writeFile(wb, fname)
+    setAlert({ type: 'success', msg: `Đã xuất ${orders.length} đơn hàng ra file ${fname}` })
+  }
+
   const canEdit = user.permissions.orders?.edit
   const canDelete = user.permissions.orders?.delete
   const canCreate = user.permissions.ordersNew?.create
@@ -320,7 +393,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         badge="Cập nhật tức thời"
         actions={<>
           <button className="fm-btn fm-btn--secondary"><RefreshCw size={14} /> Đồng bộ lại</button>
-          <button className="fm-btn fm-btn--secondary"><Download size={14} /> Xuất Excel</button>
+          <button className="fm-btn fm-btn--secondary" onClick={exportExcel}><Download size={14} /> Xuất Excel</button>
         </>}
       />
       {alert && (
