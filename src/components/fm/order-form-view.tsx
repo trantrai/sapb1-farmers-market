@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import Autocomplete, { ACOption } from './autocomplete'
 import { formatVND, formatNum } from '@/lib/fm-shared'
@@ -139,6 +139,40 @@ export default function OrderFormView({
   const [suggests, setSuggests] = useState<SuggestItem[]>([])
   const [suggestLoading, setSuggestLoading] = useState(false)
   const [suggestOpen, setSuggestOpen] = useState(true)
+
+  // ---- Lịch sử giá theo khách hàng ----
+  interface PriceHistRow {
+    docNum: number
+    docDate: string
+    quantity: number
+    unitPrice: number
+    discPct: number
+    uom: string
+  }
+  const [priceHist, setPriceHist] = useState<PriceHistRow[]>([])
+  const [priceHistLoading, setPriceHistLoading] = useState(false)
+  const [priceHistFor, setPriceHistFor] = useState<{ key: number; itemCode: string; itemName: string } | null>(null)
+
+  const openPriceHist = (lineKey: number, itemCode: string, itemName: string) => {
+    const code = partner?.code
+    if (!code) return
+    setPriceHistFor({ key: lineKey, itemCode, itemName })
+    setPriceHist([])
+    setPriceHistLoading(true)
+    api(`/api/orders/price-history?cardCode=${encodeURIComponent(code)}&itemCode=${encodeURIComponent(itemCode)}`)
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        if (res.ok && json.ok) setPriceHist(json.data ?? [])
+      })
+      .catch(() => {})
+      .finally(() => setPriceHistLoading(false))
+  }
+
+  const applyPriceHist = (row: PriceHistRow) => {
+    if (!priceHistFor) return
+    updateLine(priceHistFor.key, { unitPrice: row.unitPrice, discPct: row.discPct, priceSource: 'manual' })
+    setPriceHistFor(null)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -795,6 +829,21 @@ export default function OrderFormView({
                         {l.priceSource === 'special' && (
                           <span className="fm-price-star" title="Giá đặc biệt theo khách hàng (SAP OSPP)">★</span>
                         )}
+                        {l.item && partner?.code && (() => {
+                          const it = l.item
+                          return (
+                            <button
+                              type="button"
+                              className="fm-icon-btn"
+                              style={{ width: 26, height: 26, minWidth: 26, minHeight: 26 }}
+                              title="Lịch sử giá đã bán cho khách hàng này"
+                              aria-label={`Lịch sử giá ${it.code}`}
+                              onClick={() => openPriceHist(l.key, it.code, it.name)}
+                            >
+                              <History size={13} />
+                            </button>
+                          )
+                        })()}
                       </div>
                     </td>
                     <td data-label="CK (%)">
@@ -921,6 +970,67 @@ export default function OrderFormView({
           )}
         </div>
       </div>
+
+      {/* Modal lịch sử giá theo khách hàng */}
+      {priceHistFor && (
+        <div className="fm-backdrop" onClick={() => setPriceHistFor(null)}>
+          <div className="fm-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <History size={17} /> Lịch sử giá
+            </h3>
+            <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 14px' }}>
+              {priceHistFor.itemName} ({priceHistFor.itemCode}) — {partner?.name} ({partner?.code})
+            </p>
+            {priceHistLoading ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--fm-text-2)' }}>Đang tải…</div>
+            ) : priceHist.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--fm-text-2)' }}>
+                Chưa có lịch sử bán mặt hàng này cho khách hàng.
+              </div>
+            ) : (
+              <div className="fm-table-wrap" style={{ overflowX: 'auto' }}>
+                <table className="fm-table">
+                  <thead>
+                    <tr>
+                      <th>Ngày</th>
+                      <th>Số CT</th>
+                      <th style={{ textAlign: 'right' }}>SL</th>
+                      <th style={{ textAlign: 'right' }}>Đơn giá (₫)</th>
+                      <th style={{ textAlign: 'right' }}>CK%</th>
+                      <th style={{ width: 90 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priceHist.map((h, i) => (
+                      <tr key={`${h.docNum}-${i}`}>
+                        <td>{new Date(h.docDate).toLocaleDateString('vi-VN')}</td>
+                        <td>#{h.docNum}</td>
+                        <td style={{ textAlign: 'right' }}>{formatNum(h.quantity)} {h.uom}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatVND(h.unitPrice)}</td>
+                        <td style={{ textAlign: 'right' }}>{h.discPct}%</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="fm-btn fm-btn--secondary fm-btn--sm"
+                            onClick={() => applyPriceHist(h)}
+                          >
+                            Áp dụng
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" className="fm-btn fm-btn--ghost" onClick={() => setPriceHistFor(null)}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
