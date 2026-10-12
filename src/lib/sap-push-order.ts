@@ -22,6 +22,8 @@ export interface SapPushLine {
 }
 
 export interface SapPushInput {
+  /** Id SapDatabase đích — đơn luôn đẩy đúng DB đã ghi nhận khi tạo (chống lẫn DB) */
+  databaseId?: string | null
   cardCode: string
   /** YYYY-MM-DD hoặc ISO datetime — chuẩn hóa thành YYYY-MM-DD trước khi gửi */
   docDate: string
@@ -132,7 +134,7 @@ function extractLineNums(res: SapOrderResponse | undefined): number[] | undefine
  * SapPushResult để luồng lưu đơn local không bao giờ bị chặn bởi SAP.
  */
 export async function pushOrderToSap(input: SapPushInput): Promise<SapPushResult> {
-  const settings = await loadSapSettings()
+  const settings = await loadSapSettings(input.databaseId)
   if (!isSapConfigured(settings)) return { status: 'none' }
 
   // Idempotency: trước khi POST, kiểm tra SAP đã có chứng từ mang marker

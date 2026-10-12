@@ -41,30 +41,38 @@ function sigEq(a: string, b: string): boolean {
 }
 
 /**
- * Tạo token phiên bản v2: v2.<base64url({u, iat})>.<hmac-sha256>
+ * Tạo token phiên bản v2: v2.<base64url({u, db, iat})>.<hmac-sha256>
+ * db = id SapDatabase đã chọn khi đăng nhập (null = dùng DB mặc định).
  * Token v1 đời cũ (không tiền tố, không thời hạn, ký bằng secret hardcode
  * đã lộ trong repo) bị TỪ CHỐI — user phải đăng nhập lại 1 lần sau deploy.
  */
-export function makeToken(username: string): string {
-  const payload = Buffer.from(JSON.stringify({ u: username, iat: Date.now() })).toString('base64url')
+export function makeToken(username: string, databaseId?: string | null): string {
+  const payload = Buffer.from(
+    JSON.stringify({ u: username, db: databaseId ?? null, iat: Date.now() }),
+  ).toString('base64url')
   return `v2.${payload}.${sign(payload)}`
 }
 
-/** Đọc token → username, hoặc null khi token sai/giả mạo/hết hạn */
-export function readToken(token: string | undefined | null): string | null {
+/** Đọc token → { username, databaseId }, hoặc null khi token sai/giả mạo/hết hạn */
+export function readToken(token: string | undefined | null): {
+  username: string
+  databaseId: string | null
+} | null {
   if (!token || typeof token !== 'string' || !token.startsWith('v2.')) return null
   const parts = token.split('.')
   if (parts.length !== 3) return null
   const [, payloadB64, sig] = parts
   if (!sigEq(sign(payloadB64), sig)) return null
   try {
-    const { u, iat } = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
+    const { u, db, iat } = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
       u?: unknown
+      db?: unknown
       iat?: unknown
     }
     if (typeof u !== 'string' || !u || typeof iat !== 'number') return null
     if (Date.now() - iat > TOKEN_TTL_MS) return null // hết hạn 12h
-    return u
+    // Token cũ (trước multi-DB) không có db → null = dùng DB mặc định
+    return { username: u, databaseId: typeof db === 'string' && db ? db : null }
   } catch {
     return null
   }
@@ -76,28 +84,38 @@ export function readToken(token: string | undefined | null): string | null {
  * Ưu tiên 2: cookie fm_session (môi trường same-site / localhost).
  */
 export async function getSessionUser(req?: Request): Promise<SessionUser | null> {
-  let username: string | null = null
+  let tokenInfo: { username: string; databaseId: string | null } | null = null
 
   const auth = req?.headers.get('authorization')
   if (auth && auth.toLowerCase().startsWith('bearer ')) {
-    username = readToken(auth.slice(7).trim())
+    tokenInfo = readToken(auth.slice(7).trim())
   }
 
-  if (!username) {
+  if (!tokenInfo) {
     try {
       const store = await cookies()
-      username = readToken(store.get(SESSION_COOKIE)?.value)
+      tokenInfo = readToken(store.get(SESSION_COOKIE)?.value)
     } catch {
       /* ngoài scope request */
     }
   }
 
-  if (!username) return null
+  if (!tokenInfo) return null
+  const { username, databaseId } = tokenInfo
 
   const user = await prisma.user.findUnique({ where: { username } })
   if (!user || !user.active) return null // tài khoản bị vô hiệu hóa → coi như chưa đăng nhập
 
   const role = await prisma.role.findUnique({ where: { name: user.role } })
+  // Resolve database đã chọn → label để hiển thị; DB bị xóa → fallback null (dùng mặc định)
+  let databaseLabel: string | null = null
+  if (databaseId) {
+    const db = await prisma.sapDatabase.findUnique({
+      where: { id: databaseId },
+      select: { label: true },
+    })
+    databaseLabel = db?.label ?? null
+  }
   return {
     id: user.id,
     username: user.username,
@@ -105,6 +123,8 @@ export async function getSessionUser(req?: Request): Promise<SessionUser | null>
     role: user.role,
     roleLabel: role?.label ?? user.role,
     permissions: parsePerm(role?.permissions),
+    databaseId: databaseLabel ? databaseId : null,
+    databaseLabel,
   }
 }
 

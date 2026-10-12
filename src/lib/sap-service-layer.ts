@@ -16,11 +16,9 @@ export interface SapConfig {
   sapPassword: string
   /** Bỏ qua xác thực chứng chỉ SSL (dành cho Service Layer HTTPS self-signed) */
   sslSkipVerify?: boolean
-}
-
-export interface SapSettings extends SapConfig {
-  connected: boolean
-  lastSyncAt: string | null
+  /** Id + label của SapDatabase nguồn — dùng để key cache và tách mirror theo DB */
+  dbId?: string
+  dbLabel?: string
 }
 
 export interface SapCallResult<T = unknown> {
@@ -114,23 +112,76 @@ async function sslFetch(url: string, init: RequestInit, skip?: boolean): Promise
   return fetch(url, merged)
 }
 
-/** Đọc cấu hình Service Layer từ bảng AppSettings */
-export async function loadSapSettings(): Promise<SapSettings | null> {
-  const s = await prisma.appSettings.findUnique({ where: { id: 'main' } })
-  if (!s) return null
+/**
+ * Đảm bảo tồn tại ít nhất 1 SapDatabase.
+ * Chạy 1 LẦN DUY NHẤT: migrate cấu hình đơn cũ (AppSettings legacy) thành
+ * SapDatabase mặc định, gán dữ liệu mirror + đơn hàng cũ về DB này,
+ * rồi xóa cấu hình legacy để không migrate lại.
+ */
+export async function ensureSapDatabases(): Promise<void> {
+  const n = await prisma.sapDatabase.count()
+  if (n > 0) return
+  const legacy = await prisma.appSettings.findUnique({ where: { id: 'main' } })
+  if (!legacy || (!legacy.serviceLayerUrl && !legacy.companyDb)) return
+  const db = await prisma.sapDatabase.create({
+    data: {
+      label: legacy.companyDb?.trim() || 'Database mặc định',
+      serviceLayerUrl: legacy.serviceLayerUrl ?? '',
+      companyDb: legacy.companyDb ?? '',
+      sapUser: legacy.sapUser ?? '',
+      sapPassword: legacy.sapPassword ?? '', // đã mã hóa AES-GCM — giữ nguyên
+      sslSkipVerify: legacy.sslSkipVerify,
+      isDefault: true,
+      connected: legacy.connected,
+    },
+  })
+  // Gán dữ liệu cũ (mirror + đơn hàng) về DB này để không lẫn khi thêm DB mới
+  await prisma.item.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
+  await prisma.businessPartner.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
+  await prisma.vatGroup.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
+  await prisma.salesOrder.updateMany({ where: { sapDatabaseId: null }, data: { sapDatabaseId: db.id } })
+  // Xóa cấu hình legacy — từ nay mọi thứ đọc từ SapDatabase
+  await prisma.appSettings.update({
+    where: { id: 'main' },
+    data: { serviceLayerUrl: '', companyDb: '', sapUser: '', sapPassword: '' },
+  })
+}
+
+/**
+ * Đọc cấu hình Service Layer của 1 database.
+ * @param databaseId id SapDatabase (từ token đăng nhập); null/undefined → DB mặc định.
+ * Trả null khi chưa khai báo database nào.
+ */
+export async function loadSapSettings(databaseId?: string | null): Promise<SapConfig | null> {
+  await ensureSapDatabases()
+  let db = databaseId
+    ? await prisma.sapDatabase.findUnique({ where: { id: databaseId } })
+    : null
+  if (!db) db = await prisma.sapDatabase.findFirst({ where: { isDefault: true } })
+  if (!db) db = await prisma.sapDatabase.findFirst({ orderBy: { createdAt: 'asc' } })
+  if (!db) return null
   return {
-    serviceLayerUrl: s.serviceLayerUrl.trim(),
-    companyDb: s.companyDb.trim(),
-    sapUser: s.sapUser.trim(),
-    sapPassword: decryptSecret(s.sapPassword), // giải mã AES-GCM (plaintext cũ vẫn đọc được)
-    sslSkipVerify: s.sslSkipVerify,
-    connected: s.connected,
-    lastSyncAt: s.lastSyncAt ? s.lastSyncAt.toISOString() : null,
+    dbId: db.id,
+    dbLabel: db.label,
+    serviceLayerUrl: db.serviceLayerUrl.trim(),
+    companyDb: db.companyDb.trim(),
+    sapUser: db.sapUser.trim(),
+    sapPassword: decryptSecret(db.sapPassword), // giải mã AES-GCM (plaintext cũ vẫn đọc được)
+    sslSkipVerify: db.sslSkipVerify,
   }
 }
 
+/** Lấy id DB mặc định (dùng khi đăng nhập không chọn DB) */
+export async function defaultDatabaseId(): Promise<string | null> {
+  await ensureSapDatabases()
+  const db =
+    (await prisma.sapDatabase.findFirst({ where: { isDefault: true } })) ??
+    (await prisma.sapDatabase.findFirst({ orderBy: { createdAt: 'asc' } }))
+  return db?.id ?? null
+}
+
 /** Cấu hình đã đủ để gọi Service Layer chưa */
-export function isSapConfigured(s: SapSettings | null): s is SapSettings {
+export function isSapConfigured(s: SapConfig | null): s is SapConfig {
   return Boolean(s && s.serviceLayerUrl && s.companyDb && s.sapUser && s.sapPassword)
 }
 

@@ -19,8 +19,11 @@ import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progr
 const normQ = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
 
-async function lastSyncAt(): Promise<Date | null> {
-  const agg = await prisma.businessPartner.aggregate({ _max: { syncedAt: true } })
+async function lastSyncAt(dbId?: string | null): Promise<Date | null> {
+  const agg = await prisma.businessPartner.aggregate({
+    _max: { syncedAt: true },
+    where: dbId ? { sapDatabaseId: dbId } : undefined,
+  })
   return agg._max.syncedAt ?? null
 }
 
@@ -53,6 +56,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xem danh mục khách hàng' }, { status: 403 })
   }
 
+  // Mirror tách theo database đã chọn khi đăng nhập
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? null
+  const dbScope = dbId ? { sapDatabaseId: dbId } : {}
+
   const sp = req.nextUrl.searchParams
   const q = (sp.get('q') ?? '').trim()
   const page = Math.max(1, Number(sp.get('page') ?? '1') || 1)
@@ -61,16 +69,19 @@ export async function GET(req: NextRequest) {
   // Tìm kiếm không dấu: từ khóa có dấu → LIKE SQL tiền-lọc; thuần ASCII →
   // lấy hết rồi lọc không dấu tại chỗ (tránh loại nhầm dữ liệu có dấu).
   const hasNonAscii = /[^\x00-\x7F]/.test(q)
-  const where: Record<string, unknown> = q && hasNonAscii
-    ? {
-        OR: [
-          { cardCode: { contains: q } },
-          { cardName: { contains: q } },
-          { phone: { contains: q } },
-          { email: { contains: q } },
-        ],
-      }
-    : {}
+  const where: Record<string, unknown> = {
+    ...dbScope,
+    ...(q && hasNonAscii
+      ? {
+          OR: [
+            { cardCode: { contains: q } },
+            { cardName: { contains: q } },
+            { phone: { contains: q } },
+            { email: { contains: q } },
+          ],
+        }
+      : {}),
+  }
 
   const [total, rows] = await Promise.all([
     prisma.businessPartner.count({ where }),
@@ -96,7 +107,6 @@ export async function GET(req: NextRequest) {
     data = filtered.slice((page - 1) * pageSize, page * pageSize)
   }
 
-  const s = await loadSapSettings()
   return NextResponse.json({
     data,
     total: totalFiltered,
@@ -104,8 +114,8 @@ export async function GET(req: NextRequest) {
     totalPages: Math.max(1, Math.ceil(totalFiltered / pageSize)),
     status: {
       configured: isSapConfigured(s),
-      count: await prisma.businessPartner.count(),
-      lastSyncAt: await lastSyncAt(),
+      count: await prisma.businessPartner.count({ where: dbScope }),
+      lastSyncAt: await lastSyncAt(dbId),
       progress: getProgress('partners'),
     },
   })
@@ -119,13 +129,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền đồng bộ khách hàng' }, { status: 403 })
   }
 
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json(
       { error: 'Chưa cấu hình SAP B1 Service Layer — hãy vào Cài đặt SAP B1 nhập URL, CompanyDB, tài khoản trước khi đồng bộ.' },
       { status: 400 },
     )
   }
+  const syncDbId = s.dbId! // isSapConfigured đảm bảo s.dbId tồn tại
 
   if (!startSync('partners')) {
     return NextResponse.json({ error: 'Một lượt đồng bộ khác đang chạy — hãy đợi xong rồi thử lại.' }, { status: 409 })
@@ -141,6 +152,7 @@ export async function POST(req: NextRequest) {
       const payload = rows.map((p) => {
         const contact = primaryContact(p)
         return {
+          sapDatabaseId: syncDbId,
           cardCode: p.CardCode,
           cardName: p.CardName ?? p.CardCode,
           address: fullAddress(p),
@@ -156,14 +168,14 @@ export async function POST(req: NextRequest) {
       updateSync('partners', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} khách hàng vào CSDL…`, total: payload.length, processed: 0 })
       // Mirror trọn vẹn: bảng local phản ánh đúng danh mục khách hàng trên SAP
       await prisma.$transaction(async (tx) => {
-        await tx.businessPartner.deleteMany()
+        await tx.businessPartner.deleteMany({ where: { sapDatabaseId: syncDbId } })
         for (let i = 0; i < payload.length; i += 500) {
           await tx.businessPartner.createMany({ data: payload.slice(i, i + 500) })
           updateSync('partners', { processed: Math.min(i + 500, payload.length) })
         }
       })
 
-      clearCustomersCache()
+      clearCustomersCache(syncDbId)
       endSync('partners', {
         message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} khách hàng từ SAP B1.`,
         processed: payload.length,
@@ -189,7 +201,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xóa dữ liệu đồng bộ' }, { status: 403 })
   }
 
-  await prisma.businessPartner.deleteMany()
-  clearCustomersCache()
+  const s = await loadSapSettings(user.databaseId)
+  const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
+  await prisma.businessPartner.deleteMany({ where: dbScope })
+  clearCustomersCache(s?.dbId)
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu khách hàng đã đồng bộ.' })
 }

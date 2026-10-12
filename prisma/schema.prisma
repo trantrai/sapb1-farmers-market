@@ -24,7 +24,8 @@ model User {
 
 model BusinessPartner {
   id        String    @id @default(cuid())
-  cardCode  String    @unique // C20001
+  sapDatabaseId String @default("") // DB SAP nguồn của bản ghi ("" = dữ liệu cũ chưa gán)
+  cardCode  String // C20001
   cardName  String
   address   String?
   phone     String?
@@ -33,22 +34,26 @@ model BusinessPartner {
   contactPhone  String? // SĐT người liên hệ (ContactEmployees[0].Phone1/MobilePhone)
   groupType String    @default("Khách hàng") // Khách hàng | Nhà cung cấp
   syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
+
+  @@unique([sapDatabaseId, cardCode]) // cùng CardCode có thể tồn tại ở nhiều DB
 }
 
 model VatGroup {
   id        String    @id @default(cuid())
+  sapDatabaseId String @default("") // DB SAP nguồn của bản ghi ("" = dữ liệu cũ chưa gán)
   code      String    // OVTG.Code (S1/S2/S8…)
   category  String    @default("S") // OVTG.Category: S = Bán (output) | P = Mua (input)
   name      String    @default("") // OVTG.Name
   rate      Float?    // Thuế suất % hiệu lực hôm nay (nguồn VTG1 /VatGroups_Lines)
   syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
 
-  @@unique([code, category]) // 1 mã thuế có 2 dòng S/P (có thể khác suất)
+  @@unique([sapDatabaseId, code, category]) // 1 mã thuế có 2 dòng S/P (có thể khác suất)
 }
 
 model Item {
   id        String    @id @default(cuid())
-  itemCode  String    @unique // FM-RAU-001
+  sapDatabaseId String @default("") // DB SAP nguồn của bản ghi ("" = dữ liệu cũ chưa gán)
+  itemCode  String // FM-RAU-001
   itemName  String
   uom       String    @default("kg") // Đơn vị tính (SalesUnit / InventoryUOM)
   price     Float     @default(0) // Đơn giá VND (Price List 1)
@@ -57,6 +62,8 @@ model Item {
   taxCode   String?   // Mã nhóm thuế bán (SalesVATGroup, vd S2/S8)
   barcode   String?   // Mã vạch (BarCode)
   syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
+
+  @@unique([sapDatabaseId, itemCode]) // cùng ItemCode có thể tồn tại ở nhiều DB
 }
 
 // ==================== SALE ORDER ====================
@@ -84,6 +91,7 @@ model SalesOrder {
   sapSyncStatus   String           @default("none") // none = chưa cấu hình SAP | pending = đẩy chưa thành công | synced = đã đẩy OK
   sapSyncError    String?          // Lỗi lần đẩy gần nhất (nếu có)
   sapSyncedAt     DateTime?        // Thời điểm đẩy thành công
+  sapDatabaseId   String?          // DB SAP đích của đơn (đẩy/retry luôn dùng DB này)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   lines           SalesOrderLine[]
@@ -133,6 +141,27 @@ model SapAuditLog {
 }
 
 // ==================== SETTINGS (SAP B1 Service Layer) ====================
+
+// ==================== SAP DATABASES (multi-CompanyDB) ====================
+// Danh sách kết nối Service Layer do Admin khai báo. Đăng nhập chọn 1 DB;
+// mọi thao tác SAP (đẩy đơn, đồng bộ, tra cứu) dùng đúng DB đã chọn.
+// Mirror tables (Item/BusinessPartner/VatGroup) tách theo sapDatabaseId.
+model SapDatabase {
+  id              String   @id @default(cuid())
+  label           String   // Tên hiển thị: "Kho HCM — LIVE"
+  serviceLayerUrl String
+  companyDb       String
+  sapUser         String
+  sapPassword     String   @default("") // mã hóa AES-256-GCM (fm-crypto)
+  sslSkipVerify   Boolean  @default(false)
+  isDefault       Boolean  @default(false)
+  connected       Boolean  @default(false) // Kết quả test kết nối gần nhất
+  lastTestAt      DateTime? // Thời điểm test kết nối gần nhất
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([serviceLayerUrl, companyDb, sapUser]) // tránh khai báo trùng connection
+}
 
 model AppSettings {
   id              String    @id @default("main")

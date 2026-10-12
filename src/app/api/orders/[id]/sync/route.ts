@@ -38,6 +38,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   try {
     const push = await pushOrderToSap({
+      // Đơn ghi nhận DB đích khi tạo — retry luôn dùng đúng DB đó
+      databaseId: order.sapDatabaseId ?? user.databaseId,
       cardCode: order.cardCode,
       docDate: order.docDate.toISOString(),
       docDueDate: order.docDueDate.toISOString(),

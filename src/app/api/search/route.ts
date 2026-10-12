@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
+import { loadSapSettings } from '@/lib/sap-service-layer'
 
 // ---------- GET /api/search?q=XXX ----------
 // Tìm kiếm toàn văn cho command palette (Ctrl+K):
@@ -20,6 +21,10 @@ export async function GET(req: NextRequest) {
 
   const canOrders = !!user.permissions.orders?.view
   const canMaster = !!user.permissions.settings?.view
+
+  // Mirror tách theo database — tìm kiếm chỉ trong DB của phiên đăng nhập
+  const sapCfg = await loadSapSettings(user.databaseId)
+  const dbScope = sapCfg?.dbId ? { sapDatabaseId: sapCfg.dbId } : {}
 
   const num = Number(q)
   const isDocNum = q !== '' && Number.isInteger(num) && num > 0
@@ -50,6 +55,7 @@ export async function GET(req: NextRequest) {
     canMaster
       ? prisma.item.findMany({
           where: {
+            ...dbScope,
             OR: [{ itemCode: { contains: q } }, { itemName: { contains: q } }],
           },
           select: { id: true, itemCode: true, itemName: true, price: true, uom: true },
@@ -60,6 +66,7 @@ export async function GET(req: NextRequest) {
     canMaster
       ? prisma.businessPartner.findMany({
           where: {
+            ...dbScope,
             OR: [{ cardCode: { contains: q } }, { cardName: { contains: q } }],
           },
           select: { id: true, cardCode: true, cardName: true, groupType: true },

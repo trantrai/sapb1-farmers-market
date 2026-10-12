@@ -74,7 +74,8 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim()
 
   // ---------- 1) Live query từ SAP B1 ----------
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? null
   if (isSapConfigured(s)) {
     const { rows, error } = await loadCustomers(s)
     if (rows.length === 0 && error) {
@@ -93,15 +94,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data, total: data.length, source: 'sap' })
   }
 
-  // ---------- 2) Fallback dữ liệu local ----------
-  const where: Record<string, unknown> = q
-    ? {
-        OR: [
-          { cardCode: { contains: q } },
-          { cardName: { contains: q } },
-        ],
-      }
-    : {}
+  // ---------- 2) Fallback dữ liệu local (đúng database của phiên đăng nhập) ----------
+  const dbScope = dbId ? { sapDatabaseId: dbId } : {}
+  const where: Record<string, unknown> = {
+    ...dbScope,
+    ...(q
+      ? {
+          OR: [
+            { cardCode: { contains: q } },
+            { cardName: { contains: q } },
+          ],
+        }
+      : {}),
+  }
 
   const partners = await prisma.businessPartner.findMany({
     where,

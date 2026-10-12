@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim()
 
   // ---------- 1) Tìm trực tiếp trên SAP B1 ----------
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? null
   if (isSapConfigured(s)) {
     if (q.length < 2) {
       // Không đủ ký tự tìm kiếm → trả rỗng (autocomplete chỉ gọi khi đã nhập ≥2 ký tự)
@@ -35,15 +36,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data, total: data.length, source: 'sap' })
   }
 
-  // ---------- 2) Fallback dữ liệu local ----------
-  const where: Record<string, unknown> = q
-    ? {
-        OR: [
-          { itemCode: { contains: q } },
-          { itemName: { contains: q } },
-        ],
-      }
-    : {}
+  // ---------- 2) Fallback dữ liệu local (đúng database của phiên đăng nhập) ----------
+  const dbScope = dbId ? { sapDatabaseId: dbId } : {}
+  const where: Record<string, unknown> = {
+    ...dbScope,
+    ...(q
+      ? {
+          OR: [
+            { itemCode: { contains: q } },
+            { itemName: { contains: q } },
+          ],
+        }
+      : {}),
+  }
 
   const items = await prisma.item.findMany({
     where,

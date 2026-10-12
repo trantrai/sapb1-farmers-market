@@ -317,7 +317,7 @@ export default function AppShell({ user, onLogout }: Props) {
               </span>
               <span className="fm-header__info">
                 <b>{user.fullName}</b>
-                <small>Quản trị viên SAP</small>
+                <small>{user.roleLabel}{user.databaseLabel ? ` · DB: ${user.databaseLabel}` : ''}</small>
               </span>
             </div>
           </div>

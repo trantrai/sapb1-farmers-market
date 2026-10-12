@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
   if (!itemCode) return NextResponse.json({ ok: false, error: 'Thiếu itemCode' }, { status: 400 })
 
   // ---------- 1) Live từ SAP B1 ----------
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? null
   if (isSapConfigured(s)) {
     // 1a) Giá đặc biệt OSPP (SpecialPrices)
     // ⚠ KHÔNG dùng $select: một số bản Service Layer trả 400 khi $select chứa
@@ -74,7 +75,9 @@ export async function GET(req: NextRequest) {
   }
 
   // ---------- 2) Fallback dữ liệu local (không có bảng giá đặc biệt) ----------
-  const item = await prisma.item.findUnique({ where: { itemCode } })
+  const item = await prisma.item.findFirst({
+    where: { itemCode, ...(dbId ? { sapDatabaseId: dbId } : {}) },
+  })
   if (!item || !(item.price > 0)) {
     return NextResponse.json({ ok: false, error: 'Không tìm thấy giá bán của mặt hàng (local)' })
   }

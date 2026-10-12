@@ -7,7 +7,7 @@
 // ============================================================
 
 import { sapGet, sapGetAll } from './sap-service-layer'
-import { numv, type SapSessConfig } from './fm-items'
+import { numv, type SapSessConfig, cacheKey } from './fm-items'
 import { pickEffectiveVatRate, type B1VatLineRow } from './fm-shared'
 import type { ProgressCb } from './fm-sync-progress'
 
@@ -39,13 +39,18 @@ export interface VatGroupRowData {
 }
 
 const MASTER_TTL = 5 * 60_000
-let vatCache: { ts: number; rows: VatGroupRowData[] } | null = null
+const vatCache = new Map<string, { ts: number; rows: VatGroupRowData[] }>()
 
-/** Ép bỏ cache nhóm thuế (dùng sau khi đồng bộ để lần sau tải lại từ SL) */
-export function clearVatGroupsCache() { vatCache = null }
+/** Ép bỏ cache nhóm thuế (theo DB; không truyền = xóa hết) */
+export function clearVatGroupsCache(dbId?: string | null) {
+  if (dbId) vatCache.delete(dbId)
+  else vatCache.clear()
+}
 
 export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): Promise<{ rows: VatGroupRowData[]; error?: string }> {
-  if (vatCache && Date.now() - vatCache.ts < MASTER_TTL) return { rows: vatCache.rows }
+  const vgKey = cacheKey(s)
+  const vgHit = vatCache.get(vgKey)
+  if (vgHit && Date.now() - vgHit.ts < MASTER_TTL) return { rows: vgHit.rows }
 
   // ---------- ① Danh mục OVTG (2 tầng: phân trang nguyên văn → gọi thuần) ----------
   let groups: B1VatGroupRow[] | null = null
@@ -130,7 +135,7 @@ export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): 
     rows.push({ code: v.Code, category: normCat, name: (v.Name ?? '').toString(), rate })
   }
   rows.sort((a, b) => (a.code === b.code ? (a.category < b.category ? -1 : 1) : a.code < b.code ? -1 : 1))
-  vatCache = { ts: Date.now(), rows }
+  vatCache.set(vgKey, { ts: Date.now(), rows })
   return { rows }
 }
 
@@ -165,13 +170,18 @@ export interface B1Partner {
   }>
 }
 
-let bpCache: { ts: number; rows: B1Partner[] } | null = null
+const bpCache = new Map<string, { ts: number; rows: B1Partner[] }>()
 
-/** Ép bỏ cache khách hàng */
-export function clearCustomersCache() { bpCache = null }
+/** Ép bỏ cache khách hàng (theo DB; không truyền = xóa hết) */
+export function clearCustomersCache(dbId?: string | null) {
+  if (dbId) bpCache.delete(dbId)
+  else bpCache.clear()
+}
 
 export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): Promise<{ rows: B1Partner[]; error?: string }> {
-  if (bpCache && Date.now() - bpCache.ts < MASTER_TTL) return { rows: bpCache.rows }
+  const key = cacheKey(s)
+  const hit = bpCache.get(key)
+  if (hit && Date.now() - hit.ts < MASTER_TTL) return { rows: hit.rows }
   // ① Lọc ngay trên SL: CardType eq 'C' (điều kiện and-only, an toàn mọi bản SL)
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục khách hàng (/BusinessPartners) từ SAP B1…' })
   const r1 = await sapGetAll<B1Partner>(s, '/BusinessPartners', {
@@ -181,7 +191,7 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
   })
   if (r1.ok && r1.data) {
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${r1.data.length.toLocaleString('vi-VN')} khách hàng từ SAP B1…`, fetched: r1.data.length })
-    bpCache = { ts: Date.now(), rows: r1.data }
+    bpCache.set(key, { ts: Date.now(), rows: r1.data })
     return { rows: r1.data }
   }
   // ② Dự phòng: lấy nguyên văn không $select/$filter, tự lọc khách hàng tại chỗ.
@@ -190,10 +200,10 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
   if (r2.ok && r2.data) {
     const rows = r2.data.filter((p) => p.CardType !== 'S' && p.CardType !== 'L')
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${rows.length.toLocaleString('vi-VN')} khách hàng từ SAP B1…`, fetched: rows.length })
-    bpCache = { ts: Date.now(), rows }
+    bpCache.set(key, { ts: Date.now(), rows })
     return { rows }
   }
   // Cache cũ vẫn dùng được → dùng tạm thay vì báo lỗi (SL có thể đang gián đoạn)
-  if (bpCache) return { rows: bpCache.rows }
+  if (hit) return { rows: hit.rows }
   return { rows: [], error: r1.error ?? r2.error ?? 'Lỗi Service Layer' }
 }

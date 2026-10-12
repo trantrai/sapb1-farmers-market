@@ -3,6 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { SESSION_COOKIE, hashPassword, verifyPassword, makeToken } from '@/lib/fm-auth'
 import { parsePerm } from '@/lib/fm-shared'
 import { rateLimit } from '@/lib/rate-limit'
+import { ensureSapDatabases, defaultDatabaseId } from '@/lib/sap-service-layer'
 
 // Chống brute-force: tối đa 10 lần thử / 10 phút / IP
 const LOGIN_MAX = 10
@@ -29,9 +30,35 @@ export async function POST(req: NextRequest) {
     const rl = rateLimit(`login:${ip}`, LOGIN_MAX, LOGIN_WINDOW_MS)
     if (!rl.ok) return tooMany(rl.retryAfterSec)
 
-    const { username, password } = await req.json()
+    const { username, password, databaseId } = await req.json()
     if (!username || !password) {
       return NextResponse.json({ error: 'Vui lòng nhập tên đăng nhập và mật khẩu' }, { status: 400 })
+    }
+
+    // Validate database được chọn (nếu có) — chống token mang DB id giả
+    await ensureSapDatabases()
+    let dbId: string | null = null
+    let dbLabel: string | null = null
+    if (databaseId) {
+      const db = await prisma.sapDatabase.findUnique({
+        where: { id: String(databaseId) },
+        select: { id: true, label: true },
+      })
+      if (!db) {
+        return NextResponse.json({ error: 'Database SAP đã chọn không tồn tại' }, { status: 400 })
+      }
+      dbId = db.id
+      dbLabel = db.label
+    } else {
+      // Không chọn → dùng DB mặc định (nếu có khai báo)
+      dbId = await defaultDatabaseId()
+      if (dbId) {
+        const db = await prisma.sapDatabase.findUnique({
+          where: { id: dbId },
+          select: { label: true },
+        })
+        dbLabel = db?.label ?? null
+      }
     }
 
     const uname = String(username).trim().toLowerCase()
@@ -67,7 +94,7 @@ export async function POST(req: NextRequest) {
     }
 
     const role = await prisma.role.findUnique({ where: { name: user.role } })
-    const token = makeToken(user.username)
+    const token = makeToken(user.username, dbId)
 
     // Cookie vẫn giữ làm phương án dự phòng cho môi trường same-site (localhost)
     const res = NextResponse.json({
@@ -80,6 +107,8 @@ export async function POST(req: NextRequest) {
         role: user.role,
         roleLabel: role?.label ?? user.role,
         permissions: parsePerm(role?.permissions),
+        databaseId: dbId,
+        databaseLabel: dbLabel,
       },
     })
     res.cookies.set(SESSION_COOKIE, token, {

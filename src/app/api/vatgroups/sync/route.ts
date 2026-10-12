@@ -19,8 +19,11 @@ import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progr
 const normQ = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
 
-async function lastSyncAt(): Promise<Date | null> {
-  const agg = await prisma.vatGroup.aggregate({ _max: { syncedAt: true } })
+async function lastSyncAt(dbId?: string | null): Promise<Date | null> {
+  const agg = await prisma.vatGroup.aggregate({
+    _max: { syncedAt: true },
+    where: dbId ? { sapDatabaseId: dbId } : undefined,
+  })
   return agg._max.syncedAt ?? null
 }
 
@@ -32,6 +35,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xem danh mục nhóm thuế' }, { status: 403 })
   }
 
+  // Mirror tách theo database đã chọn khi đăng nhập
+  const sTop = await loadSapSettings(user.databaseId)
+  const dbIdTop = sTop?.dbId ?? null
+
   const sp = req.nextUrl.searchParams
   const q = (sp.get('q') ?? '').trim()
   const cat = (sp.get('cat') ?? '').trim().toUpperCase() // '' | 'S' | 'P'
@@ -42,6 +49,7 @@ export async function GET(req: NextRequest) {
   // lấy hết rồi lọc không dấu tại chỗ (tránh loại nhầm dữ liệu có dấu).
   const hasNonAscii = /[^\x00-\x7F]/.test(q)
   const and: Record<string, unknown>[] = []
+  if (dbIdTop) and.push({ sapDatabaseId: dbIdTop })
   if (cat === 'S' || cat === 'P') and.push({ category: cat })
   if (q && hasNonAscii) {
     and.push({
@@ -76,11 +84,11 @@ export async function GET(req: NextRequest) {
     data = filtered.slice((page - 1) * pageSize, page * pageSize)
   }
 
-  const s = await loadSapSettings()
+  const dbScope = dbIdTop ? { sapDatabaseId: dbIdTop } : {}
   const [salesCount, purchaseCount, missingRateCount] = await Promise.all([
-    prisma.vatGroup.count({ where: { category: 'S' } }),
-    prisma.vatGroup.count({ where: { category: 'P' } }),
-    prisma.vatGroup.count({ where: { rate: null } }),
+    prisma.vatGroup.count({ where: { ...dbScope, category: 'S' } }),
+    prisma.vatGroup.count({ where: { ...dbScope, category: 'P' } }),
+    prisma.vatGroup.count({ where: { ...dbScope, rate: null } }),
   ])
   return NextResponse.json({
     data,
@@ -88,12 +96,12 @@ export async function GET(req: NextRequest) {
     page,
     totalPages: Math.max(1, Math.ceil(totalFiltered / pageSize)),
     status: {
-      configured: isSapConfigured(s),
-      count: await prisma.vatGroup.count(),
+      configured: isSapConfigured(sTop),
+      count: await prisma.vatGroup.count({ where: dbScope }),
       salesCount,
       purchaseCount,
       missingRateCount,
-      lastSyncAt: await lastSyncAt(),
+      lastSyncAt: await lastSyncAt(dbIdTop),
       progress: getProgress('vatgroups'),
     },
   })
@@ -107,13 +115,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền đồng bộ nhóm thuế' }, { status: 403 })
   }
 
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json(
       { error: 'Chưa cấu hình SAP B1 Service Layer — hãy vào Cài đặt SAP B1 nhập URL, CompanyDB, tài khoản trước khi đồng bộ.' },
       { status: 400 },
     )
   }
+  const syncDbId = s.dbId! // isSapConfigured đảm bảo s.dbId tồn tại
 
   if (!startSync('vatgroups')) {
     return NextResponse.json({ error: 'Một lượt đồng bộ khác đang chạy — hãy đợi xong rồi thử lại.' }, { status: 409 })
@@ -127,6 +136,7 @@ export async function POST(req: NextRequest) {
       }
       const now = new Date()
       const payload = rows.map((v) => ({
+        sapDatabaseId: syncDbId,
         code: v.code,
         category: v.category,
         name: v.name,
@@ -137,14 +147,14 @@ export async function POST(req: NextRequest) {
       updateSync('vatgroups', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} nhóm thuế vào CSDL…`, total: payload.length, processed: 0 })
       // Mirror trọn vẹn: bảng local phản ánh đúng danh mục OVTG hiện tại trên SAP
       await prisma.$transaction(async (tx) => {
-        await tx.vatGroup.deleteMany()
+        await tx.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
         for (let i = 0; i < payload.length; i += 500) {
           await tx.vatGroup.createMany({ data: payload.slice(i, i + 500) })
           updateSync('vatgroups', { processed: Math.min(i + 500, payload.length) })
         }
       })
 
-      clearVatGroupsCache()
+      clearVatGroupsCache(syncDbId)
 
       const sales = payload.filter((v) => v.category === 'S').length
       endSync('vatgroups', {
@@ -172,7 +182,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xóa dữ liệu đồng bộ' }, { status: 403 })
   }
 
-  await prisma.vatGroup.deleteMany()
+  const s = await loadSapSettings(user.databaseId)
+  const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
+  await prisma.vatGroup.deleteMany({ where: dbScope })
+  clearVatGroupsCache(s?.dbId)
   clearVatGroupsCache()
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ.' })
 }

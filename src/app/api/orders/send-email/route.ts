@@ -118,7 +118,12 @@ export async function POST(req: NextRequest) {
     })
     if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
 
-    const partner = await prisma.businessPartner.findUnique({ where: { cardCode: order.cardCode } })
+    const partner = await prisma.businessPartner.findFirst({
+      where: {
+        cardCode: order.cardCode,
+        ...(order.sapDatabaseId ? { sapDatabaseId: order.sapDatabaseId } : {}),
+      },
+    })
 
     const transporter = nodemailer.createTransport({
       host: settings.smtpHost,

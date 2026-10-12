@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
 
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json({ data: [], total: 0, source: 'none' })
   }

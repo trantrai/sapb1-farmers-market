@@ -80,7 +80,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if (!Number.isInteger(docEntry) || docEntry <= 0) {
       return NextResponse.json({ error: 'DocEntry không hợp lệ' }, { status: 400 })
     }
-    const s = await loadSapSettings()
+    const s = await loadSapSettings(user.databaseId)
     if (!isSapConfigured(s)) {
       return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
     }
@@ -167,7 +167,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   // ---------- 1) Đơn đã synced → PATCH lên Service Layer trước ----------
   let patchedInSap = false
   if (order.sapSyncStatus === 'synced' && order.sapDocEntry != null) {
-    const s = await loadSapSettings()
+    const s = await loadSapSettings(order.sapDatabaseId ?? user.databaseId)
     if (isSapConfigured(s)) {
       // LineNum của dòng hiện có: ưu tiên sapLineNum đã lưu khi đẩy đơn;
       // thiếu (đơn đẩy trước khi có cột này) → lấy từ chi tiết SL khớp theo vị trí dòng

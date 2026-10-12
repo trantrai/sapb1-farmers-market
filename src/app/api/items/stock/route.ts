@@ -112,7 +112,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Thiếu tham số itemCode' }, { status: 400 })
   }
 
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? null
 
   // ---------- 1) Truy vấn trực tiếp SAP B1 (có fallback theo phiên bản SL) ----------
   if (isSapConfigured(s)) {
@@ -165,7 +166,9 @@ export async function GET(req: NextRequest) {
   }
 
   // ---------- 2) Fallback local (chưa cấu hình SAP) ----------
-  const item = await prisma.item.findUnique({ where: { itemCode } })
+  const item = await prisma.item.findFirst({
+    where: { itemCode, ...(dbId ? { sapDatabaseId: dbId } : {}) },
+  })
   if (!item) {
     return NextResponse.json({ ok: false, source: 'local', error: `Không tìm thấy mặt hàng ${itemCode}` }, { status: 404 })
   }

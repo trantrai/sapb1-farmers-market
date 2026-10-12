@@ -14,14 +14,14 @@ export async function GET(req: NextRequest) {
   if (!s) {
     s = await prisma.appSettings.create({ data: { id: 'main' } })
   }
-  // Che mật khẩu
+  // Che mật khẩu SMTP. Kết nối SAP B1 giờ quản lý theo database riêng
+  // ở /api/sap-databases — các field SAP singleton cũ không còn dùng.
+  const { serviceLayerUrl: _u, companyDb: _d, sapUser: _su, sapPassword: _sp, sslSkipVerify: _sv, connected: _c, lastSyncAt: _ls, ...rest } = s
   return NextResponse.json({
     settings: {
-      ...s,
-      sapPassword: s.sapPassword ? '••••••••' : '',
+      ...rest,
       smtpPass: s.smtpPass ? '••••••••' : '',
     },
-    hasPassword: Boolean(s.sapPassword),
     hasSmtpPass: Boolean(s.smtpPass),
   })
 }
@@ -35,13 +35,6 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { serviceLayerUrl, companyDb, sapUser, sapPassword } = body as {
-      serviceLayerUrl?: string; companyDb?: string; sapUser?: string
-      sapPassword?: string
-      sslSkipVerify?: boolean
-      suggestHistoryDays?: number
-      suggestMaxItems?: number
-    }
 
     const existing = await prisma.appSettings.findUnique({ where: { id: 'main' } })
     const clampDays = (v: unknown, fallback: number) => {
@@ -52,21 +45,9 @@ export async function PUT(req: NextRequest) {
       const n = Number(v)
       return Number.isFinite(n) ? Math.min(50, Math.max(1, Math.round(n))) : fallback
     }
+    // Lưu ý: kết nối SAP B1 quản lý theo database riêng ở /api/sap-databases;
+    // PUT này chỉ nhận gợi ý mặt hàng + SMTP (bỏ qua mọi field SAP nếu client cũ gửi lên).
     const data = {
-      serviceLayerUrl: serviceLayerUrl ?? existing?.serviceLayerUrl ?? '',
-      companyDb: companyDb ?? existing?.companyDb ?? '',
-      sapUser: sapUser ?? existing?.sapUser ?? '',
-      // Nếu mật khẩu gửi về là dạng che hoặc rỗng thì giữ nguyên mật khẩu cũ;
-      // mật khẩu mới được mã hóa AES-256-GCM trước khi lưu DB
-      sapPassword:
-        !sapPassword || sapPassword.includes('•')
-          ? existing?.sapPassword ?? ''
-          : encryptSecret(sapPassword),
-      // Bỏ qua xác thực SSL (chỉ nhận khi client gửi rõ ràng kiểu boolean)
-      sslSkipVerify:
-        typeof body.sslSkipVerify === 'boolean'
-          ? (body as { sslSkipVerify: boolean }).sslSkipVerify
-          : existing?.sslSkipVerify ?? false,
       // Gợi ý mặt hàng theo lịch sử đơn hàng
       suggestHistoryDays: clampDays(body.suggestHistoryDays, existing?.suggestHistoryDays ?? 90),
       suggestMaxItems: clampMax(body.suggestMaxItems, existing?.suggestMaxItems ?? 10),
@@ -91,11 +72,11 @@ export async function PUT(req: NextRequest) {
       create: { id: 'main', ...data },
     })
 
+    const { serviceLayerUrl: _u2, companyDb: _d2, sapUser: _su2, sapPassword: _sp2, sslSkipVerify: _sv2, connected: _c2, lastSyncAt: _ls2, ...savedRest } = saved
     return NextResponse.json({
       ok: true,
       settings: {
-        ...saved,
-        sapPassword: saved.sapPassword ? '••••••••' : '',
+        ...savedRest,
         smtpPass: saved.smtpPass ? '••••••••' : '',
       },
     })

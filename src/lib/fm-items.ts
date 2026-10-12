@@ -28,9 +28,14 @@ export interface B1Item {
   ItemPrices?: B1ItemPrice[]
 }
 
-export interface SapSessConfig {
-  serviceLayerUrl: string; companyDb: string; sapUser: string; sapPassword: string; sslSkipVerify?: boolean
-}
+import type { SapConfig } from './sap-service-layer'
+
+/** Config phiên SAP — bí danh của SapConfig (giữ tên cũ để các module không phải sửa import) */
+export type SapSessConfig = SapConfig
+
+/** Key cache theo database — mỗi DB có cache riêng, không lẫn nhau */
+export const cacheKey = (s: SapSessConfig): string =>
+  s.dbId ?? `${s.serviceLayerUrl}|${s.companyDb}|${s.sapUser}`
 
 // OData v2 của Service Layer trả số thập phân (Edm.Decimal) dạng CHUỖI
 // (vd "185000.000000") — bắt buộc ép số, nếu không giá/tồn sẽ thành 0 trên SL thật
@@ -46,13 +51,18 @@ export const norm = (s: string) =>
 // "the value 'true' of property ')' is invalid"). Lượt tìm đầu tiên tải danh
 // mục một lần (tự phân trang), các lần gõ sau phản hồi tức thì từ cache.
 const ITEMS_TTL = 5 * 60_000
-let itemsCache: { ts: number; rows: B1Item[] } | null = null
+const itemsCache = new Map<string, { ts: number; rows: B1Item[] }>()
 
 /** Ép bỏ cache danh mục mặt hàng (dùng khi muốn đồng bộ lại từ đầu) */
-export function clearItemsCache() { itemsCache = null }
+export function clearItemsCache(dbId?: string | null) {
+  if (dbId) itemsCache.delete(dbId)
+  else itemsCache.clear()
+}
 
 export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb): Promise<{ rows: B1Item[]; error?: string }> {
-  if (itemsCache && Date.now() - itemsCache.ts < ITEMS_TTL) return { rows: itemsCache.rows }
+  const key = cacheKey(s)
+  const hit = itemsCache.get(key)
+  if (hit && Date.now() - hit.ts < ITEMS_TTL) return { rows: hit.rows }
   // ① Lọc ngay trên SL: SalesItem eq 'tYES' (điều kiện and-only, an toàn mọi bản SL)
   //    + $select gọn (đã chạy tốt trên /Items ở các bản SL thật).
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục mặt hàng (/Items) từ SAP B1…' })
@@ -63,7 +73,7 @@ export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb):
   })
   if (r1.ok && r1.data) {
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${r1.data.length.toLocaleString('vi-VN')} mặt hàng từ SAP B1…`, fetched: r1.data.length })
-    itemsCache = { ts: Date.now(), rows: r1.data }
+    itemsCache.set(key, { ts: Date.now(), rows: r1.data })
     return { rows: r1.data }
   }
   // ② Dự phòng: lấy nguyên văn không $select/$filter, tự lọc SalesItem tại chỗ
@@ -72,18 +82,20 @@ export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb):
   if (r2.ok && r2.data) {
     const rows = r2.data.filter((i) => (i as B1Item).SalesItem !== 'tNO')
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${rows.length.toLocaleString('vi-VN')} mặt hàng từ SAP B1…`, fetched: rows.length })
-    itemsCache = { ts: Date.now(), rows }
+    itemsCache.set(key, { ts: Date.now(), rows })
     return { rows }
   }
   return { rows: [], error: r1.error ?? r2.error ?? 'Lỗi Service Layer' }
 }
 
-// ---------- Map mã nhóm thuế → thuế suất % (từ /VatGroups, cache 5 phút) ----------
-let vatRateCache: { ts: number; map: Record<string, number> } | null = null
+// ---------- Map mã nhóm thuế → thuế suất % (từ /VatGroups, cache 5 phút, theo DB) ----------
+const vatRateCache = new Map<string, { ts: number; map: Record<string, number> }>()
 const VAT_TTL = 5 * 60_000
 
 export async function vatRateMap(s: SapSessConfig): Promise<Record<string, number>> {
-  if (vatRateCache && Date.now() - vatRateCache.ts < VAT_TTL) return vatRateCache.map
+  const key = cacheKey(s)
+  const hit = vatRateCache.get(key)
+  if (hit && Date.now() - hit.ts < VAT_TTL) return hit.map
   // NGUỒN ĐÚNG %VAT: mảng con VatGroups_Lines (VTG1) KÈM SẴN trong từng nhóm
   // trả về từ /VatGroups (SL thật) — chọn dòng hiệu lực hôm nay qua
   // pickEffectiveVatRate. Cột Rate trên OVTG cha chỉ là dự phòng (bản SL/mock cũ).
@@ -110,8 +122,8 @@ export async function vatRateMap(s: SapSessConfig): Promise<Record<string, numbe
     const g2 = await sapGet<{ value?: B1VatGroupRowLite[] }>(s, '/VatGroups', {})
     if (g2.ok && g2.data) map = read(g2.data.value ?? [])
   }
-  if (!map) return vatRateCache?.map ?? {} // lỗi → dùng cache cũ nếu có, không cache lỗi
-  vatRateCache = { ts: Date.now(), map }
+  if (!map) return vatRateCache.get(key)?.map ?? {} // lỗi → dùng cache cũ nếu có, không cache lỗi
+  vatRateCache.set(key, { ts: Date.now(), map })
   return map
 }
 

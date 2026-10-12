@@ -14,6 +14,9 @@ export interface SessionUser {
   role: string
   roleLabel: string
   permissions: PermMap
+  /** Id + label SapDatabase đã chọn khi đăng nhập (null = dùng DB mặc định) */
+  databaseId: string | null
+  databaseLabel: string | null
 }
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {

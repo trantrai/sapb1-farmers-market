@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     if (!Number.isInteger(docEntry) || docEntry <= 0) {
       return NextResponse.json({ ok: false, error: 'DocEntry không hợp lệ' }, { status: 400 })
     }
-    const s = await loadSapSettings()
+    const s = await loadSapSettings(user.databaseId)
     if (!isSapConfigured(s)) {
       return NextResponse.json({ ok: false, error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
     }
@@ -61,7 +61,8 @@ export async function GET(req: NextRequest) {
   }
 
   // ---------- 1) Chứng từ từ SAP B1 (nếu đã cấu hình) ----------
-  const s = await loadSapSettings()
+  // Đơn SAP lấy từ đúng database đã chọn khi đăng nhập
+  const s = await loadSapSettings(user.databaseId)
   let sapRows: SapOrderRow[] = []
   let warning = ''
   let source: 'sap' | 'local' = 'local'
@@ -82,7 +83,11 @@ export async function GET(req: NextRequest) {
   const localByEntry = new Map<number, string>()
   if (sapEntries.length > 0) {
     const syncedLocals = await prisma.salesOrder.findMany({
-      where: { sapSyncStatus: 'synced', sapDocEntry: { in: sapEntries } },
+      where: {
+        sapSyncStatus: 'synced',
+        sapDocEntry: { in: sapEntries },
+        ...(s?.dbId ? { sapDatabaseId: s.dbId } : {}),
+      },
       select: { id: true, sapDocEntry: true },
     })
     for (const o of syncedLocals) if (o.sapDocEntry != null) localByEntry.set(o.sapDocEntry, o.id)
@@ -179,6 +184,11 @@ export async function POST(req: NextRequest) {
     const totals = orderTotals(calcLines)
     const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = totals
 
+    // Database SAP đích của đơn: lấy theo phiên đăng nhập; đơn ghi nhận lại để
+    // mọi lần đẩy/retry/sửa sau này luôn dùng đúng DB này (không lẫn DB khác)
+    const orderSap = await loadSapSettings(user.databaseId)
+    const orderDbId = orderSap?.dbId ?? null
+
     // Cấp docNum + tạo đơn trong 1 transaction: 2 request tạo đơn đồng thời
     // không thể nhận cùng docNum (trước đây findFirst + create rời nhau → trùng số).
     // Vẫn có cửa sổ đua cực hẹp giữa 2 transaction đồng thời → retry tối đa 3 lần
@@ -217,6 +227,7 @@ export async function POST(req: NextRequest) {
           vatAmt,
           grandTotal,
           createdBy,
+          sapDatabaseId: orderDbId,
           lines: {
             create: calcLines.map((l, i) => ({
               lineNum: i + 1,
@@ -254,6 +265,7 @@ export async function POST(req: NextRequest) {
           comments: created.remarks,
           headerDiscPct: headerPct,
           localId: created.id,
+          databaseId: orderDbId,
           lines: created.lines.map((l) => ({
             itemCode: l.itemCode,
             quantity: l.quantity,

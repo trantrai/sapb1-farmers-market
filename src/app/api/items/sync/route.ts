@@ -18,8 +18,11 @@ import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progr
 const normQ = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
 
-async function lastSyncAt(): Promise<Date | null> {
-  const agg = await prisma.item.aggregate({ _max: { syncedAt: true } })
+async function lastSyncAt(dbId?: string | null): Promise<Date | null> {
+  const agg = await prisma.item.aggregate({
+    _max: { syncedAt: true },
+    where: dbId ? { sapDatabaseId: dbId } : undefined,
+  })
   return agg._max.syncedAt ?? null
 }
 
@@ -31,6 +34,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xem danh mục mặt hàng' }, { status: 403 })
   }
 
+  // Mirror tách theo database đã chọn khi đăng nhập
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? null
+  const dbScope = dbId ? { sapDatabaseId: dbId } : {}
+
   const sp = req.nextUrl.searchParams
   const q = (sp.get('q') ?? '').trim()
   const page = Math.max(1, Number(sp.get('page') ?? '1') || 1)
@@ -40,16 +48,19 @@ export async function GET(req: NextRequest) {
   // tiền-lọc (raw q khớp raw dữ liệu). Từ khóa thuần ASCII (vd "ca rot") KHÔNG
   // tiền-lọc bằng SQL vì sẽ loại nhầm "Cà Rốt" — lấy hết rồi lọc không dấu tại chỗ.
   const hasNonAscii = /[^\x00-\x7F]/.test(q)
-  const where: Record<string, unknown> = q && hasNonAscii
-    ? {
-        OR: [
-          { itemCode: { contains: q } },
-          { itemName: { contains: q } },
-          { barcode: { contains: q } },
-          { taxCode: { contains: q } },
-        ],
-      }
-    : {}
+  const where: Record<string, unknown> = {
+    ...dbScope,
+    ...(q && hasNonAscii
+      ? {
+          OR: [
+            { itemCode: { contains: q } },
+            { itemName: { contains: q } },
+            { barcode: { contains: q } },
+            { taxCode: { contains: q } },
+          ],
+        }
+      : {}),
+  }
 
   const [total, rows] = await Promise.all([
     prisma.item.count({ where }),
@@ -75,7 +86,6 @@ export async function GET(req: NextRequest) {
     data = filtered.slice((page - 1) * pageSize, page * pageSize)
   }
 
-  const s = await loadSapSettings()
   return NextResponse.json({
     data,
     total: totalFiltered,
@@ -83,8 +93,8 @@ export async function GET(req: NextRequest) {
     totalPages: Math.max(1, Math.ceil(totalFiltered / pageSize)),
     status: {
       configured: isSapConfigured(s),
-      count: await prisma.item.count(),
-      lastSyncAt: await lastSyncAt(),
+      count: await prisma.item.count({ where: dbScope }),
+      lastSyncAt: await lastSyncAt(dbId),
       progress: getProgress('items'),
     },
   })
@@ -98,13 +108,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền đồng bộ mặt hàng' }, { status: 403 })
   }
 
-  const s = await loadSapSettings()
+  const s = await loadSapSettings(user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json(
       { error: 'Chưa cấu hình SAP B1 Service Layer — hãy vào Cài đặt SAP B1 nhập URL, CompanyDB, tài khoản trước khi đồng bộ.' },
       { status: 400 },
     )
   }
+  const syncDbId = s.dbId! // isSapConfigured đảm bảo s.dbId tồn tại
 
   // Khóa chống song song: 1 thực thể chỉ chạy 1 lượt đồng bộ tại 1 thời điểm
   if (!startSync('items')) {
@@ -129,6 +140,7 @@ export async function POST(req: NextRequest) {
       const payload = rows.map((it) => {
         const price = it.ItemPrices?.find((p) => numv(p.PriceList) === 1)?.Price
         return {
+          sapDatabaseId: syncDbId,
           itemCode: it.ItemCode,
           itemName: it.ItemName ?? it.ItemCode,
           uom: it.SalesUnit || it.InventoryUOM || '',
@@ -143,7 +155,7 @@ export async function POST(req: NextRequest) {
       updateSync('items', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} mặt hàng vào CSDL…`, total: payload.length, processed: 0 })
       // Mirror trọn vẹn: bảng local phản ánh đúng danh mục Sales Item hiện tại trên SAP
       await prisma.$transaction(async (tx) => {
-        await tx.item.deleteMany()
+        await tx.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
         // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
         for (let i = 0; i < payload.length; i += 500) {
           await tx.item.createMany({ data: payload.slice(i, i + 500) })
@@ -151,8 +163,8 @@ export async function POST(req: NextRequest) {
         }
       })
 
-      // Cache autocomplete chứa dữ liệu cũ — ép tải lại
-      clearItemsCache()
+      // Cache autocomplete chứa dữ liệu cũ — ép tải lại (theo DB)
+      clearItemsCache(syncDbId)
       endSync('items', { message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} mặt hàng bán được từ SAP B1.`, processed: payload.length })
     } catch (e) {
       console.error('POST /api/items/sync (nền)', e)
@@ -175,7 +187,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xóa dữ liệu đồng bộ' }, { status: 403 })
   }
 
-  await prisma.item.deleteMany()
-  clearItemsCache()
+  const s = await loadSapSettings(user.databaseId)
+  const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
+  await prisma.item.deleteMany({ where: dbScope })
+  clearItemsCache(s?.dbId)
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu mặt hàng đã đồng bộ.' })
 }

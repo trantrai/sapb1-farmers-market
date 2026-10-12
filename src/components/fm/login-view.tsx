@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { User, Lock } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { User, Lock, Database } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 
 type LoginUser = SessionUser & { token: string }
@@ -10,11 +10,32 @@ interface Props {
   onLogin: (user: LoginUser) => void
 }
 
+interface DbOption {
+  id: string
+  label: string
+  isDefault: boolean
+}
+
 export default function LoginView({ onLogin }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [dbs, setDbs] = useState<DbOption[]>([])
+  const [databaseId, setDatabaseId] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Danh sách database SAP để chọn khi đăng nhập (public endpoint)
+  useEffect(() => {
+    fetch('/api/auth/databases')
+      .then((r) => r.json())
+      .then((j: { databases?: DbOption[] }) => {
+        const list = j.databases ?? []
+        setDbs(list)
+        const def = list.find((d) => d.isDefault) ?? list[0]
+        if (def) setDatabaseId(def.id)
+      })
+      .catch(() => { /* không có database → đăng nhập không chọn DB */ })
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,7 +45,7 @@ export default function LoginView({ onLogin }: Props) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, databaseId: databaseId || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -96,6 +117,29 @@ export default function LoginView({ onLogin }: Props) {
               <Lock size={15} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
             </div>
           </div>
+
+          {dbs.length > 1 && (
+            <div className="fm-field">
+              <label className="fm-label" htmlFor="database">Database SAP B1</label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  id="database"
+                  className="fm-input"
+                  style={{ paddingLeft: 34, appearance: 'auto' }}
+                  value={databaseId}
+                  onChange={(e) => setDatabaseId(e.target.value)}
+                  aria-label="Chọn database SAP B1"
+                >
+                  {dbs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}{d.isDefault ? ' (mặc định)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <Database size={15} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
+              </div>
+            </div>
+          )}
 
           <button type="submit" className="fm-login__submit" disabled={loading}>
             {loading ? 'Đang xử lý…' : 'Đăng nhập hệ thống →'}
