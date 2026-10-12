@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import Autocomplete, { ACOption } from './autocomplete'
 import { formatVND, formatNum } from '@/lib/fm-shared'
@@ -123,6 +123,59 @@ export default function OrderFormView({
   // ---- Nhập từ Excel ----
   const fileRef = useRef<HTMLInputElement>(null)
   const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // ---- Gợi ý mặt hàng theo lịch sử mua hàng của khách ----
+  interface SuggestItem {
+    itemCode: string
+    itemName: string
+    orderCount: number
+    totalQty: number
+    lastPrice: number
+    lastDate: string
+    uom?: string
+    taxCode?: string
+    warehouseCode?: string
+  }
+  const [suggests, setSuggests] = useState<SuggestItem[]>([])
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const [suggestOpen, setSuggestOpen] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    const code = partner?.code
+    if (!code) { setSuggests([]); return }
+    setSuggestLoading(true)
+    api(`/api/orders/suggest-items?cardCode=${encodeURIComponent(code)}`)
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        if (!cancelled && res.ok && json.ok) setSuggests(json.data ?? [])
+        else if (!cancelled) setSuggests([])
+      })
+      .catch(() => { if (!cancelled) setSuggests([]) })
+      .finally(() => { if (!cancelled) setSuggestLoading(false) })
+    return () => { cancelled = true }
+  }, [partner?.code])
+
+  const addSuggested = (s: SuggestItem) => {
+    const key = nextKey()
+    const line: DraftLine = {
+      key,
+      item: { code: s.itemCode, name: s.itemName } as ACOption,
+      quantity: 1,
+      unitPrice: s.lastPrice || 0,
+      discPct: 0,
+      vatPct: 8,
+      uom: s.uom,
+      taxCode: s.taxCode,
+      warehouseCode: s.warehouseCode || headerWh || undefined,
+    }
+    setLines((ls) => {
+      const hasData = ls.some((l) => l.item)
+      return hasData ? [...ls, line] : [line]
+    })
+    void resolvePrice(key, s.itemCode, partner?.code ?? null)
+    void checkAtp(key, s.itemCode, line.warehouseCode)
+  }
 
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -549,6 +602,53 @@ export default function OrderFormView({
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ShoppingBasket size={18} /> Bước 2 — Hàng hóa
         </h2>
+
+        {/* Gợi ý mặt hàng theo lịch sử mua hàng của khách */}
+        {partner?.code && (suggestLoading || suggests.length > 0) && (
+          <div style={{ marginBottom: 14, border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', background: 'var(--fm-cream)', padding: '10px 12px' }}>
+            <button
+              type="button"
+              onClick={() => setSuggestOpen((v) => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--fm-text)', padding: 0, width: '100%', textAlign: 'left' }}
+            >
+              <Sparkles size={15} style={{ color: 'var(--fm-primary)' }} />
+              Gợi ý theo lịch sử mua hàng
+              {suggestLoading
+                ? <span style={{ fontWeight: 400, color: 'var(--fm-text-2)' }}> — đang tải…</span>
+                : <span className="fm-chip fm-chip--role" style={{ marginLeft: 4 }}>{suggests.length} mặt hàng</span>}
+              <span style={{ marginLeft: 'auto', color: 'var(--fm-text-2)' }}>
+                {suggestOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </span>
+            </button>
+            {suggestOpen && !suggestLoading && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                {suggests.map((s) => (
+                  <div
+                    key={s.itemCode}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--fm-surface)', border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', padding: '6px 8px 6px 10px', maxWidth: 320 }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.itemName}>
+                        {s.itemName}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>
+                        {s.itemCode} · đã mua {s.orderCount} lần
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="fm-btn fm-btn--secondary fm-btn--sm"
+                      onClick={() => addSuggested(s)}
+                      title={`Thêm ${s.itemName} vào đơn`}
+                    >
+                      <Plus size={12} /> Thêm
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
           <table className="fm-table fm-stack-table">

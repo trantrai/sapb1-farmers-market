@@ -143,6 +143,9 @@ model AppSettings {
   sslSkipVerify   Boolean   @default(false) // Bỏ qua xác thực chứng chỉ SSL (self-signed)
   connected       Boolean   @default(false)
   lastSyncAt      DateTime?
+  // --- Gợi ý mặt hàng theo lịch sử đơn hàng ---
+  suggestHistoryDays Int    @default(90) // Khoảng thời gian lịch sử (ngày)
+  suggestMaxItems    Int    @default(10) // Số mặt hàng gợi ý tối đa
   updatedAt       DateTime  @updatedAt
 }
 

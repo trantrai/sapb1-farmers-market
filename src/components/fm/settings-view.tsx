@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { PlugZap, Save, Link2 } from 'lucide-react'
+import { PlugZap, Save, Link2, Sparkles } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 
@@ -14,6 +14,8 @@ interface SettingsData {
   sslSkipVerify: boolean
   connected: boolean
   lastSyncAt: string | null
+  suggestHistoryDays: number
+  suggestMaxItems: number
 }
 
 export default function SettingsView({ canEdit }: { canEdit: boolean }) {
@@ -160,6 +162,47 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               Vai trò của bạn chỉ được xem cài đặt
             </span>
           )}
+        </div>
+      </div>
+
+      {/* Gợi ý mặt hàng theo lịch sử đơn hàng */}
+      <div className="fm-card">
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Sparkles size={18} /> Gợi ý mặt hàng theo lịch sử mua hàng
+        </h2>
+        <div className="fm-form-grid">
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-suggest-days">Khoảng thời gian lịch sử (ngày)</label>
+            <input
+              id="fm-suggest-days"
+              type="number"
+              className="fm-input"
+              min={7}
+              max={365}
+              value={s.suggestHistoryDays ?? 90}
+              onChange={(e) => update({ suggestHistoryDays: Math.min(365, Math.max(7, Number(e.target.value) || 90)) })}
+              disabled={!canEdit}
+            />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-suggest-max">Số mặt hàng gợi ý tối đa</label>
+            <input
+              id="fm-suggest-max"
+              type="number"
+              className="fm-input"
+              min={1}
+              max={50}
+              value={s.suggestMaxItems ?? 10}
+              onChange={(e) => update({ suggestMaxItems: Math.min(50, Math.max(1, Number(e.target.value) || 10)) })}
+              disabled={!canEdit}
+            />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy !== null}>
+            <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+            {busy === 'save' ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
         </div>
       </div>
     </div>

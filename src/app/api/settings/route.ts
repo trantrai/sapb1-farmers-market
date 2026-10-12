@@ -33,9 +33,19 @@ export async function PUT(req: NextRequest) {
       serviceLayerUrl?: string; companyDb?: string; sapUser?: string
       sapPassword?: string
       sslSkipVerify?: boolean
+      suggestHistoryDays?: number
+      suggestMaxItems?: number
     }
 
     const existing = await prisma.appSettings.findUnique({ where: { id: 'main' } })
+    const clampDays = (v: unknown, fallback: number) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? Math.min(365, Math.max(7, Math.round(n))) : fallback
+    }
+    const clampMax = (v: unknown, fallback: number) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? Math.min(50, Math.max(1, Math.round(n))) : fallback
+    }
     const data = {
       serviceLayerUrl: serviceLayerUrl ?? existing?.serviceLayerUrl ?? '',
       companyDb: companyDb ?? existing?.companyDb ?? '',
@@ -50,6 +60,9 @@ export async function PUT(req: NextRequest) {
         typeof body.sslSkipVerify === 'boolean'
           ? (body as { sslSkipVerify: boolean }).sslSkipVerify
           : existing?.sslSkipVerify ?? false,
+      // Gợi ý mặt hàng theo lịch sử đơn hàng
+      suggestHistoryDays: clampDays(body.suggestHistoryDays, existing?.suggestHistoryDays ?? 90),
+      suggestMaxItems: clampMax(body.suggestMaxItems, existing?.suggestMaxItems ?? 10),
     }
 
     const saved = await prisma.appSettings.upsert({
