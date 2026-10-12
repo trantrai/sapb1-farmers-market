@@ -1,0 +1,706 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw } from 'lucide-react'
+import Autocomplete, { ACOption } from './autocomplete'
+import { formatVND, formatNum } from '@/lib/fm-shared'
+import { calcOrderLines } from '@/lib/order-calc'
+import { api } from '@/lib/fm-client'
+
+interface DraftLine {
+  key: number
+  item: ACOption | null
+  quantity: number
+  unitPrice: number
+  discPct: number
+  vatPct: number
+  /** 'special' = giá đặc biệt theo khách hàng (OSPP); 'pricelist' = Price List 1 */
+  priceSource?: string
+  /** Mã nhóm thuế SAP (SalesVATGroup, vd S1/S2/S8) — tự điền khi chọn mặt hàng, đi kèm khi đẩy đơn sang SAP B1 */
+  taxCode?: string
+  /** Đơn vị tính (SalesUnit) — tự điền khi chọn mặt hàng */
+  uom?: string
+  /** Kho xuất của dòng (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng */
+  warehouseCode?: string
+  /** CHẾ ĐỘ SỬA ĐƠN: id dòng local (đơn local) hoặc LineNum trên SAP (đơn SAP) */
+  dbId?: string
+  sapLineNum?: number
+}
+
+// ---------- Chế độ SỬA đơn hàng đang Open ----------
+export interface EditOrderLine {
+  /** id bản ghi SalesOrderLine local (đơn local) */
+  dbId?: string
+  /** LineNum trên SAP B1 (đơn đã synced — lấy từ chi tiết SL) */
+  sapLineNum?: number
+  itemCode: string
+  itemName: string
+  uom?: string
+  warehouseCode?: string
+  quantity: number
+  unitPrice: number
+  discPct?: number
+  vatPct?: number
+  taxCode?: string
+}
+export interface EditOrderData {
+  id: string
+  docNum: number
+  cardCode: string
+  cardName: string
+  docDate: string
+  docDueDate: string
+  status: string
+  remarks: string | null
+  warehouseCode?: string | null
+  /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
+  headerDiscPct?: number
+  sapSyncStatus?: string
+  lines: EditOrderLine[]
+}
+
+// ---------- ATP check (tồn kho khả dụng từ SAP B1 /InventoryItems) ----------
+interface StockRow {
+  warehouseCode: string
+  warehouseName?: string
+  inStock: number
+  committed: number
+  onOrder: number
+  /** ATP = Tồn − đã cam kết + đang đặt */
+  available: number
+}
+interface AtpState {
+  status: 'loading' | 'ok' | 'error'
+  error?: string
+  source?: string
+  warehouses?: StockRow[]
+  totals?: { inStock: number; committed: number; onOrder: number; available: number }
+  selected?: StockRow | null
+}
+
+const clampPct = (n: number) => Math.min(100, Math.max(0, Number.isFinite(n) ? n : 0))
+
+let keyCounter = 0
+const nextKey = () => ++keyCounter
+
+export default function OrderFormView({
+  onSaved,
+  editOrder,
+  onCancel,
+}: {
+  onSaved: (result: { docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
+  /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
+  editOrder?: EditOrderData | null
+  /** Nút hủy ở chế độ sửa → quay lại danh sách */
+  onCancel?: () => void
+}) {
+  const [partner, setPartner] = useState<ACOption | null>(null)
+  const [partnerErr, setPartnerErr] = useState('')
+  const [docDate, setDocDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [docDueDate, setDocDueDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 5)
+    return d.toISOString().slice(0, 10)
+  })
+  const [remarks, setRemarks] = useState('')
+
+  // Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng
+  const [warehouses, setWarehouses] = useState<{ warehouseCode: string; warehouseName: string }[]>([])
+  const [headerWh, setHeaderWh] = useState('')
+  /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) — áp cho toàn đơn */
+  const [headerDiscPct, setHeaderDiscPct] = useState(0)
+  const [atp, setAtp] = useState<Record<number, AtpState>>({})
+
+  const [lines, setLines] = useState<DraftLine[]>([
+    { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 },
+  ])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [fieldErr, setFieldErr] = useState<Record<number, string>>({})
+  const isEdit = Boolean(editOrder)
+
+  // ---- Điền sẵn dữ liệu đơn khi vào chế độ SỬA ----
+  useEffect(() => {
+    if (!editOrder) return
+    setPartner({ code: editOrder.cardCode, name: editOrder.cardName })
+    setDocDate((editOrder.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setDocDueDate((editOrder.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setRemarks(editOrder.remarks ?? '')
+    setHeaderWh(editOrder.warehouseCode ?? '')
+    setHeaderDiscPct(editOrder.headerDiscPct ?? 0)
+    const prefilled: DraftLine[] = editOrder.lines.map((l) => ({
+      key: nextKey(),
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      discPct: l.discPct ?? 0,
+      vatPct: l.vatPct ?? 0,
+      taxCode: l.taxCode || undefined,
+      uom: l.uom || undefined,
+      warehouseCode: l.warehouseCode || editOrder.warehouseCode || undefined,
+      priceSource: 'manual', // không tự giải lại giá khi sửa đơn — giữ nguyên số liệu gốc
+      dbId: l.dbId,
+      sapLineNum: l.sapLineNum,
+    }))
+    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setAtp({})
+    setError('')
+    setPartnerErr('')
+    setFieldErr({})
+    // Kiểm tra ATP cho các dòng đã điền
+    for (const l of prefilled) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
+  }, [editOrder])
+
+  const totals = useMemo(() => {
+    // Dùng đúng bộ tính toán của máy chủ (order-calc) để số trên màn hình
+    // khớp TỪNG ĐỒNG với số lưu khi bấm Lưu: CK dòng → CK đầu chứng từ
+    // (phân bổ về dòng) → VAT
+    const calc = calcOrderLines(
+      lines
+        .filter((l) => l.item && l.quantity > 0)
+        .map((l) => ({
+          itemCode: l.item!.code,
+          itemName: l.item!.name,
+          uom: l.uom || '',
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discPct: l.discPct,
+          vatPct: l.vatPct,
+        })),
+      headerDiscPct,
+    )
+    const totalBeforeDisc = calc.reduce((s, l) => s + l.lineTotal, 0)
+    const discountAmt = calc.reduce((s, l) => s + l.discAmt, 0)
+    const headerDiscAmt = calc.reduce((s, l) => s + l.headerDiscAmt, 0)
+    const vatAmt = calc.reduce((s, l) => s + l.vatAmt, 0)
+    const afterDisc = totalBeforeDisc - discountAmt - headerDiscAmt
+    return { totalBeforeDisc, discountAmt, headerDiscAmt, afterDisc, vatAmt, grand: afterDisc + vatAmt }
+  }, [lines, headerDiscPct])
+
+  const updateLine = (key: number, patch: Partial<DraftLine>) => {
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+    setFieldErr((fe) => ({ ...fe, [key]: '' }))
+  }
+  const addLine = () =>
+    setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
+  const removeLine = (key: number) =>
+    setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls))
+
+  // ---- Kho hàng xuất bán: tải danh sách kho (GET /Warehouses qua /api/warehouses) ----
+  useEffect(() => {
+    let cancelled = false
+    api('/api/warehouses')
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return
+        if (Array.isArray(j?.data) && j.data.length > 0) {
+          setWarehouses(j.data)
+          setHeaderWh((cur) => cur || j.data[0].warehouseCode) // mặc định chọn kho đầu tiên
+        }
+      })
+      .catch(() => {
+        /* chưa cấu hình SAP / lỗi mạng — để trống, user vẫn nhập đơn được */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Đổi kho trên header → áp dụng cho TẤT CẢ dòng hàng + kiểm tra lại ATP
+  const applyHeaderWarehouse = (code: string) => {
+    setHeaderWh(code)
+    setLines((ls) => {
+      ls.forEach((l) => {
+        if (l.item) void checkAtp(l.key, l.item.code, code)
+      })
+      return ls.map((l) => ({ ...l, warehouseCode: code || undefined }))
+    })
+  }
+
+  // ---- ATP check: tồn kho khả dụng của mặt hàng (theo kho của dòng nếu có) ----
+  const checkAtp = async (key: number, itemCode: string, whCode?: string) => {
+    setAtp((m) => ({ ...m, [key]: { status: 'loading' } }))
+    try {
+      const qs = new URLSearchParams({ itemCode })
+      if (whCode) qs.set('warehouseCode', whCode)
+      const res = await api(`/api/items/stock?${qs.toString()}`)
+      const json = await res.json()
+      if (json?.ok) {
+        setAtp((m) => ({
+          ...m,
+          [key]: { status: 'ok', source: json.source, warehouses: json.warehouses, totals: json.totals, selected: json.selected ?? null },
+        }))
+      } else {
+        setAtp((m) => ({ ...m, [key]: { status: 'error', error: json?.error ?? 'Không kiểm tra được tồn kho' } }))
+      }
+    } catch {
+      setAtp((m) => ({ ...m, [key]: { status: 'error', error: 'Không thể kết nối máy chủ' } }))
+    }
+  }
+
+  // Giải đơn giá theo quy tắc: GIÁ ĐẶC BIỆT theo Mặt hàng + Khách hàng (OSPP) →
+  // tìm thấy thì dùng; không tìm thấy → giá từ Price List 1 (source 'special' | 'pricelist')
+  const resolvePrice = async (key: number, itemCode: string, cardCode: string | null) => {
+    try {
+      const qs = new URLSearchParams({ itemCode })
+      if (cardCode) qs.set('cardCode', cardCode)
+      const res = await api(`/api/items/price?${qs.toString()}`)
+      const json = await res.json()
+      if (json?.ok && typeof json.price === 'number' && json.price > 0) {
+        setLines((ls) =>
+          ls.map((l) =>
+            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source } : l,
+          ),
+        )
+      }
+    } catch {
+      /* giữ nguyên đơn giá hiện tại */
+    }
+  }
+
+  const save = async () => {
+    setError('')
+    setPartnerErr('')
+    if (!partner) { setPartnerErr('Vui lòng chọn khách hàng từ danh sách'); return }
+    const valid = lines.filter((l) => l.item && l.quantity > 0)
+    if (valid.length === 0) {
+      setError('Đơn hàng cần ít nhất 1 dòng hàng hóa có mã hàng và số lượng > 0')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const payload = {
+        cardCode: partner.code,
+        cardName: partner.name,
+        docDate,
+        docDueDate,
+        remarks,
+        warehouseCode: headerWh || undefined,
+        headerDiscPct: clampPct(headerDiscPct),
+        lines: valid.map((l) => ({
+          ...(isEdit ? { dbId: l.dbId, sapLineNum: l.sapLineNum } : {}),
+          itemCode: l.item!.code,
+          itemName: l.item!.name,
+          uom: l.uom?.trim() || l.item!.uom?.trim() || 'kg',
+          taxCode: l.taxCode || l.item!.taxCode || undefined,
+          warehouseCode: l.warehouseCode || headerWh || undefined,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discPct: clampPct(l.discPct),
+          vatPct: clampPct(l.vatPct),
+        })),
+      }
+      const res = await api(isEdit ? `/api/orders/${editOrder!.id}` : '/api/orders', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? (isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể tạo đơn hàng'))
+        return
+      }
+      const o = json.order
+      onSaved({
+        docNum: o.docNum,
+        sapStatus: o.sapSyncStatus ?? 'none',
+        sapDocNum: o.sapDocNum ?? null,
+        sapError: o.sapSyncError ?? null,
+      })
+    } catch {
+      setError('Không thể kết nối máy chủ')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ---- ATP helpers: chọn dòng tồn kho tương ứng + tooltip chi tiết ----
+  const pickAtpRow = (info: AtpState | undefined, l: DraftLine, headerWhCode: string): StockRow | null => {
+    if (!info || info.status !== 'ok') return null
+    if (info.selected) return info.selected
+    const wh = l.warehouseCode || headerWhCode
+    if (wh && info.warehouses) {
+      const f = info.warehouses.find((w) => w.warehouseCode === wh)
+      if (f) return f
+    }
+    return info.totals
+      ? { warehouseCode: '', ...info.totals }
+      : info.warehouses?.[0] ?? null
+  }
+  const atpTooltip = (info: AtpState | undefined, row: StockRow): string => {
+    const perWh = (info?.warehouses ?? []).map(
+      (w) => `Kho ${w.warehouseCode || '(local)'}: Tồn ${formatNum(w.inStock)} · Cam kết ${formatNum(w.committed)} · Đang về ${formatNum(w.onOrder)} → ATP ${formatNum(w.available)}`,
+    )
+    const tot = info?.totals
+    const totalTxt = tot
+      ? `Tổng: Tồn ${formatNum(tot.inStock)} · Cam kết ${formatNum(tot.committed)} · Đang về ${formatNum(tot.onOrder)} → ATP ${formatNum(tot.available)}`
+      : ''
+    return [
+      `Kho đang xét ${row.warehouseCode ? row.warehouseCode : '(mặc định SAP)'} — ATP = Tồn kho − Đã cam kết + Đang đặt hàng`,
+      ...perWh,
+      totalTxt,
+    ].filter(Boolean).join('\n')
+  }
+
+  return (
+    <div>
+      {error && (
+        <div className="fm-alert fm-alert--error" role="alert">
+          <div><b>{isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể lưu đơn hàng'}</b>{error}</div>
+        </div>
+      )}
+
+      {isEdit && editOrder && (
+        <div className="fm-alert fm-alert--success" style={{ marginBottom: 14 }}>
+          <div>
+            <b>Đang sửa Sale Order #{editOrder.docNum}</b>
+            {editOrder.sapSyncStatus === 'synced'
+              ? ' — Lưu thay đổi sẽ cập nhật trực tiếp chứng từ trên SAP B1 (PATCH /Orders). Chỉ được sửa khi chứng từ còn Open trên SAP.'
+              : ' — Đơn chưa đẩy sang SAP B1, lưu thay đổi chỉ áp dụng trên hệ thống này.'}
+          </div>
+        </div>
+      )}
+
+      {/* Bước 1 — Khách hàng & thông tin chung */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ShoppingCart size={18} /> {isEdit ? `Cập nhật đơn hàng #${editOrder?.docNum}` : 'Bước 1 — Thông tin chung'}
+        </h2>
+        <p className="fm-card__desc">Chọn khách hàng từ danh sách Business Partner (OCTR) và ngày chứng từ.</p>
+
+        <div className="fm-form-grid">
+          <Autocomplete
+            label="Khách hàng (CardCode)"
+            required
+            placeholder="Gõ mã KH hoặc tên KH…"
+            fetchUrl="/api/partners"
+            value={partner}
+            onChange={(v) => {
+              setPartner(v)
+              setPartnerErr('')
+              // đổi khách hàng → tính lại giá (đặc biệt → bảng giá) cho các dòng chưa sửa giá tay
+              if (v) for (const line of lines) if (line.item && line.priceSource !== 'manual') void resolvePrice(line.key, line.item.code, v.code)
+            }}
+            error={partnerErr || undefined}
+          />
+          <div className="fm-field">
+            <label className="fm-label">Ngày chứng từ <span className="fm-label__req">*</span></label>
+            <input type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label">Ngày giao hàng <span className="fm-label__req">*</span></label>
+            <input type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" title="Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng ở Bước 2">Kho hàng xuất bán</label>
+            <select
+              className="fm-input"
+              value={headerWh}
+              onChange={(e) => applyHeaderWarehouse(e.target.value)}
+              disabled={warehouses.length === 0}
+            >
+              {warehouses.length === 0 && <option value="">— (chưa có danh sách kho)</option>}
+              <option value="">— Theo mặc định SAP —</option>
+              {warehouses.map((w) => (
+                <option key={w.warehouseCode} value={w.warehouseCode}>
+                  {w.warehouseCode} · {w.warehouseName}
+                </option>
+              ))}
+            </select>
+            <div className="fm-hint">Tải trực tiếp từ SAP B1 (OWHS) — đổi kho sẽ áp dụng cho mọi dòng hàng.</div>
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" title="Chiết khấu áp dụng cho TOÀN BỘ chứng từ (SAP: Documents.DiscountPercent) — tính trên tiền sau chiết khấu các dòng, trước thuế">
+              Chiết khấu đầu chứng từ (%)
+            </label>
+            <input
+              type="number"
+              className="fm-input"
+              min={0}
+              max={100}
+              step="any"
+              placeholder="0"
+              value={headerDiscPct || ''}
+              onChange={(e) => setHeaderDiscPct(clampPct(Number(e.target.value)))}
+            />
+            <div className="fm-hint">CK cấp đơn — phân bổ về từng dòng trước khi tính VAT từng dòng.</div>
+          </div>
+        </div>
+
+        <div className="fm-field">
+          <label className="fm-label">Ghi chú</label>
+          <textarea className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          <div className="fm-hint">Ghi chú sẽ được lưu vào trường Comments của chứng từ SAP B1.</div>
+        </div>
+      </div>
+
+      {/* Bước 2 — Dòng hàng hóa (CK% + VAT% theo từng dòng) */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ShoppingBasket size={18} /> Bước 2 — Hàng hóa
+        </h2>
+        <p className="fm-card__desc">
+          Mỗi dòng tương ứng 1 bản ghi trong bảng RDR1. Nhập số lượng, đơn giá, <b>chiết khấu %</b> và{' '}
+          <b>thuế suất VAT %</b> riêng cho từng mặt hàng. Danh sách chỉ tải khi gõ tối thiểu 2 ký tự (tìm trực tiếp trên SAP B1).
+        </p>
+
+        <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
+          <table className="fm-table fm-stack-table">
+            <thead>
+              <tr>
+                <th style={{ width: 34 }}>#</th>
+                <th style={{ minWidth: 230 }}>Hàng hóa (ItemCode)</th>
+                <th style={{ width: 96 }}>Số lượng</th>
+                <th style={{ width: 78 }}>Đơn vị tính</th>
+                <th style={{ width: 86 }} title="Kho hàng xuất bán (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng">Kho</th>
+                <th style={{ width: 128 }} title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt. Tự kiểm tra sau khi chọn mặt hàng">Tồn kho (ATP)</th>
+                <th style={{ width: 132 }}>Đơn giá (₫)</th>
+                <th style={{ width: 92 }} title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
+                <th style={{ width: 88 }} title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">Mã thuế</th>
+                <th style={{ width: 92 }} title="Thuế suất VAT áp dụng riêng cho dòng này — tự điền theo mã thuế">VAT (%)</th>
+                <th className="fm-num" style={{ minWidth: 128 }}>Sau CK (₫)</th>
+                <th style={{ width: 44 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l, idx) => {
+                const invalid = Boolean(fieldErr[l.key])
+                const lineTotal = l.quantity * l.unitPrice
+                const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
+                const afterDisc = lineTotal - discAmt
+                return (
+                  <tr key={l.key} className={l.item ? '' : 'is-draft'}>
+                    <td data-label="Dòng">{idx + 1}</td>
+                    <td data-label="Hàng hóa (ItemCode)" data-full>
+                      <Autocomplete
+                        label=""
+                        placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
+                        fetchUrl="/api/items"
+                        minChars={2}
+                        minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
+                        value={l.item}
+                        onChange={(v) => {
+                          // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
+                          // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
+                          const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
+                          const wh = l.warehouseCode || headerWh || undefined
+                          updateLine(l.key, {
+                            item: v,
+                            unitPrice: v?.price ?? 0,
+                            priceSource: v ? 'pricelist' : undefined,
+                            taxCode: v?.taxCode || undefined,
+                            uom: v?.uom || undefined,
+                            warehouseCode: wh,
+                            ...(vat !== null ? { vatPct: vat } : {}),
+                          })
+                          if (v) {
+                            void resolvePrice(l.key, v.code, partner?.code ?? null)
+                            void checkAtp(l.key, v.code, wh) // ATP check tự động sau khi chọn mặt hàng
+                          }
+                        }}
+                        error={invalid ? 'Chưa chọn hàng hóa' : undefined}
+                      />
+                    </td>
+                    <td data-label="Số lượng">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        className="fm-line-input"
+                        value={l.quantity}
+                        onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) })}
+                      />
+                    </td>
+                    <td data-label="Đơn vị tính">
+                      {l.item ? (
+                        <span className="fm-line-meta" title="Đơn vị tính (SalesUnit) tải từ SAP B1">{l.uom || l.item.uom || '—'}</span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td data-label="Kho">
+                      <select
+                        className="fm-line-select"
+                        value={l.warehouseCode ?? headerWh ?? ''}
+                        title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
+                        disabled={warehouses.length === 0}
+                        onChange={(e) => {
+                          updateLine(l.key, { warehouseCode: e.target.value || undefined })
+                          if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
+                        }}
+                      >
+                        <option value="">—</option>
+                        {warehouses.map((w) => (
+                          <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td data-label="Tồn kho (ATP)">
+                      {!l.item ? (
+                        '—'
+                      ) : (
+                        <div className="fm-atp-cell">
+                          {atp[l.key]?.status === 'loading' && <span className="fm-line-meta">Đang kiểm tra…</span>}
+                          {atp[l.key]?.status === 'error' && (
+                            <span className="fm-line-meta fm-atp--warn" title={atp[l.key]?.error}>Không kiểm tra được</span>
+                          )}
+                          {atp[l.key]?.status === 'ok' && (() => {
+                            const row = pickAtpRow(atp[l.key], l, headerWh)
+                            if (!row) return <span className="fm-line-meta fm-atp--warn" title="SAP không có dữ liệu tồn cho kho này">Không có tồn</span>
+                            const enough = row.available - l.quantity >= 0
+                            return (
+                              <span
+                                className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`}
+                                title={atpTooltip(atp[l.key], row)}
+                              >
+                                {enough ? 'ATP ' : 'Thiếu '}
+                                {formatNum(enough ? row.available : -(row.available - l.quantity))}
+                              </span>
+                            )
+                          })()}
+                          <button
+                            type="button"
+                            className="fm-atp-recheck"
+                            title="Kiểm tra lại tồn kho khả dụng (ATP)"
+                            onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
+                          >
+                            <RefreshCw size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                    <td data-label="Đơn giá (₫)">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <input
+                          type="number"
+                          min={0}
+                          step="1000"
+                          className="fm-line-input"
+                          style={{ flex: 1, minWidth: 0 }}
+                          value={l.unitPrice}
+                          title={l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
+                          onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value), priceSource: l.item ? 'manual' : undefined })}
+                        />
+                        {l.priceSource === 'special' && (
+                          <span className="fm-price-star" title="Giá đặc biệt theo khách hàng (SAP OSPP)">★</span>
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="CK (%)">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="1"
+                        className="fm-line-input fm-line-input--pct"
+                        value={l.discPct}
+                        onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
+                      />
+                    </td>
+                    <td data-label="Mã thuế">
+                      {l.item && l.taxCode ? (
+                        <span className="fm-line-meta" title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>
+                          {l.taxCode}
+                          <small style={{ color: 'var(--fm-text-3)' }}> · {l.vatPct ?? '?'}%</small>
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td data-label="VAT (%)">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="1"
+                        className="fm-line-input fm-line-input--pct"
+                        value={l.vatPct}
+                        onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)) })}
+                      />
+                    </td>
+                    <td className="fm-num" data-label="Sau CK (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
+                    <td data-label="Xóa dòng">
+                      <button className="fm-row-del" title="Xóa dòng" onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <button className="fm-btn fm-btn--dashed fm-btn--sm" style={{ marginTop: 10 }} onClick={addLine}>
+          <Plus size={14} /> Thêm dòng hàng
+        </button>
+        <div className="fm-hint" style={{ marginTop: 6 }}>
+          Cột “Sau CK” = số lượng × đơn giá − chiết khấu (chưa gồm VAT). Sau khi chọn mặt hàng, hệ thống tự tải
+          <b> đơn giá</b> (giá đặc biệt ★ của khách hàng hoặc Price List 1), <b>đơn vị tính</b> (SalesUnit),
+          <b> mã thuế</b> (SalesVATGroup), <b>VAT %</b>, <b>Kho</b> (theo header) và <b>kiểm tra tồn kho ATP</b> —
+          chip xanh = đủ hàng, chip đỏ “Thiếu” = số lượng vượt tồn khả dụng. Mọi cột vẫn chỉnh tay được.
+        </div>
+      </div>
+
+      {/* Bước 3 — Tổng kết */}
+      <div className="fm-card">
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BadgeCheck size={18} /> Bước 3 — Tổng kết
+        </h2>
+        <p className="fm-card__desc">Kiểm tra lại số liệu trước khi lưu chứng từ vào hệ thống.</p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 220px', minWidth: 220 }}>
+            <div className="fm-field">
+              <label className="fm-label">Số dòng hàng hóa</label>
+              <div className="fm-input" style={{ background: 'var(--fm-cream)', color: 'var(--fm-text-2)' }}>
+                {lines.filter((l) => l.item && l.quantity > 0).length} dòng hợp lệ / {lines.length} dòng
+              </div>
+              <div className="fm-hint">
+                Chiết khấu dòng và thuế VAT tính riêng theo từng dòng; chiết khấu ĐẦU CHỨNG TỪ (nếu có, khai ở Bước 1) được phân bổ về từng dòng trước khi tính VAT.
+              </div>
+            </div>
+          </div>
+
+          <div className="fm-totals">
+            <div className="fm-totals__row"><span>Tổng trước chiết khấu</span><b>{formatVND(totals.totalBeforeDisc)}</b></div>
+            <div className="fm-totals__row"><span>Chiết khấu các dòng</span><b>{totals.discountAmt > 0 ? `−${formatVND(totals.discountAmt)}` : formatVND(0)}</b></div>
+            {totals.headerDiscAmt > 0 && (
+              <div className="fm-totals__row"><span>Chiết khấu đầu chứng từ ({headerDiscPct}%)</span><b>−{formatVND(totals.headerDiscAmt)}</b></div>
+            )}
+            <div className="fm-totals__row"><span>Sau chiết khấu</span><b>{formatVND(totals.afterDisc)}</b></div>
+            <div className="fm-totals__row"><span>Thuế VAT các dòng</span><b>{formatVND(totals.vatAmt)}</b></div>
+            <div className="fm-totals__grand"><span>TỔNG CỘNG</span><span>{formatVND(totals.grand)}</span></div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
+            <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+            {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng'}
+          </button>
+          {isEdit ? (
+            <button className="fm-btn fm-btn--ghost" onClick={onCancel} disabled={saving}>
+              Hủy — không lưu thay đổi
+            </button>
+          ) : (
+            <button
+              className="fm-btn fm-btn--ghost"
+              onClick={() => {
+                setPartner(null); setRemarks('')
+                setHeaderDiscPct(0)
+                setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
+                setAtp({})
+                setError('')
+              }}
+              disabled={saving}
+            >
+              Nhập lại
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

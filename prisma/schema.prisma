@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS & AUTH ====================
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String // sha256(password + salt)
+  fullName  String
+  role      String // Admin | KeToan | NhanVien | …
+  active    Boolean  @default(true) // false = vô hiệu hóa, không cho đăng nhập
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==================== MASTER DATA (SAP B1 mirror) ====================
+
+model BusinessPartner {
+  id        String    @id @default(cuid())
+  cardCode  String    @unique // C20001
+  cardName  String
+  address   String?
+  phone     String?
+  email     String?   // EmailAddress (dòng đồng bộ từ SAP B1)
+  groupType String    @default("Khách hàng") // Khách hàng | Nhà cung cấp
+  syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
+}
+
+model VatGroup {
+  id        String    @id @default(cuid())
+  code      String    // OVTG.Code (S1/S2/S8…)
+  category  String    @default("S") // OVTG.Category: S = Bán (output) | P = Mua (input)
+  name      String    @default("") // OVTG.Name
+  rate      Float?    // Thuế suất % hiệu lực hôm nay (nguồn VTG1 /VatGroups_Lines)
+  syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
+
+  @@unique([code, category]) // 1 mã thuế có 2 dòng S/P (có thể khác suất)
+}
+
+model Item {
+  id        String    @id @default(cuid())
+  itemCode  String    @unique // FM-RAU-001
+  itemName  String
+  uom       String    @default("kg") // Đơn vị tính (SalesUnit / InventoryUOM)
+  price     Float     @default(0) // Đơn giá VND (Price List 1)
+  stock     Float     @default(0) // Tồn kho (QuantityOnStock)
+  category  String?
+  taxCode   String?   // Mã nhóm thuế bán (SalesVATGroup, vd S2/S8)
+  barcode   String?   // Mã vạch (BarCode)
+  syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
+}
+
+// ==================== SALE ORDER ====================
+
+model SalesOrder {
+  id              String           @id @default(cuid())
+  docNum          Int              @unique
+  cardCode        String
+  cardName        String
+  docDate         DateTime
+  docDueDate      DateTime
+  status          String           @default("Open") // Open | Closed
+  remarks         String?
+  warehouseCode   String?          // Kho hàng xuất bán mặc định áp dụng cho các dòng hàng (WarehouseCode)
+  totalBeforeDisc Float            @default(0) // Tổng trước chiết khấu (sum lineTotal)
+  discountAmt     Float            @default(0) // Tổng chiết khấu các dòng
+  headerDiscPct   Float            @default(0) // Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent)
+  headerDiscAmt   Float            @default(0) // Số tiền CK đầu chứng từ sau phân bổ về các dòng
+  vatAmt          Float            @default(0) // Tổng thuế VAT các dòng
+  grandTotal      Float            @default(0) // Tổng cộng (sau CK + VAT)
+  createdBy       String
+  // --- Đồng bộ SAP B1 (POST /Orders → ORDR) ---
+  sapDocEntry     Int?             // DocEntry do SAP B1 cấp khi đẩy thành công
+  sapDocNum       Int?             // DocNum chứng từ trên SAP B1
+  sapSyncStatus   String           @default("none") // none = chưa cấu hình SAP | pending = đẩy chưa thành công | synced = đã đẩy OK
+  sapSyncError    String?          // Lỗi lần đẩy gần nhất (nếu có)
+  sapSyncedAt     DateTime?        // Thời điểm đẩy thành công
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  lines           SalesOrderLine[]
+}
+
+model SalesOrderLine {
+  id         String     @id @default(cuid())
+  orderId    String
+  lineNum    Int
+  itemCode   String
+  itemName   String
+  uom        String     @default("kg")
+  warehouseCode String? // Kho xuất của dòng (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng
+  taxCode    String?    // Mã nhóm thuế SAP (SalesVATGroup) → VatGroup khi đẩy đơn
+  quantity   Float
+  unitPrice  Float
+  lineTotal  Float // Thành tiền trước CK = quantity × unitPrice
+  discPct    Float      @default(0) // Chiết khấu % theo dòng
+  discAmt    Float      @default(0)
+  vatPct     Float      @default(8) // Thuế suất VAT % theo dòng
+  vatAmt     Float      @default(0)
+  grandTotal Float      @default(0) // Sau CK + VAT của dòng
+  order      SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sapLineNum Int?       // LineNum do SAP B1 cấp khi đẩy đơn (PATCH /Orders khi sửa đơn cần LineNum)
+
+  @@index([orderId])
+}
+
+// ==================== SAP SERVICE LAYER AUDIT ====================
+
+// Nhật ký mọi lệnh gọi Service Layer (POST luôn ghi, GET chỉ ghi khi LỖI).
+// Dùng cho màn hình "Service Layer Audit" — xem lỗi và Retry gửi lại payload.
+model SapAuditLog {
+  id            String   @id @default(cuid())
+  method        String // POST | GET
+  path          String // /Orders, /Login, /InventoryItems?... (GET lưu kèm query để Retry)
+  ok            Boolean
+  httpStatus    Int? // mã HTTP của SL (0 = lỗi mạng/timeout)
+  durationMs    Int      @default(0)
+  error         String? // thông báo lỗi tiếng Việt
+  payload       String? // JSON body đã gửi (POST) — để Retry; đã CHE mật khẩu
+  resultSummary String? // tóm tắt kết quả (DocEntry/DocNum/số bản ghi…)
+  retryOf       String? // id của bản ghi gốc nếu đây là lệnh Retry
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ==================== SETTINGS (SAP B1 Service Layer) ====================
+
+model AppSettings {
+  id              String    @id @default("main")
+  serviceLayerUrl String    @default("")
+  companyDb       String    @default("")
+  sapUser         String    @default("")
+  sapPassword     String    @default("")
+  sslSkipVerify   Boolean   @default(false) // Bỏ qua xác thực chứng chỉ SSL (self-signed)
+  connected       Boolean   @default(false)
+  lastSyncAt      DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+// ==================== RBAC ====================
+
+model Role {
+  id          String  @id @default(cuid())
+  name        String  @unique // Admin | KeToan | NhanVien
+  label       String
+  permissions String // JSON: { [module]: { view, create, edit, delete } }
+  builtin     Boolean @default(false)
+}

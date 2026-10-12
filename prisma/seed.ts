@@ -1,0 +1,210 @@
+import { PrismaClient } from '@prisma/client'
+import { createHash } from 'crypto'
+
+const prisma = new PrismaClient()
+
+const SALT = 'fm-salt-2024'
+export function hashPassword(pw: string) {
+  return createHash('sha256').update(pw + SALT).digest('hex')
+}
+
+function d(daysAgo: number) {
+  const dt = new Date()
+  dt.setDate(dt.getDate() - daysAgo)
+  return dt
+}
+function dPlus(daysAgo: number, plus: number) {
+  const dt = d(daysAgo)
+  dt.setDate(dt.getDate() + plus)
+  return dt
+}
+
+async function main() {
+  console.log('🌱 Seeding Farmers Market — SAP B1 SO System...')
+
+  await prisma.salesOrderLine.deleteMany()
+  await prisma.salesOrder.deleteMany()
+  await prisma.businessPartner.deleteMany()
+  await prisma.item.deleteMany()
+  await prisma.user.deleteMany()
+  await prisma.role.deleteMany()
+  await prisma.appSettings.deleteMany()
+
+  // ---------- Users ----------
+  await prisma.user.createMany({
+    data: [
+      { username: 'admin', password: hashPassword('admin123'), fullName: 'Nguyễn Văn Quản', role: 'Admin' },
+      { username: 'ketoan', password: hashPassword('ketoan123'), fullName: 'Trần Thị Kế', role: 'KeToan' },
+      { username: 'nhanvien', password: hashPassword('nhanvien123'), fullName: 'Lê Văn Bán', role: 'NhanVien' },
+      { username: 'kiemke', password: hashPassword('kiemke123'), fullName: 'Phạm Thị Kiểm', role: 'NhanVien' },
+    ],
+  })
+
+  // ---------- Roles (RBAC) ----------
+  const fullPerm = JSON.stringify({
+    orders: { view: true, create: true, edit: true, delete: true },
+    ordersNew: { view: true, create: true, edit: true, delete: true },
+    users: { view: true, create: true, edit: true, delete: true },
+    settings: { view: true, create: true, edit: true, delete: true },
+    roles: { view: true, create: true, edit: true, delete: true },
+  })
+  const accPerm = JSON.stringify({
+    orders: { view: true, create: true, edit: true, delete: false },
+    ordersNew: { view: true, create: true, edit: true, delete: false },
+    users: { view: false, create: false, edit: false, delete: false },
+    settings: { view: true, create: false, edit: false, delete: false },
+    roles: { view: false, create: false, edit: false, delete: false },
+  })
+  const staffPerm = JSON.stringify({
+    orders: { view: true, create: true, edit: false, delete: false },
+    ordersNew: { view: true, create: true, edit: false, delete: false },
+    users: { view: false, create: false, edit: false, delete: false },
+    settings: { view: false, create: false, edit: false, delete: false },
+    roles: { view: false, create: false, edit: false, delete: false },
+  })
+  await prisma.role.createMany({
+    data: [
+      { name: 'Admin', label: 'Quản trị viên', permissions: fullPerm, builtin: true },
+      { name: 'KeToan', label: 'Kế toán', permissions: accPerm, builtin: true },
+      { name: 'NhanVien', label: 'Nhân viên bán hàng', permissions: staffPerm, builtin: true },
+    ],
+  })
+
+  // ---------- Business Partners ----------
+  await prisma.businessPartner.createMany({
+    data: [
+      { cardCode: 'C20001', cardName: 'Cửa hàng Rau Sạch Đà Lạt', address: '12 Nguyễn Trãi, Q.1, TP.HCM', phone: '0903123456' },
+      { cardCode: 'C20002', cardName: 'HTX Nông Sản Cửu Long', address: '45 Hòa Bình, Q.7, TP.HCM', phone: '0913888777' },
+      { cardCode: 'C20003', cardName: 'Nhà hàng Cánh Đồng Xanh', address: '78 Láng Hạ, Hà Nội', phone: '0243999111' },
+      { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', address: '230 Võ Văn Tần, Q.3, TP.HCM', phone: '02838452233' },
+      { cardCode: 'C20005', cardName: 'Cơ sở Trứng Gà Ta Hùng', address: '9 Xuân Thủy, Q.2, TP.HCM', phone: '0909777666' },
+      { cardCode: 'C20006', cardName: 'Quầy Gạo ST25 Ông Ba', address: 'Chợ Bình Tây, Q.6, TP.HCM', phone: '0918234567' },
+      { cardCode: 'C20007', cardName: 'Café Mật Ong Highland', address: '56 Trần Phú, Đà Lạt', phone: '02633822448' },
+      { cardCode: 'C20008', cardName: 'Bếp Ăn Lành StrongFit', address: '189 Cách Mạng Tháng 8, Q.10, TP.HCM', phone: '0934555221' },
+      { cardCode: 'C20009', cardName: 'Trường Mầm non Hạt Mầm', address: '34 Đường số 7, Bình Thạnh, TP.HCM', phone: '02835123456' },
+      { cardCode: 'C20010', cardName: 'Khách sạn Farm Village', address: '88 Thảo Điền, TP. Thủ Đức', phone: '0906888999' },
+    ],
+  })
+
+  // ---------- Items ----------
+  await prisma.item.createMany({
+    data: [
+      { itemCode: 'FM-RAU-001', itemName: 'Rau cải ngọt hữu cơ', uom: 'kg', price: 28000, stock: 320, category: 'Rau củ' },
+      { itemCode: 'FM-RAU-002', itemName: 'Cà chua bi Đà Lạt', uom: 'kg', price: 45000, stock: 180, category: 'Rau củ' },
+      { itemCode: 'FM-RAU-003', itemName: 'Cà rốt vàng organic', uom: 'kg', price: 32000, stock: 210, category: 'Rau củ' },
+      { itemCode: 'FM-RAU-004', itemName: 'Xà lách dầu xoai', uom: 'kg', price: 25000, stock: 150, category: 'Rau củ' },
+      { itemCode: 'FM-TRA-001', itemName: 'Trứng gà ta lò', uom: 'hộp (10)', price: 58000, stock: 420, category: 'Trứng & Sữa' },
+      { itemCode: 'FM-TRA-002', itemName: 'Sữa tươi nguyên kem', uom: 'lít', price: 39000, stock: 260, category: 'Trứng & Sữa' },
+      { itemCode: 'FM-GAO-001', itemName: 'Gạo ST25 Ruộng Vàng', uom: 'bao 5kg', price: 185000, stock: 95, category: 'Ngũ cốc' },
+      { itemCode: 'FM-GAO-002', itemName: 'Gạo lứt đỏ hạt ngắn', uom: 'bao 5kg', price: 145000, stock: 60, category: 'Ngũ cốc' },
+      { itemCode: 'FM-MAT-001', itemName: 'Mật ong rừng nguyên chất', uom: 'hũ 500g', price: 220000, stock: 88, category: 'Đặc sản' },
+      { itemCode: 'FM-MAT-002', itemName: 'Mứt dâu tằm Đà Lạt', uom: 'hũ 300g', price: 95000, stock: 130, category: 'Đặc sản' },
+      { itemCode: 'FM-QUA-001', itemName: 'Dâu tây Đà Lạt type 1', uom: 'kg', price: 120000, stock: 74, category: 'Trái cây' },
+      { itemCode: 'FM-QUA-002', itemName: 'Cam sành Vinh loại A', uom: 'kg', price: 35000, stock: 400, category: 'Trái cây' },
+    ],
+  })
+
+  // ---------- Sale Orders ----------
+  type SeedLine = { item: string; qty: number; price: number; disc?: number; vat?: number }
+  const orders: Array<{
+    cardCode: string; cardName: string; daysAgo: number; due: number
+    status: 'Open' | 'Closed'; remarks?: string; disc?: number; vat?: number; lines: SeedLine[]
+  }> = [
+    { cardCode: 'C20001', cardName: 'Cửa hàng Rau Sạch Đà Lạt', daysAgo: 1, due: 4, status: 'Open', remarks: 'Giao buổi sáng trước 7h', disc: 0, vat: 8, lines: [{ item: 'FM-RAU-001', qty: 25, price: 28000 }, { item: 'FM-RAU-002', qty: 12, price: 45000 }, { item: 'FM-RAU-004', qty: 10, price: 25000 }] },
+    { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', daysAgo: 2, due: 5, status: 'Open', disc: 3, vat: 8, lines: [{ item: 'FM-QUA-001', qty: 18, price: 120000 }, { item: 'FM-MAT-002', qty: 20, price: 95000 }, { item: 'FM-TRA-001', qty: 30, price: 58000 }] },
+    { cardCode: 'C20008', cardName: 'Bếp Ăn Lành StrongFit', daysAgo: 3, due: 6, status: 'Open', remarks: 'Hóa đơn VAT công ty', disc: 0, vat: 8, lines: [{ item: 'FM-GAO-001', qty: 8, price: 185000 }, { item: 'FM-TRA-002', qty: 24, price: 39000 }] },
+    { cardCode: 'C20003', cardName: 'Nhà hàng Cánh Đồng Xanh', daysAgo: 4, due: 2, status: 'Open', remarks: 'Khách yêu cầu giao lại sau Tết', disc: 5, vat: 8, lines: [{ item: 'FM-RAU-003', qty: 40, price: 32000 }, { item: 'FM-QUA-002', qty: 60, price: 35000 }, { item: 'FM-RAU-001', qty: 30, price: 28000 }, { item: 'FM-GAO-002', qty: 10, price: 145000 }] },
+    { cardCode: 'C20010', cardName: 'Khách sạn Farm Village', daysAgo: 5, due: 8, status: 'Closed', disc: 0, vat: 8, lines: [{ item: 'FM-MAT-001', qty: 15, price: 220000 }, { item: 'FM-TRA-001', qty: 25, price: 58000 }] },
+    { cardCode: 'C20002', cardName: 'HTX Nông Sản Cửu Long', daysAgo: 6, due: 2, status: 'Open', remarks: 'Chưa xác nhận lịch giao', disc: 2, vat: 8, lines: [{ item: 'FM-QUA-002', qty: 120, price: 35000 }, { item: 'FM-GAO-001', qty: 20, price: 185000 }] },
+    { cardCode: 'C20007', cardName: 'Café Mật Ong Highland', daysAgo: 8, due: 7, status: 'Closed', remarks: 'Đã thanh toán chuyển khoản', disc: 0, vat: 8, lines: [{ item: 'FM-MAT-001', qty: 10, price: 220000 }, { item: 'FM-MAT-002', qty: 15, price: 95000 }] },
+    { cardCode: 'C20005', cardName: 'Cơ sở Trứng Gà Ta Hùng', daysAgo: 9, due: 6, status: 'Closed', disc: 0, vat: 8, lines: [{ item: 'FM-TRA-001', qty: 50, price: 58000 }] },
+    { cardCode: 'C20009', cardName: 'Trường Mầm non Hạt Mầm', daysAgo: 10, due: 5, status: 'Closed', remarks: 'Suất ăn trưa bán trú', disc: 4, vat: 8, lines: [{ item: 'FM-TRA-002', qty: 40, price: 39000 }, { item: 'FM-QUA-002', qty: 45, price: 35000 }, { item: 'FM-RAU-001', qty: 20, price: 28000 }] },
+    { cardCode: 'C20006', cardName: 'Quầy Gạo ST25 Ông Ba', daysAgo: 12, due: 3, status: 'Closed', disc: 0, vat: 8, lines: [{ item: 'FM-GAO-001', qty: 30, price: 185000 }, { item: 'FM-GAO-002', qty: 15, price: 145000 }] },
+    { cardCode: 'C20001', cardName: 'Cửa hàng Rau Sạch Đà Lạt', daysAgo: 14, due: 4, status: 'Closed', disc: 0, vat: 8, lines: [{ item: 'FM-RAU-002', qty: 22, price: 45000 }, { item: 'FM-RAU-003', qty: 15, price: 32000 }] },
+    { cardCode: 'C20008', cardName: 'Bếp Ăn Lành StrongFit', daysAgo: 16, due: 2, status: 'Closed', disc: 0, vat: 8, lines: [{ item: 'FM-RAU-004', qty: 18, price: 25000 }, { item: 'FM-TRA-002', qty: 20, price: 39000 }] },
+    { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', daysAgo: 18, due: 1, status: 'Closed', disc: 3, vat: 8, lines: [{ item: 'FM-QUA-001', qty: 25, price: 120000 }, { item: 'FM-RAU-001', qty: 35, price: 28000 }] },
+    { cardCode: 'C20010', cardName: 'Khách sạn Farm Village', daysAgo: 20, due: 0, status: 'Closed', disc: 5, vat: 8, lines: [{ item: 'FM-MAT-001', qty: 20, price: 220000 }, { item: 'FM-QUA-001', qty: 10, price: 120000 }, { item: 'FM-GAO-002', qty: 12, price: 145000 }] },
+  ]
+
+  const items = await prisma.item.findMany()
+  const itemMap = new Map(items.map((i) => [i.itemCode, i]))
+
+  let docNum = 1001
+  for (const o of orders) {
+    const lineData = o.lines.map((l, idx) => {
+      const it = itemMap.get(l.item)!
+      const lineTotal = l.qty * l.price
+      const discPct = l.disc ?? o.disc ?? 0
+      const vatPct = l.vat ?? o.vat ?? 8
+      const discAmt = Math.round((lineTotal * discPct) / 100)
+      const afterDisc = lineTotal - discAmt
+      const vatAmt = Math.round((afterDisc * vatPct) / 100)
+      return {
+        lineNum: idx + 1,
+        itemCode: it.itemCode,
+        itemName: it.itemName,
+        uom: it.uom,
+        quantity: l.qty,
+        unitPrice: l.price,
+        lineTotal,
+        discPct,
+        discAmt,
+        vatPct,
+        vatAmt,
+        grandTotal: afterDisc + vatAmt,
+      }
+    })
+    const totalBeforeDisc = lineData.reduce((s, l) => s + l.lineTotal, 0)
+    const discountAmt = lineData.reduce((s, l) => s + l.discAmt, 0)
+    const vatAmt = lineData.reduce((s, l) => s + l.vatAmt, 0)
+    const grandTotal = lineData.reduce((s, l) => s + l.grandTotal, 0)
+
+    const created = await prisma.salesOrder.create({
+      data: {
+        docNum: docNum++,
+        cardCode: o.cardCode,
+        cardName: o.cardName,
+        docDate: d(o.daysAgo),
+        docDueDate: dPlus(o.daysAgo, o.due),
+        status: o.status,
+        remarks: o.remarks,
+        totalBeforeDisc,
+        discountAmt,
+        vatAmt,
+        grandTotal,
+        createdBy: 'admin',
+        lines: { create: lineData },
+      },
+    })
+    console.log(`   ✓ SO #${created.docNum} — ${created.cardName}`)
+  }
+
+  // ---------- Settings ----------
+  await prisma.appSettings.create({
+    data: {
+      id: 'main',
+      serviceLayerUrl: 'https://sapb1.farmersmarket.vn:50000/b1s/v1',
+      companyDb: 'FM_LIVE',
+      sapUser: 'manager',
+      sapPassword: hashPassword('sap@2024'),
+      connected: true,
+      lastSyncAt: d(0),
+    },
+  })
+
+  const counts = {
+    users: await prisma.user.count(),
+    roles: await prisma.role.count(),
+    partners: await prisma.businessPartner.count(),
+    items: await prisma.item.count(),
+    orders: await prisma.salesOrder.count(),
+  }
+  console.log('✅ Seed done:', JSON.stringify(counts))
+}
+
+main()
+  .catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
+  .finally(() => prisma.$disconnect())

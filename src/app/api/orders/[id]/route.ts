@@ -1,0 +1,294 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { db as prisma } from '@/lib/db'
+import { getSessionUser, unauthorized } from '@/lib/fm-auth'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { patchOrderToSap } from '@/lib/sap-push-order'
+import { fetchSapOrderDetail } from '@/lib/sap-orders'
+import { calcOrderLines, orderTotals } from '@/lib/order-calc'
+
+type Ctx = { params: Promise<{ id: string }> }
+
+// ---------- GET chi tiết ----------
+export async function GET(req: NextRequest, ctx: Ctx) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+
+  const { id } = await ctx.params
+  const order = await prisma.salesOrder.findUnique({
+    where: { id },
+    include: { lines: { orderBy: { lineNum: 'asc' } } },
+  })
+  if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  return NextResponse.json({ order })
+}
+
+// ---------- PUT : SỬA đơn hàng đang Open ----------
+// Đơn CHƯA đẩy SAP (none/pending) hoặc chưa cấu hình SL → chỉ cập nhật local.
+// Đơn ĐÃ synced → PATCH /Orders(DocEntry) trên Service Layer TRƯỚC (B1S-
+// ReplaceCollectionsOnPatch: dòng có LineNum → cập nhật, dòng mới không
+// LineNum → thêm, dòng bị bỏ → xóa), PATCH thành công mới cập nhật local.
+// PATCH thất bại → KHÔNG lưu local (tránh lệch dữ liệu giữa 2 hệ thống).
+export async function PUT(req: NextRequest, ctx: Ctx) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+  if (!user.permissions.orders?.edit) {
+    return NextResponse.json({ error: 'Bạn không có quyền sửa đơn hàng' }, { status: 403 })
+  }
+
+  const { id } = await ctx.params
+  const body = await req.json().catch(() => null)
+  const {
+    cardCode, cardName, docDate, docDueDate, remarks, warehouseCode,
+    headerDiscPct,
+    lines,
+  } = (body ?? {}) as {
+    cardCode?: string; cardName?: string; docDate?: string; docDueDate?: string
+    remarks?: string
+    warehouseCode?: string
+    /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
+    headerDiscPct?: number
+    lines?: Array<{
+      dbId?: string; sapLineNum?: number
+      itemCode: string; itemName: string; uom: string; quantity: number
+      unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string
+    }>
+  }
+
+  if (!cardCode || !cardName) {
+    return NextResponse.json({ error: 'Vui lòng chọn khách hàng (CardCode)' }, { status: 400 })
+  }
+  if (!docDate || !docDueDate) {
+    return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
+  }
+  const validLines = (lines ?? []).filter((l) => l.itemCode && l.quantity > 0)
+  if (validLines.length === 0) {
+    return NextResponse.json({ error: 'Đơn hàng cần ít nhất 1 dòng hàng hóa hợp lệ' }, { status: 400 })
+  }
+
+  const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
+  const calcLines = calcOrderLines(validLines, headerPct)
+  const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = orderTotals(calcLines)
+
+  // ---------- 0) Đơn lấy TRỰC TIẾP từ SAP B1 (id dạng 'sap-<DocEntry>', chưa có bản ghi local) ----------
+  // Sửa thẳng chứng từ trên Service Layer bằng PATCH /Orders(DocEntry); không
+  // tạo bản ghi local để tránh trùng lặp trong danh sách (danh sách luôn đọc từ SL).
+  if (id.startsWith('sap-')) {
+    const docEntry = Number(id.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: 'DocEntry không hợp lệ' }, { status: 400 })
+    }
+    const s = await loadSapSettings()
+    if (!isSapConfigured(s)) {
+      return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+    }
+    const cur = await fetchSapOrderDetail(s, docEntry)
+    if (!cur.ok || !cur.order) {
+      return NextResponse.json(
+        { error: `Không đọc được chứng từ từ SAP B1 — ${cur.error ?? 'lỗi không rõ'}` },
+        { status: 502 },
+      )
+    }
+    if (cur.order.status !== 'Open') {
+      return NextResponse.json({ error: 'Chỉ có thể sửa đơn hàng đang ở trạng thái Open' }, { status: 400 })
+    }
+    // LineNum của dòng hiện có: ưu tiên sapLineNum lấy từ chi tiết SL khi mở form;
+    // thiếu → khớp theo ItemCode trên chứng từ hiện tại (dòng mới → null = thêm mới)
+    const resolveLn = (itemCode: string, sapLineNum?: number): number | null => {
+      if (typeof sapLineNum === 'number') return sapLineNum
+      return cur.order!.lines.find((l) => l.itemCode === itemCode)?.lineNum ?? null
+    }
+    const res = await patchOrderToSap(s, {
+      docEntry,
+      cardCode,
+      docDate,
+      docDueDate,
+      comments: remarks ?? null,
+      headerDiscPct: headerPct,
+      lines: calcLines.map((l) => {
+        const sub = l as { sapLineNum?: number }
+        return {
+          lineNum: resolveLn(l.itemCode, sub.sapLineNum),
+          itemCode: l.itemCode,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discPct: l.discPct,
+          taxCode: l.taxCode,
+          warehouseCode: l.warehouseCode,
+        }
+      }),
+    })
+    if (res.status !== 'synced') {
+      return NextResponse.json(
+        { error: `Service Layer từ chối cập nhật chứng từ — ${res.error ?? 'lỗi không rõ'}. Chứng từ chưa được thay đổi.` },
+        { status: 502 },
+      )
+    }
+    // Đọc lại chứng từ sau PATCH để trả DocNum/tổng mới nhất cho UI
+    const after = await fetchSapOrderDetail(s, docEntry)
+    return NextResponse.json({
+      ok: true,
+      order: {
+        id,
+        docNum: after.order?.docNum ?? cur.order.docNum,
+        sapSyncStatus: 'synced',
+        sapDocEntry: docEntry,
+        sapDocNum: after.order?.sapDocNum ?? cur.order.sapDocNum,
+        sapSyncError: null,
+      },
+      sap: { status: 'synced' },
+    })
+  }
+
+  const order = await prisma.salesOrder.findUnique({
+    where: { id },
+    include: { lines: { orderBy: { lineNum: 'asc' } } },
+  })
+  if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  if (order.status !== 'Open') {
+    return NextResponse.json({ error: 'Chỉ có thể sửa đơn hàng đang ở trạng thái Open' }, { status: 400 })
+  }
+
+  // ---------- 1) Đơn đã synced → PATCH lên Service Layer trước ----------
+  let patchedInSap = false
+  if (order.sapSyncStatus === 'synced' && order.sapDocEntry != null) {
+    const s = await loadSapSettings()
+    if (isSapConfigured(s)) {
+      // LineNum của dòng hiện có: ưu tiên sapLineNum đã lưu khi đẩy đơn;
+      // thiếu (đơn đẩy trước khi có cột này) → lấy từ chi tiết SL khớp theo vị trí dòng
+      const dbLines = order.lines
+      let slLineNums: number[] = []
+      if (dbLines.some((l) => l.sapLineNum == null)) {
+        const det = await fetchSapOrderDetail(s, order.sapDocEntry)
+        if (det.ok && det.order) slLineNums = [...det.order.lines].sort((a, b) => a.lineNum - b.lineNum).map((l) => l.lineNum)
+      }
+      const resolveLineNum = (sub: { dbId?: string; sapLineNum?: number }): number | null => {
+        if (typeof sub.sapLineNum === 'number') return sub.sapLineNum
+        if (!sub.dbId) return null
+        const idx = dbLines.findIndex((l) => l.id === sub.dbId)
+        if (idx < 0) return null
+        if (dbLines[idx].sapLineNum != null) return dbLines[idx].sapLineNum
+        return slLineNums[idx] ?? null
+      }
+      const res = await patchOrderToSap(s, {
+        docEntry: order.sapDocEntry,
+        cardCode,
+        docDate,
+        docDueDate,
+        comments: remarks ?? null,
+        headerDiscPct: headerPct,
+        lines: calcLines.map((l) => ({
+          lineNum: resolveLineNum(l as { dbId?: string; sapLineNum?: number }),
+          itemCode: l.itemCode,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discPct: l.discPct,
+          taxCode: l.taxCode,
+          warehouseCode: l.warehouseCode,
+        })),
+      })
+      if (res.status !== 'synced') {
+        return NextResponse.json(
+          { error: `Service Layer từ chối cập nhật chứng từ — ${res.error ?? 'lỗi không rõ'}. Đơn hàng chưa được thay đổi.` },
+          { status: 502 },
+        )
+      }
+      patchedInSap = true
+    }
+  }
+
+  // ---------- 2) Cập nhật local (sau khi PATCH SAP thành công, hoặc đơn local-only) ----------
+  const lineNumOf = new Map<string, number | null>()
+  if (patchedInSap) {
+    const dbLines = order.lines
+    for (const l of calcLines) {
+      const sub = l as { dbId?: string; sapLineNum?: number }
+      if (sub.dbId) {
+        const idx = dbLines.findIndex((d) => d.id === sub.dbId)
+        lineNumOf.set(
+          sub.dbId,
+          typeof sub.sapLineNum === 'number' ? sub.sapLineNum : idx >= 0 ? dbLines[idx].sapLineNum : null,
+        )
+      }
+    }
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.salesOrderLine.deleteMany({ where: { orderId: order.id } })
+    return tx.salesOrder.update({
+      where: { id: order.id },
+      data: {
+        cardCode,
+        cardName,
+        docDate: new Date(docDate),
+        docDueDate: new Date(docDueDate),
+        remarks: remarks?.trim() || null,
+        warehouseCode: warehouseCode?.trim() || null,
+        totalBeforeDisc,
+        discountAmt,
+        headerDiscPct: headerPct,
+        headerDiscAmt,
+        vatAmt,
+        grandTotal,
+        ...(patchedInSap ? { sapSyncedAt: new Date(), sapSyncError: null } : {}),
+        lines: {
+          create: calcLines.map((l, i) => ({
+            lineNum: i + 1,
+            itemCode: l.itemCode,
+            itemName: l.itemName,
+            uom: l.uom || 'kg',
+            taxCode: l.taxCode?.trim() || null,
+            warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            lineTotal: l.lineTotal,
+            discPct: l.discPct,
+            discAmt: l.discAmt,
+            vatPct: l.vatPct,
+            vatAmt: l.vatAmt,
+            grandTotal: l.grandTotal,
+            sapLineNum: (l as { dbId?: string }).dbId ? lineNumOf.get((l as { dbId?: string }).dbId as string) ?? null : null,
+          })),
+        },
+      },
+      include: { lines: { orderBy: { lineNum: 'asc' } } },
+    })
+  })
+
+  return NextResponse.json({ ok: true, order: updated, sap: { status: patchedInSap ? 'synced' : order.sapSyncStatus } })
+}
+
+// ---------- PATCH : đóng/mở đơn ----------
+export async function PATCH(req: NextRequest, ctx: Ctx) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+  if (!user.permissions.orders?.edit) {
+    return NextResponse.json({ error: 'Bạn không có quyền sửa đơn hàng' }, { status: 403 })
+  }
+
+  const { id } = await ctx.params
+  const body = await req.json().catch(() => ({}))
+  const status = (body as { status?: string }).status
+  if (status !== 'Open' && status !== 'Closed') {
+    return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
+  }
+
+  const order = await prisma.salesOrder.update({ where: { id }, data: { status } })
+  return NextResponse.json({ ok: true, order })
+}
+
+// ---------- DELETE ----------
+export async function DELETE(req: NextRequest, ctx: Ctx) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+  if (!user.permissions.orders?.delete) {
+    return NextResponse.json({ error: 'Bạn không có quyền xóa đơn hàng' }, { status: 403 })
+  }
+
+  const { id } = await ctx.params
+  try {
+    await prisma.salesOrder.delete({ where: { id } })
+    return NextResponse.json({ ok: true })
+  } catch {
+    return NextResponse.json({ error: 'Không tìm thấy đơn hàng cần xóa' }, { status: 404 })
+  }
+}
