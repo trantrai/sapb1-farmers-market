@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, History } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, History, X } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import OrderPrintView from './order-print-view'
 
 interface OrderLine {
   itemCode: string
@@ -49,6 +50,9 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [partner, setPartner] = useState<{ address?: string; contactPerson?: string; contactPhone?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showPrint, setShowPrint] = useState(false)
+
+  const doPrint = () => window.print()
 
   useEffect(() => {
     let cancelled = false
@@ -108,6 +112,9 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
           <>
             <button className="fm-btn fm-btn--secondary" onClick={onBack}>
               <ArrowLeft size={15} /> Quay lại
+            </button>
+            <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
+              <Printer size={15} /> In đơn hàng
             </button>
             <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
               <Pencil size={15} /> Sửa đơn hàng
@@ -209,16 +216,49 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
         <button className="fm-btn fm-btn--secondary">
           <CloudUpload size={15} /> Đẩy sang SAP B1 ngay
         </button>
-        <button className="fm-btn fm-btn--secondary">
+        <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
           <Printer size={15} /> In phiếu
         </button>
-        <button className="fm-btn fm-btn--secondary">
+        <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
           <Download size={15} /> Xuất PDF
         </button>
         <button className="fm-btn fm-btn--secondary">
           <History size={15} /> Nhật ký
         </button>
       </div>
+
+      {/* Dialog xem trước bản in */}
+      {showPrint && (
+        <div className="fm-backdrop fm-print-hide" onClick={() => setShowPrint(false)}>
+          <div
+            className="fm-modal fm-modal--wide fm-print-preview"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Xem trước bản in"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }} className="fm-print-hide">
+              <h3 style={{ margin: 0, fontSize: 18 }}>Xem trước bản in</h3>
+              <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setShowPrint(false)} aria-label="Đóng">
+                <X size={16} />
+              </button>
+            </div>
+            <OrderPrintView order={order} partner={partner} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }} className="fm-print-hide">
+              <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(false)}>
+                Đóng
+              </button>
+              <button className="fm-btn fm-btn--primary" onClick={doPrint}>
+                <Printer size={15} /> In / Xuất PDF
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--fm-text-2)', marginTop: 12 }} className="fm-print-hide">
+              Bấm "In / Xuất PDF" rồi chọn máy in hoặc "Save as PDF" trong hộp thoại in của trình duyệt.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

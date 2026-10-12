@@ -1204,3 +1204,76 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-conn-banner { font-size: 12.5px; }
   .fm-modal h3 { font-size: 17px !important; }
 }
+
+/* ============================================================
+   16. PRINT — In đơn hàng
+   ============================================================ */
+.fm-print-area { display: none; }
+
+.fm-print__header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  border-bottom: 3px double #0e1c2f; padding-bottom: 12px; margin-bottom: 16px;
+}
+.fm-print__brand { display: flex; gap: 12px; align-items: center; }
+.fm-print__logo {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #fea619; color: #0e1c2f;
+  font-size: 28px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.fm-print__company { font-size: 20px; font-weight: 800; color: #0e1c2f; letter-spacing: .5px; }
+.fm-print__tagline { font-size: 11px; color: #555; }
+.fm-print__title-block { text-align: right; }
+.fm-print__doctitle { font-size: 22px; font-weight: 800; color: #0e1c2f; }
+.fm-print__docnum { font-size: 13px; color: #555; margin-top: 4px; }
+
+.fm-print__info {
+  display: flex; gap: 32px; margin-bottom: 16px;
+  font-size: 13px; line-height: 1.9;
+}
+.fm-print__info-col { flex: 1; }
+
+.fm-print__table {
+  width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 12px;
+}
+.fm-print__table th, .fm-print__table td {
+  border: 1px solid #333; padding: 6px 8px; text-align: left;
+}
+.fm-print__table th {
+  background: #0e1c2f; color: #fff; font-weight: 700;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.fm-print__table .fm-num { text-align: right; font-variant-numeric: tabular-nums; }
+.fm-print__table tfoot td { font-weight: 600; }
+.fm-print__grand td {
+  font-size: 14px; font-weight: 800;
+  background: #fff7e6;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+.fm-print__remarks { font-size: 12.5px; margin-bottom: 24px; }
+
+.fm-print__sign { display: flex; gap: 32px; margin-top: 32px; font-size: 13px; }
+.fm-print__sign-col { flex: 1; text-align: center; }
+.fm-print__sign-date { text-align: right; }
+.fm-print__sign-note { font-size: 11px; color: #777; font-style: italic; margin-top: 48px; }
+
+/* Dialog xem trước bản in */
+.fm-print-preview {
+  max-width: 900px; margin: 0 auto;
+  background: #fff; padding: 32px;
+  border: 1px solid var(--fm-line); border-radius: var(--fm-r-lg);
+}
+.fm-print-preview .fm-print-area { display: block; }
+
+@media print {
+  .fm-sidebar, .fm-header, .fm-print-hide,
+  .fm-pagehead, .fm-bottomnav { display: none !important; }
+  .fm-app { display: block; }
+  .fm-main { margin: 0 !important; }
+  .fm-page { margin: 0 !important; padding: 0 !important; max-width: none !important; }
+  .fm-view > *:not(.fm-print-area) { display: none !important; }
+  .fm-print-area { display: block !important; }
+  body { background: #fff !important; }
+  @page { size: A4; margin: 15mm; }
+}
