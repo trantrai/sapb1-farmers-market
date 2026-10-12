@@ -271,9 +271,11 @@ function serItem(it: MockItem) {
     ItemPrices: it.ItemPrices.map((p) => ({ PriceList: p.PriceList, Price: dec(p.Price) })),
   }
 }
-/** Serial hóa tồn kho theo kho: số thập phân trả dạng chuỗi như SL thật */
+/** Serial hóa tồn kho theo kho: số thập phân trả dạng chuỗi như SL thật.
+ *  Tên trường đúng theo metadata SL (ComplexType ItemWarehouseInfo):
+ *  Committed / Ordered (KHÔNG phải IsCommitted / OnOrder). */
 function serStock(rows: ReturnType<typeof stockRowsFor>) {
-  return rows.map((w) => ({ ...w, InStock: dec(w.InStock), IsCommitted: dec(w.IsCommitted), OnOrder: dec(w.OnOrder) }))
+  return rows.map((w) => ({ WarehouseCode: w.WarehouseCode, InStock: dec(w.InStock), Committed: dec(w.IsCommitted), Ordered: dec(w.OnOrder) }))
 }
 
 /** Serial hóa 1 dòng RDR1: các trường số thập phân trả dạng chuỗi như SL thật.
@@ -484,35 +486,28 @@ Bun.serve({
       return json({ value })
     }
 
-    // ---------- GET /Items('X') — 1 mặt hàng (kèm ItemWarehouseInfo — ATP bước 1) ----------
-    // MOCK_NO_ITEM_WHS=1 → giả lập SL thật từ chối ItemWarehouseInfo: không trả
-    // collection trong body, $expand và tập con đều bị chặn 400 (để test bước
-    // dự phòng QuantityOnStock trong /api/items/stock)
+    // ---------- GET /Items('X') — 1 mặt hàng (kèm ItemWarehouseInfoCollection — ATP bước 1) ----------
+    // MOCK_NO_ITEM_WHS=1 → giả lập SL thật không trả collection trong body
+    // (để test các bước fallback trong /api/items/stock)
     const itemKey = path.match(/^\/Items\('([^']*)'\)$/)
     if (itemKey && req.method === 'GET') {
       const it = ITEMS.find((i) => i.ItemCode === itemKey[1])
       if (!it) return errorBody(404, `Item '${itemKey[1]}' not found`)
-      if (process.env.MOCK_NO_ITEM_WHS === '1' && url.searchParams.has('$expand')) {
-        return errorBody(400, "Mock simulates SL rejecting $expand — Cannot expand invalid navigation property 'ItemWarehouseInfo' for entity type 'Item'")
-      }
       if (process.env.MOCK_NO_ITEM_WHS === '1') {
         return json(serItem(it))
       }
-      return json({ ...serItem(it), ItemWarehouseInfo: serStock(stockRowsFor(it)) })
+      return json({ ...serItem(it), ItemWarehouseInfoCollection: serStock(stockRowsFor(it)) })
     }
 
-    // ---------- GET /Items('X')/ItemWarehouseInfo — tập con tồn kho theo kho (ATP bước 2) ----------
-    const itemWhsKey = path.match(/^\/Items\('([^']*)'\)\/ItemWarehouseInfo$/)
+    // ---------- GET /Items('X')/ItemWarehouseInfoCollection — tồn kho theo kho (ATP bước 2) ----------
+    const itemWhsKey = path.match(/^\/Items\('([^']*)'\)\/ItemWarehouseInfoCollection$/)
     if (itemWhsKey && req.method === 'GET') {
       if (process.env.MOCK_NO_ITEM_WHS === '1') {
-        return errorBody(400, "Mock simulates SL — Cannot expand invalid navigation property 'ItemWarehouseInfo' for entity type 'Item'")
+        return errorBody(400, 'Mock simulates SL — property not available')
       }
       const it = ITEMS.find((i) => i.ItemCode === itemWhsKey[1])
       if (!it) return errorBody(404, `Item '${itemWhsKey[1]}' not found`)
-      const topRaw = url.searchParams.get('$top')
-      const top = topRaw === null ? Infinity : Math.min(Number(topRaw) || 0, MAX_PAGE > 0 ? MAX_PAGE : Infinity)
-      const skip = Number(url.searchParams.get('$skip') ?? 0)
-      const rows = serStock(stockRowsFor(it)).slice(skip, top === Infinity ? undefined : skip + top)
+      const rows = serStock(stockRowsFor(it))
       return json({ value: rows })
     }
 

@@ -150,11 +150,11 @@ export default function ItemsSyncView() {
         </p>
 
         {/* Trạng thái đồng bộ */}
-        <div className="fm-filterbar" style={{ marginBottom: 8 }}>
+        <div className="fm-statusbar">
           <span className={`fm-chip ${st?.configured ? 'fm-chip--sap' : 'fm-chip--overdue'}`} title="Trạng thái kết nối Service Layer">
             {st?.configured ? 'SAP B1 đã kết nối' : 'Chưa cấu hình SAP B1'}
           </span>
-          <span className="fm-chip fm-chip--role"><DatabaseZap size={12} style={{ verticalAlign: -2, marginRight: 3 }} />{st?.count ?? 0} mặt hàng local</span>
+          <span className="fm-chip fm-chip--role"><DatabaseZap size={13} />{st?.count ?? 0} mặt hàng local</span>
           <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
         </div>
 
@@ -165,8 +165,7 @@ export default function ItemsSyncView() {
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
           <button
-            className="fm-btn fm-btn--ghost fm-btn--sm"
-            style={{ color: 'var(--fm-red)' }}
+            className="fm-btn fm-btn--danger fm-btn--sm"
             disabled={busy !== null || (st?.count ?? 0) === 0}
             onClick={doClear}
             title="Xóa toàn bộ dữ liệu mặt hàng đã đồng bộ trong CSDL local"

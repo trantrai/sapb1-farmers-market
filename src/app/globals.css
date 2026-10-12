@@ -345,9 +345,13 @@
    5. CHIP TRẠNG THÁI — Open / Closed / Quá hạn / RBAC
    ============================================================ */
 .fm-chip {
-  display: inline-block; padding: 3px 10px; border-radius: var(--fm-r-pill);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 12px; border-radius: var(--fm-r-pill);
   font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap;
 }
+.fm-chip svg { flex-shrink: 0; }
+/* Hàng trạng thái (3 màn đồng bộ): chip + nút, khoảng cách đều, tự xuống dòng */
+.fm-statusbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .fm-chip--open    { background: var(--fm-primary-soft); color: var(--fm-primary); }  /* Document Status: Open */
 .fm-chip--closed  { background: #F5F5F5; color: var(--fm-text-2); }                     /* Document Status: Closed */
 .fm-chip--overdue { background: var(--fm-red-soft);  color: var(--fm-red); }

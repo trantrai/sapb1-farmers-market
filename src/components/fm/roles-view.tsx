@@ -153,14 +153,14 @@ export default function RolesView({ user, onGoUsers }: Props) {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
                   padding: '10px 12px', borderRadius: 'var(--fm-r-md)', marginBottom: 4, fontSize: 13,
-                  background: r.id === selectedId ? 'var(--fm-yellow-faint)' : 'transparent',
+                  background: r.id === selectedId ? '#F0F0F0' : 'transparent',
                   borderLeft: r.id === selectedId ? '3px solid var(--fm-primary)' : '3px solid transparent',
                   fontWeight: r.id === selectedId ? 700 : 500,
                   color: r.id === selectedId ? 'var(--fm-navy)' : 'var(--fm-text)',
                 }}
               >
-                {r.label}
-                <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
                   <span className="fm-hint" style={{ margin: 0 }} title="Số module được phép xem">{onCount}/{MODULE_KEYS.length} module</span>
                   <span className="fm-chip fm-chip--role">{n} ND</span>
                 </span>

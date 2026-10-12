@@ -151,11 +151,11 @@ export default function VatGroupsSyncView() {
         </p>
 
         {/* Trạng thái đồng bộ */}
-        <div className="fm-filterbar" style={{ marginBottom: 8 }}>
+        <div className="fm-statusbar">
           <span className={`fm-chip ${st?.configured ? 'fm-chip--sap' : 'fm-chip--overdue'}`} title="Trạng thái kết nối Service Layer">
             {st?.configured ? 'SAP B1 đã kết nối' : 'Chưa cấu hình SAP B1'}
           </span>
-          <span className="fm-chip fm-chip--role"><DatabaseZap size={12} style={{ verticalAlign: -2, marginRight: 3 }} />{st?.count ?? 0} nhóm thuế local</span>
+          <span className="fm-chip fm-chip--role"><DatabaseZap size={13} />{st?.count ?? 0} nhóm thuế local</span>
           <span className="fm-chip fm-chip--role">Bán: {st?.salesCount ?? 0} · Mua: {st?.purchaseCount ?? 0}</span>
           {(st?.missingRateCount ?? 0) > 0 && (
             <span className="fm-chip fm-chip--overdue" title="Số nhóm không tra được thuế suất hiệu lực (không có dòng hiệu lực trong VatGroups_Lines)">
@@ -172,8 +172,7 @@ export default function VatGroupsSyncView() {
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
           <button
-            className="fm-btn fm-btn--ghost fm-btn--sm"
-            style={{ color: 'var(--fm-red)' }}
+            className="fm-btn fm-btn--danger fm-btn--sm"
             disabled={busy !== null || (st?.count ?? 0) === 0}
             onClick={doClear}
             title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local"

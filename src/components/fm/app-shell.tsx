@@ -18,8 +18,10 @@ import SapAuditView from './sap-audit-view'
 import ItemsSyncView from './items-sync-view'
 import VatGroupsSyncView from './vatgroups-sync-view'
 import PartnersSyncView from './bpartners-sync-view'
+import OrderDetailView from './order-detail-view'
+import type { Order } from './orders-list-view'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners'
 
 interface MenuItem {
   key: ViewKey
@@ -47,6 +49,7 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   dashboard: 'Tổng quan hệ thống',
   orders: 'Danh sách Sale Order',
   ordersNew: 'Tạo / Cập nhật Sale Order',
+  orderDetail: 'Chi tiết Sale Order',
   users: 'Quản lý người dùng',
   settings: 'Cài đặt kết nối SAP B1',
   sapAudit: 'Service Layer Audit — nhật ký & Retry',
@@ -68,6 +71,8 @@ export default function AppShell({ user, onLogout }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
+  /** Đơn đang XEM chi tiết (trang chi tiết dạng 3 bước) */
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null)
 
   // Đóng drawer mobile bằng phím Escape
   useEffect(() => {
@@ -216,8 +221,17 @@ export default function AppShell({ user, onLogout }: Props) {
               <OrdersListView
                 user={user}
                 onGoCreate={() => { setEditOrder(null); go('ordersNew') }}
-                onGoEdit={(data) => { setEditOrder(data); go('ordersNew') }}
+                onViewDetail={(o) => { setDetailOrder(o); go('orderDetail') }}
                 refreshKey={refreshKey}
+              />
+            )}
+            {view === 'orderDetail' && detailOrder && (
+              <OrderDetailView
+                user={user}
+                order={detailOrder}
+                onBack={() => go('orders')}
+                onGoEdit={(data) => { setEditOrder(data); go('ordersNew') }}
+                onChanged={() => setRefreshKey((k) => k + 1)}
               />
             )}
             {view === 'ordersNew' && (

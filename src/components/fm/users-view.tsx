@@ -162,7 +162,7 @@ export default function UsersView({ user }: Props) {
         </div>
 
         <div className="fm-filterbar">
-          <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 340 }} data-search>
+          <div style={{ position: 'relative', flex: '1 1 240px' }} data-search>
             <input
               className="fm-input"
               style={{ paddingLeft: 32 }}
