@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { LogIn, User, Lock } from 'lucide-react'
+import { User, Lock } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 
 type LoginUser = SessionUser & { token: string }
@@ -101,23 +101,6 @@ export default function LoginView({ onLogin }: Props) {
             {loading ? 'Đang xử lý…' : 'Đăng nhập hệ thống →'}
           </button>
         </form>
-
-        <div className="fm-hint" style={{ textAlign: 'center', marginTop: 16, lineHeight: 1.7 }}>
-          Tài khoản demo — bấm để điền nhanh:
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 8 }}>
-            {[['admin', 'admin123', 'Quản trị'], ['ketoan', 'ketoan123', 'Kế toán'], ['nhanvien', 'nhanvien123', 'Nhân viên']].map(([u, p, label]) => (
-              <button
-                key={u}
-                type="button"
-                className="fm-demo-chip"
-                title={`${label} — ${u} / ${p}`}
-                onClick={() => { setUsername(u); setPassword(p); setError('') }}
-              >
-                <User size={11} /> {u}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   )
