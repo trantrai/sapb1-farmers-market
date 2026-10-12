@@ -101,10 +101,25 @@ export async function GET(req: NextRequest) {
   )
 
   // ---------- 3) Gộp + sắp xếp + phân trang trên máy chủ ----------
-  const merged = [
+  let merged = [
     ...sapRows,
     ...localOnly.map((o) => ({ ...o, source: 'local' as const })),
   ].sort((a, b) => b.docNum - a.docNum)
+
+  // Lọc nhanh theo hạn giao: overdue = Open + quá hạn; dueSoon = Open + hạn trong 3 ngày tới
+  const due = sp.get('due') ?? ''
+  if (due === 'overdue' || due === 'dueSoon') {
+    const t = new Date()
+    t.setHours(0, 0, 0, 0)
+    const soonEnd = new Date(t)
+    soonEnd.setDate(soonEnd.getDate() + 3)
+    soonEnd.setHours(23, 59, 59, 999)
+    merged = merged.filter((r) => {
+      if (r.status !== 'Open' || !r.docDueDate) return false
+      const d = new Date(r.docDueDate as string)
+      return due === 'overdue' ? d < t : d >= t && d <= soonEnd
+    })
+  }
 
   const total = merged.length
   const data = merged.slice((page - 1) * pageSize, page * pageSize)

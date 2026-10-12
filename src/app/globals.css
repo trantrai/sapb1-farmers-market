@@ -542,6 +542,19 @@
 .fm-chip--open    { background: var(--fm-yellow-soft); color: #8A6D00; }  /* Document Status: Open */
 .fm-chip--closed  { background: #F5F5F5; color: var(--fm-text-2); }                     /* Document Status: Closed */
 .fm-chip--overdue { background: var(--fm-red-soft);  color: var(--fm-red); }
+.fm-chip--warn    { background: #ffddb8; color: #855300; }  /* Sắp đến hạn giao */
+
+/* Lọc nhanh theo hạn giao (danh sách đơn hàng) */
+.fm-quickfilter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+/* Badge chấm đỏ đếm đơn quá hạn trên menu sidebar */
+.fm-badge-dot {
+  background: var(--fm-red); color: #fff; font-weight: 700;
+  border-radius: 999px; font-size: 10.5px; line-height: 1;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: 6px; flex-shrink: 0;
+}
 .fm-chip--role    { background: var(--fm-yellow); color: var(--fm-navy-deep); } /* Tag vai trò RBAC */
 .fm-chip--perm-c  { background: var(--fm-green-soft); color: var(--fm-green); }
 .fm-chip--perm-d  { background: var(--fm-red-soft);   color: var(--fm-red); }

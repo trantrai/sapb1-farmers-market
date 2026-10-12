@@ -19,6 +19,26 @@ export async function GET(req: NextRequest) {
   today.setHours(0, 0, 0, 0)
   const overdue = overdueOrders.filter((o) => new Date(o.docDueDate) < today).length
 
+  // Đơn cần chú ý: Open + (quá hạn hoặc hạn trong 3 ngày tới), quá hạn nhất lên trước
+  const soonEnd = new Date(today)
+  soonEnd.setDate(soonEnd.getDate() + 3)
+  soonEnd.setHours(23, 59, 59, 999)
+  const attention = await prisma.salesOrder.findMany({
+    where: { status: 'Open', docDueDate: { lte: soonEnd } },
+    orderBy: { docDueDate: 'asc' },
+    take: 5,
+    select: {
+      id: true,
+      docNum: true,
+      cardCode: true,
+      cardName: true,
+      docDate: true,
+      docDueDate: true,
+      status: true,
+      grandTotal: true,
+    },
+  })
+
   const recent = await prisma.salesOrder.findMany({
     orderBy: { docNum: 'desc' },
     take: 5,
@@ -31,5 +51,6 @@ export async function GET(req: NextRequest) {
     overdueOrders: overdue,
     revenueClosed: revenueAgg._sum.grandTotal ?? 0,
     recent,
+    attention,
   })
 }

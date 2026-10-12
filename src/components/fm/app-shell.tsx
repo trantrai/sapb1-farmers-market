@@ -85,6 +85,8 @@ export default function AppShell({ user, onLogout }: Props) {
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
+  /** Số đơn quá hạn giao — hiển thị badge đỏ trên menu Đơn hàng */
+  const [overdueCount, setOverdueCount] = useState(0)
 
   // Đóng drawer mobile bằng phím Escape
   useEffect(() => {
@@ -95,6 +97,19 @@ export default function AppShell({ user, onLogout }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [drawerOpen])
+
+  // Tải số đơn quá hạn cho badge menu (im lặng, không setState đồng bộ trong effect)
+  useEffect(() => {
+    let cancelled = false
+    api('/api/stats')
+      .then(async (r) => {
+        if (!r.ok) return
+        const j = await r.json().catch(() => null)
+        if (!cancelled && j && typeof j.overdueOrders === 'number') setOverdueCount(j.overdueOrders)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [refreshKey])
 
   const menu = useMemo(
     () => MENU.filter((m) => user.permissions?.[m.module]?.view),
@@ -134,6 +149,9 @@ export default function AppShell({ user, onLogout }: Props) {
       {m.icon}
       <span>{m.label}</span>
       {m.badge && <span className="fm-badge-count">{m.badge}</span>}
+      {m.key === 'orders' && overdueCount > 0 && (
+        <span className="fm-badge-dot" title={`${overdueCount} đơn quá hạn giao`}>{overdueCount > 99 ? '99+' : overdueCount}</span>
+      )}
     </div>
   )
 
@@ -258,7 +276,7 @@ export default function AppShell({ user, onLogout }: Props) {
         <main className="fm-page">
           <div className="fm-view" key={view}>
             {view === 'dashboard' && (
-              <DashboardView onGoOrders={() => go('orders')} onGoCreate={() => { setEditOrder(null); go('ordersNew') }} />
+              <DashboardView onGoOrders={() => go('orders')} onGoCreate={() => { setEditOrder(null); go('ordersNew') }} onGoOrderDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }} />
             )}
             {view === 'orders' && (
               <OrdersListView

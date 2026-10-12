@@ -80,6 +80,31 @@ export function isOverdue(due: string | Date, status: string): boolean {
   return dueDate < today
 }
 
+/** Số ngày đã quá hạn giao (0 nếu chưa quá hạn). Chỉ tính khi due < hôm nay. */
+export function daysOverdue(due: string | Date): number {
+  const dueDate = new Date(due)
+  dueDate.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.max(0, Math.round((today.getTime() - dueDate.getTime()) / 86400000))
+}
+
+/** Số ngày còn lại đến hạn giao (0 = hôm nay, âm = đã quá hạn). */
+export function daysUntilDue(due: string | Date): number {
+  const dueDate = new Date(due)
+  dueDate.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((dueDate.getTime() - today.getTime()) / 86400000)
+}
+
+/** Đơn Open và hạn giao trong `days` ngày tới (chưa quá hạn). */
+export function isDueSoon(due: string | Date, status: string, days = 3): boolean {
+  if (status !== 'Open') return false
+  const n = daysUntilDue(due)
+  return n >= 0 && n <= days
+}
+
 // ============================================================
 // NHÓM THUẾ — chọn thuế suất % từ VatGroups_Lines (bảng con VTG1)
 // NGUỒN ĐÚNG của %VAT: từng dòng lịch sử suất trong VTG1 có trường

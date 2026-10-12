@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   PieChart, Pie, Legend,
 } from 'recharts'
-import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
+import { formatVND, formatDateVN, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 
@@ -20,6 +20,17 @@ interface RecentOrder {
   docDueDate: string
 }
 
+interface AttentionOrder {
+  id: string
+  docNum: number
+  cardCode: string
+  cardName: string
+  docDate: string
+  docDueDate: string
+  status: string
+  grandTotal: number
+}
+
 interface Stats {
   totalOrders: number
   openOrders: number
@@ -27,6 +38,7 @@ interface Stats {
   overdueOrders: number
   revenueClosed: number
   recent: RecentOrder[]
+  attention: AttentionOrder[]
 }
 
 interface ChartStats {
@@ -38,7 +50,7 @@ interface ChartStats {
 
 const CHART_COLORS = ['#fea619', '#0e1c2f', '#2e7d32', '#c62828', '#1565c0', '#6a1b9a']
 
-export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: () => void; onGoCreate: () => void }) {
+export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail }: { onGoOrders: () => void; onGoCreate: () => void; onGoOrderDetail: (id: string) => void }) {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [chartRange, setChartRange] = useState<7 | 30>(7)
@@ -147,6 +159,93 @@ export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: 
               <div className="fm-stat__label">Doanh thu đơn đã đóng</div>
               <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(stats.revenueClosed)}</div>
               <div className="fm-stat__meta">Tổng giá trị đơn Closed (đã VAT)</div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Đơn cần chú ý: quá hạn / sắp đến hạn */}
+      <div className="fm-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+            <AlarmClock size={18} /> Đơn cần chú ý
+          </h2>
+          <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={onGoOrders}>
+            Xem tất cả
+          </button>
+        </div>
+
+        {!stats ? (
+          loadFailed ? null : (
+            <div>
+              {Array.from({ length: 3 }, (_, i) => (
+                <div key={i} className="fm-skeleton fm-skeleton--row" />
+              ))}
+            </div>
+          )
+        ) : stats.attention.length === 0 ? (
+          <div className="fm-empty">Không có đơn quá hạn hay sắp đến hạn</div>
+        ) : (
+          <>
+            <div className="fm-table-wrap fm-scroll fm-only-desktop" style={{ overflowX: 'auto' }}>
+              <table className="fm-table">
+                <thead>
+                  <tr>
+                    <th>Số CT</th>
+                    <th>Khách hàng</th>
+                    <th>Hạn giao</th>
+                    <th>Tình trạng</th>
+                    <th className="fm-num">Tổng tiền</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.attention.map((o) => (
+                    <tr key={o.id}>
+                      <td><b>#{o.docNum}</b></td>
+                      <td>{o.cardName}</td>
+                      <td>{formatDateVN(o.docDueDate)}</td>
+                      <td>
+                        {isOverdue(o.docDueDate, o.status) ? (
+                          <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
+                        ) : (
+                          <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
+                        )}
+                      </td>
+                      <td className="fm-num">{formatVND(o.grandTotal)}</td>
+                      <td>
+                        <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => onGoOrderDetail(o.id)}>
+                          Xem
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Card (mobile) */}
+            <div className="fm-only-mobile">
+              {stats.attention.map((o) => (
+                <div key={o.id} className="fm-ocard">
+                  <div className="fm-ocard__top">
+                    <span className="fm-ocard__num">#{o.docNum}</span>
+                    {isOverdue(o.docDueDate, o.status) ? (
+                      <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
+                    ) : (
+                      <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
+                    )}
+                  </div>
+                  <div className="fm-ocard__name">{o.cardName}</div>
+                  <div className="fm-ocard__meta">Hạn giao {formatDateVN(o.docDueDate)}</div>
+                  <div className="fm-ocard__bottom">
+                    <span className="fm-ocard__total">{formatVND(o.grandTotal)}</span>
+                    <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => onGoOrderDetail(o.id)}>
+                      Xem
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         )}
@@ -288,7 +387,9 @@ export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: 
                     <td>{formatDateVN(o.docDueDate)}</td>
                     <td>
                       {isOverdue(o.docDueDate, o.status) ? (
-                        <span className="fm-chip fm-chip--overdue">Quá hạn</span>
+                        <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
+                      ) : isDueSoon(o.docDueDate, o.status) ? (
+                        <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                       ) : o.status === 'Open' ? (
                         <span className="fm-chip fm-chip--open">Open</span>
                       ) : (
@@ -309,7 +410,9 @@ export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: 
                 <div className="fm-ocard__top">
                   <span className="fm-ocard__num">#{o.docNum}</span>
                   {isOverdue(o.docDueDate, o.status) ? (
-                    <span className="fm-chip fm-chip--overdue">Quá hạn</span>
+                    <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
+                  ) : isDueSoon(o.docDueDate, o.status) ? (
+                    <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                   ) : o.status === 'Open' ? (
                     <span className="fm-chip fm-chip--open">Open</span>
                   ) : (

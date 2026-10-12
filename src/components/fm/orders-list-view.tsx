@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy } from 'lucide-react'
-import { formatVND, formatDateVN, formatNum, isOverdue } from '@/lib/fm-shared'
+import { formatVND, formatDateVN, formatNum, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import type { EditOrderData } from './order-form-view'
@@ -123,6 +123,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [status, setStatus] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  /** Lọc nhanh theo hạn giao: '' | 'overdue' (quá hạn) | 'dueSoon' (sắp đến hạn 3 ngày) */
+  const [dueFilter, setDueFilter] = useState<'' | 'overdue' | 'dueSoon'>('')
 
   const [detail, setDetail] = useState<Order | null>(null)
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
@@ -152,6 +154,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       if (status) sp.set('status', status)
       if (from) sp.set('from', from)
       if (to) sp.set('to', to)
+      if (dueFilter) sp.set('due', dueFilter)
       const res = await api(`/api/orders?${sp.toString()}`)
       if (res.status === 401) { window.location.reload(); return }
       const json = await res.json()
@@ -163,7 +166,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, q, status, from, to])
+  }, [page, pageSize, q, status, from, to, dueFilter])
 
   useEffect(() => { load() }, [load, refreshKey])
 
@@ -194,7 +197,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     return () => { cancelled = true }
   }, [detail, detailRetryTick])
 
-  const resetFilter = () => { setQ(''); setStatus(''); setFrom(''); setTo(''); setPage(1) }
+  const resetFilter = () => { setQ(''); setStatus(''); setFrom(''); setTo(''); setDueFilter(''); setPage(1) }
 
   const openDetail = (o: Order) => {
     setDetailError('')
@@ -416,6 +419,25 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         </div>
 
         {/* Thanh lọc */}
+        {/* Lọc nhanh theo hạn giao */}
+        <div className="fm-quickfilter" role="group" aria-label="Lọc nhanh theo hạn giao hàng">
+          {([
+            { key: '', label: 'Tất cả' },
+            { key: 'overdue', label: 'Quá hạn giao' },
+            { key: 'dueSoon', label: 'Sắp đến hạn (3 ngày)' },
+          ] as const).map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              className={`fm-btn fm-btn--sm ${dueFilter === f.key ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
+              onClick={() => { setDueFilter(f.key); setPage(1) }}
+              aria-pressed={dueFilter === f.key}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
         <div className="fm-filterbar">
           <div style={{ position: 'relative' }} data-search>
             <input
@@ -501,7 +523,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <td>{formatDateVN(o.docDueDate)}</td>
                       <td>
                         {isOverdue(o.docDueDate, o.status) ? (
-                          <span className="fm-chip fm-chip--overdue">Quá hạn</span>
+                          <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
+                        ) : isDueSoon(o.docDueDate, o.status) ? (
+                          <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                         ) : o.status === 'Open' ? (
                           <span className="fm-chip fm-chip--open">Open</span>
                         ) : (
@@ -547,7 +571,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                   <div className="fm-ocard__top">
                     <span className="fm-ocard__num">#{o.docNum}</span>
                     {isOverdue(o.docDueDate, o.status) ? (
-                      <span className="fm-chip fm-chip--overdue">Quá hạn</span>
+                      <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
+                    ) : isDueSoon(o.docDueDate, o.status) ? (
+                      <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                     ) : o.status === 'Open' ? (
                       <span className="fm-chip fm-chip--open">Open</span>
                     ) : (
@@ -608,7 +634,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
               <h3 style={{ margin: 0, color: 'var(--fm-navy)', fontSize: 20 }}>
                 Sale Order #{detail.docNum}{' '}
                 {isOverdue(detail.docDueDate, detail.status) ? (
-                  <span className="fm-chip fm-chip--overdue">Quá hạn</span>
+                  <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(detail.docDueDate)} ngày</span>
+                ) : isDueSoon(detail.docDueDate, detail.status) ? (
+                  <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(detail.docDueDate)} ngày</span>
                 ) : detail.status === 'Open' ? (
                   <span className="fm-chip fm-chip--open">Open</span>
                 ) : (
