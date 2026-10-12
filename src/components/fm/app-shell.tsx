@@ -29,6 +29,7 @@ const ItemsSyncView = dynamic(() => import('./items-sync-view'), { ssr: false, l
 const VatGroupsSyncView = dynamic(() => import('./vatgroups-sync-view'), { ssr: false, loading: ViewLoading })
 const PartnersSyncView = dynamic(() => import('./bpartners-sync-view'), { ssr: false, loading: ViewLoading })
 const ExcelTemplatesView = dynamic(() => import('./excel-templates-view'), { ssr: false, loading: ViewLoading })
+const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
 import type { EditOrderData } from './order-form-view'
 
 type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates'
@@ -87,6 +88,10 @@ export default function AppShell({ user, onLogout }: Props) {
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
   /** Số đơn quá hạn giao — hiển thị badge đỏ trên menu Đơn hàng */
   const [overdueCount, setOverdueCount] = useState(0)
+  /** Command palette tìm kiếm toàn văn (Ctrl+K) */
+  const [searchOpen, setSearchOpen] = useState(false)
+  /** Từ khóa điền sẵn cho màn đồng bộ khi chọn kết quả từ palette */
+  const [syncPrefill, setSyncPrefill] = useState<{ view: 'items' | 'partners'; q: string } | null>(null)
 
   // Đóng drawer mobile bằng phím Escape
   useEffect(() => {
@@ -97,6 +102,18 @@ export default function AppShell({ user, onLogout }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [drawerOpen])
+
+  // Ctrl+K / Cmd+K mở command palette tìm kiếm toàn văn
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Tải số đơn quá hạn cho badge menu (im lặng, không setState đồng bộ trong effect)
   useEffect(() => {
@@ -129,6 +146,24 @@ export default function AppShell({ user, onLogout }: Props) {
     setDrawerOpen(false)
     window.scrollTo({ top: 0 })
   }
+
+  // Chọn kết quả từ command palette tìm kiếm
+  const selectSearchOrder = (orderId: string) => {
+    setSearchOpen(false)
+    setDetailOrderId(orderId)
+    go('orderDetail')
+  }
+  const selectSearchItem = (itemCode: string) => {
+    setSearchOpen(false)
+    setSyncPrefill({ view: 'items', q: itemCode })
+    go('items')
+  }
+  const selectSearchPartner = (cardCode: string) => {
+    setSearchOpen(false)
+    setSyncPrefill({ view: 'partners', q: cardCode })
+    go('partners')
+  }
+  const prefillFor = (v: 'items' | 'partners') => (syncPrefill?.view === v ? syncPrefill.q : undefined)
 
   const renderNavItem = (m: MenuItem) => (
     <div
@@ -246,12 +281,26 @@ export default function AppShell({ user, onLogout }: Props) {
             >
               <MenuIcon size={17} />
             </button>
-            <div className="fm-search">
+            <div
+              className="fm-search fm-search--trigger"
+              role="button"
+              tabIndex={0}
+              aria-label="Mở tìm kiếm toàn văn (Ctrl+K)"
+              onClick={() => setSearchOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setSearchOpen(true)
+                }
+              }}
+            >
               <Search size={18} className="fm-search__icon" />
               <input
                 className="fm-search__input"
                 placeholder="Tìm kiếm mã hàng, SO, khách hàng (Ctrl+K)..."
                 aria-label="Tìm kiếm"
+                readOnly
+                tabIndex={-1}
               />
               <kbd className="fm-search__kbd">Ctrl K</kbd>
             </div>
@@ -341,9 +390,9 @@ export default function AppShell({ user, onLogout }: Props) {
             {view === 'users' && <UsersView user={user} />}
             {view === 'settings' && <SettingsView canEdit={user.permissions.settings?.edit} />}
             {view === 'sapAudit' && <SapAuditView />}
-            {view === 'items' && <ItemsSyncView />}
+            {view === 'items' && <ItemsSyncView key={`items-${prefillFor('items') ?? ''}`} initialQuery={prefillFor('items')} />}
             {view === 'vatGroups' && <VatGroupsSyncView />}
-            {view === 'partners' && <PartnersSyncView />}
+            {view === 'partners' && <PartnersSyncView key={`partners-${prefillFor('partners') ?? ''}`} initialQuery={prefillFor('partners')} />}
             {view === 'roles' && <RolesView user={user} onGoUsers={() => go('users')} />}
             {view === 'excelTemplates' && <ExcelTemplatesView />}
           </div>
@@ -389,6 +438,15 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
         </div>
       )}
+
+      {/* Command palette tìm kiếm toàn văn (Ctrl+K) */}
+      <SearchPalette
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelectOrder={selectSearchOrder}
+        onSelectItem={selectSearchItem}
+        onSelectPartner={selectSearchPartner}
+      />
     </div>
   )
 }

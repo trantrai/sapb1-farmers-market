@@ -63,8 +63,10 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
       })
-      .then((o: Order) => {
+      .then((j: { order?: Order } & Partial<Order>) => {
         if (cancelled) return
+        // API trả về { order } — unwrap để tương thích
+        const o: Order = (j.order ?? j) as Order
         setOrder(o)
         setError('')
         // Lấy thông tin địa chỉ/người liên hệ

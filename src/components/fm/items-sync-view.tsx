@@ -36,13 +36,13 @@ const fmtNum = (n: number) => new Intl.NumberFormat('vi-VN', { maximumFractionDi
 const fmtTime = (iso: string) =>
   new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-export default function ItemsSyncView() {
+export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: string }) {
   const [rows, setRows] = useState<ItemRow[] | null>(null)
   const [st, setSt] = useState<SyncStatus | null>(null)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(initialQuery)
   const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState<'sync' | 'clear' | null>(null)
   const loadRef = useRef<() => void>(() => {})
@@ -86,7 +86,7 @@ export default function ItemsSyncView() {
     }
   }, [page, q, startPolling])
 
-  useEffect(() => { load(1, '') }, [])
+  useEffect(() => { load(1, initialQuery) }, [])
   // onDone → luôn gọi bản load mới nhất (q/page hiện tại)
   useEffect(() => { loadRef.current = () => { void load(1, q) } })
 
