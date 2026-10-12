@@ -15,8 +15,13 @@ export async function GET(req: NextRequest) {
   }
   // Che mật khẩu
   return NextResponse.json({
-    settings: { ...s, sapPassword: s.sapPassword ? '••••••••' : '' },
+    settings: {
+      ...s,
+      sapPassword: s.sapPassword ? '••••••••' : '',
+      smtpPass: s.smtpPass ? '••••••••' : '',
+    },
     hasPassword: Boolean(s.sapPassword),
+    hasSmtpPass: Boolean(s.smtpPass),
   })
 }
 
@@ -63,6 +68,19 @@ export async function PUT(req: NextRequest) {
       // Gợi ý mặt hàng theo lịch sử đơn hàng
       suggestHistoryDays: clampDays(body.suggestHistoryDays, existing?.suggestHistoryDays ?? 90),
       suggestMaxItems: clampMax(body.suggestMaxItems, existing?.suggestMaxItems ?? 10),
+      // Cấu hình Email (SMTP)
+      smtpHost: (body.smtpHost as string | undefined) ?? existing?.smtpHost ?? '',
+      smtpPort: (() => {
+        const n = Number(body.smtpPort)
+        return Number.isFinite(n) ? Math.min(65535, Math.max(1, Math.round(n))) : existing?.smtpPort ?? 587
+      })(),
+      smtpUser: (body.smtpUser as string | undefined) ?? existing?.smtpUser ?? '',
+      smtpPass:
+        !(body.smtpPass as string | undefined) || (body.smtpPass as string).includes('•')
+          ? existing?.smtpPass ?? ''
+          : (body.smtpPass as string),
+      smtpFromEmail: (body.smtpFromEmail as string | undefined) ?? existing?.smtpFromEmail ?? '',
+      smtpFromName: (body.smtpFromName as string | undefined) ?? existing?.smtpFromName ?? '',
     }
 
     const saved = await prisma.appSettings.upsert({
@@ -73,7 +91,11 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      settings: { ...saved, sapPassword: saved.sapPassword ? '••••••••' : '' },
+      settings: {
+        ...saved,
+        sapPassword: saved.sapPassword ? '••••••••' : '',
+        smtpPass: saved.smtpPass ? '••••••••' : '',
+      },
     })
   } catch (e) {
     console.error('PUT /api/settings', e)

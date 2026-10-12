@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, History, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, History, X, Mail } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -47,16 +47,58 @@ interface Props {
  */
 export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [order, setOrder] = useState<Order | null>(null)
-  const [partner, setPartner] = useState<{ address?: string; contactPerson?: string; contactPhone?: string } | null>(null)
+  const [partner, setPartner] = useState<{ address?: string; contactPerson?: string; contactPhone?: string; email?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showPrint, setShowPrint] = useState(false)
+  const [showEmail, setShowEmail] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailMessage, setEmailMessage] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailResult, setEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const doPrint = () => window.print()
 
+  const openEmail = () => {
+    if (!order) return
+    setEmailTo(partner?.email ?? '')
+    setEmailSubject(`Phiếu bán hàng SO-${order.docNum} — ${order.cardName}`)
+    setEmailMessage('')
+    setEmailResult(null)
+    setShowEmail(true)
+  }
+
+  const doSendEmail = async () => {
+    if (!order || emailBusy) return
+    setEmailBusy(true)
+    setEmailResult(null)
+    try {
+      const res = await api('/api/orders/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          toEmail: emailTo.trim(),
+          subject: emailSubject.trim(),
+          message: emailMessage.trim(),
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setEmailResult({ type: 'error', text: json.error ?? 'Gửi email thất bại' })
+        return
+      }
+      setEmailResult({ type: 'success', text: json.message ?? 'Đã gửi email.' })
+    } catch {
+      setEmailResult({ type: 'error', text: 'Không thể kết nối máy chủ' })
+    } finally {
+      setEmailBusy(false)
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- orderId đổi → reset loading để fetch lại, pattern refetch hợp lệ
     setLoading(true)
     api(`/api/orders/${orderId}`)
       .then((r) => {
@@ -69,14 +111,23 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
         const o: Order = (j.order ?? j) as Order
         setOrder(o)
         setError('')
-        // Lấy thông tin địa chỉ/người liên hệ
+        // Lấy thông tin địa chỉ/người liên hệ + email
         if (o.cardCode) {
           api(`/api/partners?q=${encodeURIComponent(o.cardCode)}`)
             .then((r) => (r.ok ? r.json() : null))
             .then((j) => {
               if (cancelled) return
               const p = j?.items?.find((x: any) => x.cardCode === o.cardCode) ?? j?.items?.[0]
-              if (p) setPartner({ address: p.address, contactPerson: p.contactPerson, contactPhone: p.contactPhone })
+              if (p) setPartner((cur) => ({ ...cur, address: p.address, contactPerson: p.contactPerson, contactPhone: p.contactPhone }))
+            })
+            .catch(() => {})
+          // Email từ danh mục KH đã đồng bộ (local)
+          api(`/api/bpartners/sync?q=${encodeURIComponent(o.cardCode)}&pageSize=5`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => {
+              if (cancelled) return
+              const p = j?.data?.find((x: any) => x.cardCode === o.cardCode)
+              if (p?.email) setPartner((cur) => ({ ...cur, email: p.email }))
             })
             .catch(() => {})
         }
@@ -117,6 +168,9 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
             </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
               <Printer size={15} /> In đơn hàng
+            </button>
+            <button className="fm-btn fm-btn--secondary" onClick={openEmail}>
+              <Mail size={15} /> Gửi email
             </button>
             <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
               <Pencil size={15} /> Sửa đơn hàng
@@ -221,6 +275,9 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
         <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
           <Printer size={15} /> In phiếu
         </button>
+        <button className="fm-btn fm-btn--secondary" onClick={openEmail}>
+          <Mail size={15} /> Gửi email
+        </button>
         <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
           <Download size={15} /> Xuất PDF
         </button>
@@ -258,6 +315,79 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
             <p style={{ fontSize: 12, color: 'var(--fm-text-2)', marginTop: 12 }} className="fm-print-hide">
               Bấm "In / Xuất PDF" rồi chọn máy in hoặc "Save as PDF" trong hộp thoại in của trình duyệt.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Dialog gửi email */}
+      {showEmail && (
+        <div className="fm-backdrop" onClick={() => { if (!emailBusy) setShowEmail(false) }}>
+          <div
+            className="fm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Gửi email đơn hàng"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 560 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Mail size={18} /> Gửi email đơn hàng SO-{order.docNum}
+              </h3>
+              <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => { if (!emailBusy) setShowEmail(false) }} aria-label="Đóng" disabled={emailBusy}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {emailResult && (
+              <div className={`fm-alert ${emailResult.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }}>
+                <div><b>{emailResult.type === 'success' ? 'Thành công' : 'Lỗi'}</b> {emailResult.text}</div>
+              </div>
+            )}
+
+            <div className="fm-field" style={{ marginBottom: 12 }}>
+              <label className="fm-label" htmlFor="fm-email-to">Email người nhận <span className="fm-label__req">*</span></label>
+              <input
+                id="fm-email-to"
+                type="email"
+                className="fm-input"
+                placeholder="khachhang@example.com"
+                value={emailTo}
+                onChange={(e) => setEmailTo(e.target.value)}
+                disabled={emailBusy}
+              />
+            </div>
+            <div className="fm-field" style={{ marginBottom: 12 }}>
+              <label className="fm-label" htmlFor="fm-email-subject">Tiêu đề</label>
+              <input
+                id="fm-email-subject"
+                className="fm-input"
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                disabled={emailBusy}
+              />
+            </div>
+            <div className="fm-field" style={{ marginBottom: 16 }}>
+              <label className="fm-label" htmlFor="fm-email-message">Lời nhắn</label>
+              <textarea
+                id="fm-email-message"
+                className="fm-input"
+                rows={4}
+                placeholder="Lời nhắn kèm theo phiếu bán hàng…"
+                value={emailMessage}
+                onChange={(e) => setEmailMessage(e.target.value)}
+                disabled={emailBusy}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="fm-btn fm-btn--secondary" onClick={() => setShowEmail(false)} disabled={emailBusy}>
+                Đóng
+              </button>
+              <button className="fm-btn fm-btn--primary" onClick={doSendEmail} disabled={emailBusy || !emailTo.trim()}>
+                <Mail size={15} /> {emailBusy ? 'Đang gửi…' : 'Gửi email'}
+              </button>
+            </div>
           </div>
         </div>
       )}

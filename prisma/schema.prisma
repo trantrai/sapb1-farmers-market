@@ -146,6 +146,13 @@ model AppSettings {
   // --- Gợi ý mặt hàng theo lịch sử đơn hàng ---
   suggestHistoryDays Int    @default(90) // Khoảng thời gian lịch sử (ngày)
   suggestMaxItems    Int    @default(10) // Số mặt hàng gợi ý tối đa
+  // --- Cấu hình Email (SMTP) ---
+  smtpHost      String    @default("") // vd: smtp.gmail.com
+  smtpPort      Int       @default(587)
+  smtpUser      String    @default("")
+  smtpPass      String    @default("")
+  smtpFromEmail String    @default("")
+  smtpFromName  String    @default("") // vd: Farmers Market
   updatedAt       DateTime  @updatedAt
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { PlugZap, Save, Link2, Sparkles } from 'lucide-react'
+import { PlugZap, Save, Link2, Sparkles, Mail } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 
@@ -16,6 +16,13 @@ interface SettingsData {
   lastSyncAt: string | null
   suggestHistoryDays: number
   suggestMaxItems: number
+  smtpHost: string
+  smtpPort: number
+  smtpUser: string
+  smtpPass: string // luôn rỗng khi load — chỉ có giá trị khi user nhập mới
+  hasSmtpPass: boolean
+  smtpFromEmail: string
+  smtpFromName: string
 }
 
 export default function SettingsView({ canEdit }: { canEdit: boolean }) {
@@ -29,7 +36,13 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
     const json = await res.json()
     // KHÔNG nạp mật khẩu đã che vào state — giữ ô mật khẩu rỗng,
     // server sẽ giữ mật khẩu cũ khi gửi chuỗi rỗng → không bao giờ ghi đè nhầm.
-    setS({ ...json.settings, sapPassword: '', hasPassword: Boolean(json.hasPassword) })
+    setS({
+      ...json.settings,
+      sapPassword: '',
+      smtpPass: '',
+      hasPassword: Boolean(json.hasPassword),
+      hasSmtpPass: Boolean(json.hasSmtpPass),
+    })
   }
   useEffect(() => { load() }, [])
 
@@ -166,7 +179,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       </div>
 
       {/* Gợi ý mặt hàng theo lịch sử đơn hàng */}
-      <div className="fm-card">
+      <div className="fm-card" style={{ marginBottom: 16 }}>
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Sparkles size={18} /> Gợi ý mặt hàng theo lịch sử mua hàng
         </h2>
@@ -203,6 +216,98 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
             {busy === 'save' ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
+        </div>
+      </div>
+
+      {/* Cấu hình Email (SMTP) */}
+      <div className="fm-card">
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Mail size={18} /> Cấu hình Email (SMTP)
+        </h2>
+        <div className="fm-form-grid">
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-smtp-host">SMTP Host</label>
+            <input
+              id="fm-smtp-host"
+              className="fm-input"
+              placeholder="smtp.gmail.com"
+              value={s.smtpHost ?? ''}
+              onChange={(e) => update({ smtpHost: e.target.value })}
+              disabled={!canEdit}
+            />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-smtp-port">Port</label>
+            <input
+              id="fm-smtp-port"
+              type="number"
+              className="fm-input"
+              min={1}
+              max={65535}
+              value={s.smtpPort ?? 587}
+              onChange={(e) => update({ smtpPort: Math.min(65535, Math.max(1, Number(e.target.value) || 587)) })}
+              disabled={!canEdit}
+            />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-smtp-user">Username</label>
+            <input
+              id="fm-smtp-user"
+              className="fm-input"
+              autoComplete="username"
+              placeholder="user@example.com"
+              value={s.smtpUser ?? ''}
+              onChange={(e) => update({ smtpUser: e.target.value })}
+              disabled={!canEdit}
+            />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-smtp-pass">Password {s.hasSmtpPass ? '' : null}</label>
+            <input
+              id="fm-smtp-pass"
+              type="password"
+              className="fm-input"
+              autoComplete="new-password"
+              placeholder={s.hasSmtpPass ? '••••••••  (để trống = giữ mật khẩu cũ)' : ''}
+              value={s.smtpPass ?? ''}
+              onChange={(e) => update({ smtpPass: e.target.value })}
+              disabled={!canEdit}
+            />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-smtp-from-email">From Email</label>
+            <input
+              id="fm-smtp-from-email"
+              type="email"
+              className="fm-input"
+              placeholder="sales@farmersmarket.vn"
+              value={s.smtpFromEmail ?? ''}
+              onChange={(e) => update({ smtpFromEmail: e.target.value })}
+              disabled={!canEdit}
+            />
+          </div>
+          <div className="fm-field">
+            <label className="fm-label" htmlFor="fm-smtp-from-name">From Name</label>
+            <input
+              id="fm-smtp-from-name"
+              className="fm-input"
+              placeholder="Farmers Market"
+              value={s.smtpFromName ?? ''}
+              onChange={(e) => update({ smtpFromName: e.target.value })}
+              disabled={!canEdit}
+            />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy !== null}>
+            <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+            {busy === 'save' ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {!canEdit && (
+            <span className="fm-chip fm-chip--role" style={{ alignSelf: 'center' }}>
+              Vai trò của bạn chỉ được xem cài đặt
+            </span>
+          )}
         </div>
       </div>
     </div>
