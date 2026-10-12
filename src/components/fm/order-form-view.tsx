@@ -1046,9 +1046,6 @@ export default function OrderFormView({
                           <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>
                           <b>{l.item?.code}</b>
                           <div style={{ fontSize: 11.5, color: 'var(--fm-text-2)' }}>{l.item?.name}</div>
-                          <span className="fm-badge fm-badge--bom" title="Thành phần con của mặt hàng BOM — giá bán 0đ">
-                            Thành phần BOM{l.bomEditable === false ? ' · khóa SL' : ''}
-                          </span>
                         </div>
                       ) : (
                       <>
@@ -1086,11 +1083,6 @@ export default function OrderFormView({
                         }}
                         error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                       />
-                      {l.bomType && (
-                        <span className="fm-badge fm-badge--bom" style={{ marginTop: 4 }} title={l.bomType === 'template' ? 'BOM Template: thành phần con được chỉnh số lượng, giá con = 0' : 'BOM Production: thành phần con khóa theo công thức, giá con = 0'}>
-                          {l.bomType === 'template' ? 'BOM Template' : 'BOM Production'}
-                        </span>
-                      )}
                       </>
                     )}
                     </td>

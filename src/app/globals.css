@@ -612,8 +612,6 @@
 /* Dòng thành phần con BOM (form tạo/sửa SO): nền nhẹ + viền trái để phân biệt */
 .fm-table tr.is-bom-child td { background: #F7FAFF; }
 .fm-table tr.is-bom-child td:first-child { box-shadow: inset 3px 0 0 var(--fm-navy); }
-/* Badge loại BOM */
-.fm-badge--bom { display: inline-block; background: #E8F0FE; color: #1A56DB; border: 1px solid #BFD4F5; font-weight: 600; border-radius: var(--fm-r-pill); font-size: 10.5px; padding: 1px 8px; }
 .fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 15px; padding: 8px 10px; border-radius: var(--fm-r-sm); min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; }
 .fm-row-del:hover { background: var(--fm-red-soft); }
 
