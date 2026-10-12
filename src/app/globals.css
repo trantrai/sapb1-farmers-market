@@ -133,10 +133,10 @@
    ============================================================ */
 
 :root {
-  /* ---------- Brand palette (Farmers Market: navy/vàng/kem) ---------- */
-  --fm-primary:       #FECD00;   /* Vàng — CTA chính, nút primary */
-  --fm-primary-hover: #E5B400;
-  --fm-primary-soft:  #FFF7D6;   /* nền nhạt của primary */
+  /* ---------- Brand palette (Stitch: navy/vàng cam) ---------- */
+  --fm-primary:       #fea619;   /* Vàng cam — CTA chính */
+  --fm-primary-hover: #f59e0b;
+  --fm-primary-soft:  #ffddb8;   /* nền nhạt của primary */
   --fm-accent:        #FECD00;   /* Vàng logo / badge */
   --fm-accent-soft:   #FFF7D6;
   --fm-navy:          #124680;   /* Xanh navy — sidebar, header bảng, link */
@@ -181,7 +181,15 @@
   font-family: var(--fm-font); font-size: var(--fm-fs-md);
   -webkit-font-smoothing: antialiased;
 }
-.fm-body a { color: var(--fm-navy); }
+.fm-body a { color: var(--fm-navy); text-decoration: none; font-weight: 500; }
+.fm-body a:hover { color: var(--fm-navy-deep); text-decoration: underline; }
+/* Link dạng action (trong bảng, inline): màu navy, hover gạch chân */
+.fm-link {
+  color: var(--fm-navy); font-weight: 600; cursor: pointer;
+  background: none; border: none; padding: 0; font-size: inherit;
+  text-decoration: none;
+}
+.fm-link:hover { color: var(--fm-navy-deep); text-decoration: underline; }
 .fm-body ::selection { background: var(--fm-yellow-soft); }
 
 /* ============================================================
@@ -349,14 +357,32 @@
 .fm-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .fm-btn svg { flex-shrink: 0; }
 
-.fm-btn--primary { background: var(--fm-primary); color: var(--fm-navy-deep); font-weight: 700; }
-.fm-btn--primary:hover:not(:disabled) { background: var(--fm-primary-hover); }
-.fm-btn--primary:active:not(:disabled) { box-shadow: inset 0 2px 4px rgba(0,0,0,.15); }
+/* Primary CTA: vàng cam #fea619, chữ nâu đậm, shadow — theo spec Stitch */
+.fm-btn--primary {
+  background: #fea619; color: #684000; font-weight: 700;
+  box-shadow: 0 2px 6px rgba(254, 166, 25, .25);
+  transition: background .15s, transform .15s, box-shadow .15s;
+}
+.fm-btn--primary:hover:not(:disabled) { background: #f59e0b; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(254, 166, 25, .35); }
+.fm-btn--primary:active:not(:disabled) { transform: translateY(0); box-shadow: inset 0 2px 4px rgba(0,0,0,.15); }
 
-.fm-btn--secondary { background: var(--fm-surface); color: var(--fm-navy); border: 1px solid var(--fm-navy); font-weight: 600; }
-.fm-btn--secondary:hover:not(:disabled) { background: var(--fm-navy-soft); }
+/* Secondary: nền #eff4ff, chữ on-surface — theo spec Stitch */
+.fm-btn--secondary {
+  background: #eff4ff; color: var(--fm-text); font-weight: 600;
+  border: 1px solid transparent;
+  transition: background .15s;
+}
+.fm-btn--secondary:hover:not(:disabled) { background: #e5eeff; }
 
-.fm-btn--danger { background: var(--fm-surface); color: var(--fm-red); border: 1px solid var(--fm-red); }
+/* Outline: viền navy, dùng khi cần phân biệt với secondary */
+.fm-btn--outline {
+  background: var(--fm-surface); color: var(--fm-navy); font-weight: 600;
+  border: 1px solid var(--fm-navy);
+  transition: background .15s;
+}
+.fm-btn--outline:hover:not(:disabled) { background: var(--fm-navy-soft); }
+
+.fm-btn--danger { background: var(--fm-surface); color: var(--fm-red); border: 1px solid var(--fm-red); font-weight: 600; }
 .fm-btn--danger:hover:not(:disabled) { background: var(--fm-red-soft); }
 
 .fm-btn--ghost { background: transparent; color: var(--fm-navy); }
@@ -367,7 +393,7 @@
   background: transparent; color: var(--fm-text-2);
   border: 1px dashed #C8C6C4; font-weight: 600;
 }
-.fm-btn--dashed:hover:not(:disabled) { background: #F5F5F5; border-color: var(--fm-primary); color: var(--fm-primary); }
+.fm-btn--dashed:hover:not(:disabled) { background: #eff4ff; border-color: var(--fm-navy); color: var(--fm-navy); }
 
 /* ============================================================
    3. FORM — Settings / RBAC / Sale Order
@@ -514,10 +540,26 @@
   min-width: 30px; height: 30px; border-radius: var(--fm-r-md);
   border: 1px solid var(--fm-line); background: var(--fm-surface);
   color: var(--fm-text-2); cursor: pointer; font-size: 12.5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color .15s, color .15s, background .15s;
 }
-.fm-page-btn:hover:not(:disabled) { border-color: var(--fm-primary); color: var(--fm-primary); }
-.fm-page-btn.is-active { background: var(--fm-primary); border-color: var(--fm-primary); color: #fff; font-weight: 700; }
+.fm-page-btn:hover:not(:disabled) { border-color: var(--fm-navy); color: var(--fm-navy); }
+.fm-page-btn.is-active { background: var(--fm-navy); border-color: var(--fm-navy); color: #fff; font-weight: 700; }
 .fm-page-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Nút icon action trong bảng: 34px, hover nền nhạt */
+.fm-icon-btn {
+  background: none; border: none; cursor: pointer;
+  width: 34px; height: 34px; min-width: 34px; min-height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--fm-r-md); color: var(--fm-text-2);
+  transition: background .15s, color .15s;
+}
+.fm-icon-btn:hover { background: #eff4ff; color: var(--fm-navy); }
+.fm-icon-btn--danger { color: var(--fm-text-2); }
+.fm-icon-btn--danger:hover { background: var(--fm-red-soft); color: var(--fm-red); }
+.fm-icon-btn--primary { color: var(--fm-text-2); }
+.fm-icon-btn--primary:hover { background: #ffddb8; color: #684000; }
 
 /* ============================================================
    7. THÔNG BÁO — Thành công / Lỗi map từ SAP B1 (OData error)
