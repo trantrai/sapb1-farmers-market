@@ -2,7 +2,7 @@
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
-const s = await prisma.AppSettings.update({
+const s = await prisma.appSettings.update({
   where: { id: 'main' },
   data: { connected: false, serviceLayerUrl: '', companyDb: '', sapUser: '' },
 })

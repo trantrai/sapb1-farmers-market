@@ -1,29 +1,70 @@
-import { createHash, createHmac } from 'crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 import { db as prisma } from '@/lib/db'
 import { parsePerm, SessionUser } from '@/lib/fm-shared'
 
-const SECRET = 'fm-sapb1-secret-2026'
+// Re-export để các route cũ vẫn import từ '@/lib/fm-auth' được
+export { hashPassword, verifyPassword } from './fm-crypto'
+
 export const SESSION_COOKIE = 'fm_session'
+/** Token có hiệu lực 12 giờ — khớp maxAge của cookie phiên */
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000
 
-export function hashPassword(pw: string): string {
-  return createHash('sha256').update(pw + 'fm-salt-2024').digest('hex')
+/**
+ * Secret ký token: bắt buộc đọc từ biến môi trường FM_SESSION_SECRET.
+ * Nếu chưa đặt (môi trường dev), dùng secret ngẫu nhiên cho lần chạy này
+ * và cảnh báo rõ — mọi phiên đăng nhập sẽ hết hiệu lực khi restart server.
+ * TUYỆT ĐỐI không hardcode secret trong code (bản cũ đã làm vậy).
+ */
+function resolveSecret(): string {
+  const env = process.env.FM_SESSION_SECRET
+  if (env && env.length >= 16) return env
+  const rand = randomBytes(32).toString('hex')
+  console.warn(
+    '[fm-auth] FM_SESSION_SECRET chưa được đặt (hoặc ngắn hơn 16 ký tự) — ' +
+      'đang dùng secret ngẫu nhiên cho lần chạy này. Mọi phiên đăng nhập sẽ ' +
+      'hết hiệu lực khi restart server. Hãy đặt FM_SESSION_SECRET trong production.',
+  )
+  return rand
+}
+const SECRET = resolveSecret()
+
+function sign(payloadB64: string): string {
+  return createHmac('sha256', SECRET).update(payloadB64).digest('hex')
 }
 
-function sign(username: string): string {
-  return createHmac('sha256', SECRET).update(username).digest('hex').slice(0, 32)
+/** So sánh chữ ký bằng constant-time (chống timing attack) */
+function sigEq(a: string, b: string): boolean {
+  const ab = Buffer.from(a, 'utf8')
+  const bb = Buffer.from(b, 'utf8')
+  return ab.length === bb.length && timingSafeEqual(ab, bb)
 }
 
+/**
+ * Tạo token phiên bản v2: v2.<base64url({u, iat})>.<hmac-sha256>
+ * Token v1 đời cũ (không tiền tố, không thời hạn, ký bằng secret hardcode
+ * đã lộ trong repo) bị TỪ CHỐI — user phải đăng nhập lại 1 lần sau deploy.
+ */
 export function makeToken(username: string): string {
-  return `${Buffer.from(username).toString('base64url')}.${sign(username)}`
+  const payload = Buffer.from(JSON.stringify({ u: username, iat: Date.now() })).toString('base64url')
+  return `v2.${payload}.${sign(payload)}`
 }
 
+/** Đọc token → username, hoặc null khi token sai/giả mạo/hết hạn */
 export function readToken(token: string | undefined | null): string | null {
-  if (!token || !token.includes('.')) return null
-  const [b64, sig] = token.split('.')
+  if (!token || typeof token !== 'string' || !token.startsWith('v2.')) return null
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  const [, payloadB64, sig] = parts
+  if (!sigEq(sign(payloadB64), sig)) return null
   try {
-    const username = Buffer.from(b64, 'base64url').toString('utf8')
-    return sign(username) === sig ? username : null
+    const { u, iat } = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
+      u?: unknown
+      iat?: unknown
+    }
+    if (typeof u !== 'string' || !u || typeof iat !== 'number') return null
+    if (Date.now() - iat > TOKEN_TTL_MS) return null // hết hạn 12h
+    return u
   } catch {
     return null
   }

@@ -3,7 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
-import { fetchSapOrderDetail } from '@/lib/sap-orders'
+import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals } from '@/lib/order-calc'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -12,6 +12,9 @@ type Ctx = { params: Promise<{ id: string }> }
 export async function GET(req: NextRequest, ctx: Ctx) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.orders?.view) {
+    return NextResponse.json({ error: 'Bạn không có quyền xem đơn hàng' }, { status: 403 })
+  }
 
   const { id } = await ctx.params
   const order = await prisma.salesOrder.findUnique({
@@ -254,6 +257,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     })
   })
 
+  clearSapOrdersCache() // đơn đã sửa (local + có thể đã PATCH lên SAP) → danh sách phải tải lại
   return NextResponse.json({ ok: true, order: updated, sap: { status: patchedInSap ? 'synced' : order.sapSyncStatus } })
 }
 
@@ -273,6 +277,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   }
 
   const order = await prisma.salesOrder.update({ where: { id }, data: { status } })
+  clearSapOrdersCache() // trạng thái đơn đổi → danh sách phải tải lại
   return NextResponse.json({ ok: true, order })
 }
 
@@ -287,6 +292,7 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params
   try {
     await prisma.salesOrder.delete({ where: { id } })
+    clearSapOrdersCache() // đơn đã xóa → danh sách phải tải lại
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng cần xóa' }, { status: 404 })

@@ -58,8 +58,8 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       )
     }
-    if (password.length < 6) {
-      return NextResponse.json({ error: 'Mật khẩu tối thiểu 6 ký tự' }, { status: 400 })
+    if (password.length < 8) {
+      return NextResponse.json({ error: 'Mật khẩu tối thiểu 8 ký tự' }, { status: 400 })
     }
 
     const roleExists = await prisma.role.findUnique({ where: { name: role } })
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     }
 
     const created = await prisma.user.create({
-      data: { username, fullName, role, password: hashPassword(password), active: true },
+      data: { username, fullName, role, password: await hashPassword(password), active: true },
       select: PUBLIC_SELECT,
     })
     return NextResponse.json({ ok: true, user: created }, { status: 201 })

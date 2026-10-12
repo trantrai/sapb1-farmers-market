@@ -73,10 +73,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     if (body.password !== undefined && body.password !== '') {
       const pw = String(body.password)
-      if (pw.length < 6) {
-        return NextResponse.json({ error: 'Mật khẩu tối thiểu 6 ký tự' }, { status: 400 })
+      if (pw.length < 8) {
+        return NextResponse.json({ error: 'Mật khẩu tối thiểu 8 ký tự' }, { status: 400 })
       }
-      data.password = hashPassword(pw)
+      data.password = await hashPassword(pw)
     }
 
     if (body.active !== undefined && body.active !== target.active) {

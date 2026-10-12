@@ -88,11 +88,28 @@ async function withEnvTlsOff<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// ---------- Mutex cho đường tắt NODE_TLS_REJECT_UNAUTHORIZED ----------
+// Biến môi trường là TOÀN CỤC của process: nếu 2 request cùng bật/tắt xen kẽ,
+// request khác có thể vô tình chạy với TLS verify bị tắt. Serialize đường này
+// để không bao giờ có 2 lần "tắt TLS" chồng lên nhau. (Đường ưu tiên vẫn là
+// undici Agent dispatcher — chỉ áp dụng cho 1 request, không ảnh hưởng toàn cục.)
+let tlsToggleQueue: Promise<void> = Promise.resolve()
+
+function withTlsToggleMutex<T>(fn: () => Promise<T>): Promise<T> {
+  const run = tlsToggleQueue.then(fn)
+  // Giữ chuỗi không bị đứt khi 1 lượt lỗi — lượt sau vẫn chạy được
+  tlsToggleQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 /** fetch() có hỗ trợ bỏ qua xác thực SSL khi sslSkipVerify bật */
 async function sslFetch(url: string, init: RequestInit, skip?: boolean): Promise<Response> {
   const extra = await sslFetchExtra(Boolean(skip))
   const merged = { ...init, ...extra.init } as RequestInit
-  if (extra.toggleEnv) return withEnvTlsOff(() => fetch(url, merged))
+  if (extra.toggleEnv) return withTlsToggleMutex(() => withEnvTlsOff(() => fetch(url, merged)))
   return fetch(url, merged)
 }
 

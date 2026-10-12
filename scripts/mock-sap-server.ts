@@ -4,6 +4,7 @@
 // Chạy: bun scripts/mock-sap-server.ts  (port 9090)
 // Đăng nhập mock: CompanyDB bất kỳ, user=manager, pass=Sap@1234
 // ============================================================
+/// <reference types="bun-types" />
 
 interface MockBP { CardCode: string; CardName: string; Address: string; Phone1: string; CardType: string }
 interface MockItem { ItemCode: string; ItemName: string; InventoryUOM: string; SalesUnit: string; BarCode: string; SalesVATGroup: string; QuantityOnStock: number; SalesItem: string; ItemPrices: { PriceList: number; Price: number }[] }
@@ -275,15 +276,19 @@ function serStock(rows: ReturnType<typeof stockRowsFor>) {
   return rows.map((w) => ({ ...w, InStock: dec(w.InStock), IsCommitted: dec(w.IsCommitted), OnOrder: dec(w.OnOrder) }))
 }
 
-/** Serial hóa 1 dòng RDR1: các trường số thập phân trả dạng chuỗi như SL thật */
+/** Serial hóa 1 dòng RDR1: các trường số thập phân trả dạng chuỗi như SL thật.
+ * LƯU Ý: Service Layer thật KHÔNG trả VatSum theo dòng (metadata
+ * SAPB1.DocumentLine không có property này — chỉ header Document mới có
+ * VatSum), nên mock cũng KHÔNG trả để kiểm thử trung thực. App phải tự tính
+ * VAT dòng từ thuế suất (xem finalizeTotals trong src/lib/sap-orders.ts). */
 function serLine(l: MockOrderLine) {
+  const { VatSum: _noVatSumOnRealSL, ...rest } = l
   return {
-    ...l,
+    ...rest,
     Quantity: dec(l.Quantity),
     Price: dec(l.Price),
     DiscountPercent: dec(l.DiscountPercent),
     LineTotal: dec(l.LineTotal),
-    VatSum: dec(l.VatSum),
   }
 }
 

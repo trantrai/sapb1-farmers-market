@@ -85,6 +85,12 @@ export interface SapOrderLineRow {
   discAmt: number
   vatPct: number
   vatAmt: number
+  /**
+   * true = tiền VAT lấy từ Service Layer; false = SL không trả VatSum theo
+   * dòng (metadata SAPB1.DocumentLine KHÔNG có property VatSum — chỉ header
+   * Document mới có) nên app tự tính từ thuế suất (xem finalizeTotals).
+   */
+  vatAmtFromSap: boolean
   grandTotal: number
   /** Mã nhóm thuế (VatGroup/TaxCode) của dòng trên SAP — dùng khi sửa đơn */
   taxCode?: string
@@ -137,14 +143,21 @@ interface MapLineCtx {
  * VAT%: ƯU TIÊN tra bảng nhóm thuế OVTG (suất thật); không tra được mới suy từ
  * VatSum — khi có CK đầu chứng từ phải chia cho phần SAU CK đầu (denom =
  * afterDisc × (1 − headerPct/100)), nếu chỉ chia LineTotal sẽ ra suất bị nhỏ đi
- * (8% thành 7.2 → hiển thị 7%) — đây là nguyên nhân chi tiết đơn sai VAT%. */
+ * (8% thành 7.2 → hiển thị 7%) — đây là nguyên nhân chi tiết đơn sai VAT%.
+ * VAT TIỀN (vatAmt): Service Layer THẬT không trả VatSum theo dòng
+ * (metadata SAPB1.DocumentLine không có property này — chỉ header Document
+ * mới có VatSum). Trường hợp đó đánh dấu vatAmtFromSap=false để
+ * finalizeTotals tự tính VAT = làm tròn((sau CK dòng − phần CK đầu) × VAT%)
+ * theo đúng công thức SAP B1 (cùng công thức order-calc khi tạo đơn). */
 function mapLine(l: SapOrderLine, idx: number, ctx: MapLineCtx): SapOrderLineRow {
   const qty = num(l.Quantity)
   const price = num(l.Price)
   const lineTotalBefore = qty * price
   const afterDisc = l.LineTotal !== undefined && l.LineTotal !== null ? num(l.LineTotal) : lineTotalBefore * (1 - num(l.DiscountPercent) / 100)
   const discAmt = Math.max(0, Math.round(lineTotalBefore - afterDisc))
-  const vatAmt = num(l.VatSum)
+  const vatSumRaw = l.VatSum
+  const vatAmtFromSap = vatSumRaw !== undefined && vatSumRaw !== null && vatSumRaw !== ''
+  const vatAmt = vatAmtFromSap ? num(vatSumRaw) : 0
   const taxCode = l.VatGroup ?? l.TaxCode ?? ''
   const vatRate = ctx.vmap[taxCode]
   let vatPct: number
@@ -169,6 +182,7 @@ function mapLine(l: SapOrderLine, idx: number, ctx: MapLineCtx): SapOrderLineRow
     discAmt,
     vatPct,
     vatAmt: Math.round(vatAmt),
+    vatAmtFromSap,
     grandTotal: Math.round(afterDisc + vatAmt),
   }
 }
@@ -245,6 +259,23 @@ function matchKeyword(h: SapOrderHeader, q: string): boolean {
   )
 }
 
+// ---------- Cache danh sách header đơn SAP (tránh tải lại toàn bộ /Orders
+// mỗi lần mở trang — GET /api/orders gọi hàm này cho mọi lần phân trang) ----------
+// TTL ngắn (45 giây): đủ giảm tải khi user lật trang/tìm kiếm liên tục,
+// vẫn thấy dữ liệu SAP mới sau tối đa 45s. Cache bị xóa ngay khi tạo/sửa/xóa
+// đơn qua app (clearSapOrdersCache) nên thao tác của chính user luôn mới.
+const ORDERS_LIST_TTL = 45_000
+const ordersListCache = new Map<string, { ts: number; result: SapOrdersResult }>()
+
+/** Xóa cache danh sách đơn SAP — gọi sau khi tạo/sửa/xóa/đóng-mở đơn */
+export function clearSapOrdersCache() {
+  ordersListCache.clear()
+}
+
+function listCacheKey(c: SapConfig, filter: SapOrdersFilter): string {
+  return `${c.serviceLayerUrl}|${c.companyDb}|${c.sapUser}|${JSON.stringify(filter)}`
+}
+
 /**
  * Lấy TOÀN BỘ header đơn hàng bán từ SAP B1 (ORDR) khớp bộ lọc —
  * tự phân trang qua sapGetAll (chống giới hạn số bản ghi/trang của SL).
@@ -253,6 +284,10 @@ function matchKeyword(h: SapOrderHeader, q: string): boolean {
  * được lọc tại chỗ vì SL thật không hỗ trợ substringof/ngoặc tròn.
  */
 export async function fetchSapOrders(c: SapConfig, filter: SapOrdersFilter): Promise<SapOrdersResult> {
+  const key = listCacheKey(c, filter)
+  const cached = ordersListCache.get(key)
+  if (cached && Date.now() - cached.ts < ORDERS_LIST_TTL) return cached.result
+
   const base = buildBaseFilter(filter)
   const baseQuery = {
     $select: 'DocEntry,DocNum,CardCode,CardName,DocDate,DocDueDate,DocumentStatus,DocTotal,VatSum,Comments',
@@ -270,7 +305,9 @@ export async function fetchSapOrders(c: SapConfig, filter: SapOrdersFilter): Pro
     if (row.sapDocEntry != null && !byEntry.has(row.sapDocEntry)) byEntry.set(row.sapDocEntry, row)
   }
   const data = [...byEntry.values()].sort((a, b) => b.docNum - a.docNum)
-  return { ok: true, data, total: data.length }
+  const result: SapOrdersResult = { ok: true, data, total: data.length }
+  ordersListCache.set(key, { ts: Date.now(), result })
+  return result
 }
 
 /**
@@ -352,8 +389,12 @@ export async function fetchSapOrderDetail(
  * CK đầu chứng từ được PHÂN BỔ về từng dòng theo tỷ lệ sau-CK-dòng (floor từng
  * dòng, phần dư cộng cho dòng có tiền lớn nhất — cùng công thức order-calc khi
  * tạo đơn) → tiền từng dòng TRỪ CK đầu trước thuế → tổng tiền từng dòng khớp
- * TỔNG CỘNG từng đồng.vatAmt/grandTotal lấy từ dòng (VatSum SAP đã tính trên
- * tiền sau CK đầu trên SL thật) — không lấy theo chứng từ để bảng tự nhất quán. */
+ * TỔNG CỘNG từng đồng.
+ * VAT từng dòng: Service Layer thật KHÔNG trả VatSum theo dòng
+ * (SAPB1.DocumentLine không có property này) → với dòng có vatAmtFromSap=false
+ * và vatPct > 0, tự tính VAT = làm tròn((sau CK dòng − phần CK đầu) × VAT%),
+ * đúng công thức SAP B1 và khớp cách tính khi tạo đơn (order-calc).
+ * Dòng nào SL có trả VatSum (mock/future) thì giữ nguyên số của SAP. */
 function finalizeTotals(row: SapOrderRow, lines: SapOrderLineRow[], h?: SapOrderHeader): SapOrderRow {
   if (lines.length === 0) return row
   row.totalBeforeDisc = lines.reduce((s, l) => s + l.lineTotal, 0)
@@ -362,29 +403,32 @@ function finalizeTotals(row: SapOrderRow, lines: SapOrderLineRow[], h?: SapOrder
   const docDisc = num(h?.DocDiscount)
   const headerTotal =
     docDisc > 0 ? Math.round(docDisc) : row.headerDiscPct > 0 && baseAfter > 0 ? Math.round((baseAfter * row.headerDiscPct) / 100) : 0
+  // Phân bổ CK đầu chứng từ về từng dòng (floor + dồn phần dư cho dòng lớn nhất)
+  const shares = lines.map(() => 0)
   if (headerTotal > 0 && baseAfter > 0) {
     let allocated = 0
-    const shares = lines.map((l) => {
+    lines.forEach((l, i) => {
       const ad = l.lineTotal - l.discAmt
-      const sh = baseAfter > 0 ? Math.floor((ad * headerTotal) / baseAfter) : 0
+      const sh = Math.floor((ad * headerTotal) / baseAfter)
+      shares[i] = sh
       allocated += sh
-      return sh
     })
     const residual = headerTotal - allocated
     if (residual !== 0) {
       const maxIdx = lines.reduce((mi, l, i) => (l.lineTotal - l.discAmt > lines[mi].lineTotal - lines[mi].discAmt ? i : mi), 0)
       shares[maxIdx] += residual
     }
-    lines.forEach((l, i) => {
-      l.grandTotal = Math.round(l.lineTotal - l.discAmt - shares[i] + l.vatAmt)
-    })
     row.headerDiscAmt = headerTotal
   } else {
-    lines.forEach((l) => {
-      l.grandTotal = Math.round(l.lineTotal - l.discAmt + l.vatAmt)
-    })
     row.headerDiscAmt = 0
   }
+  lines.forEach((l, i) => {
+    const vatBase = l.lineTotal - l.discAmt - shares[i]
+    if (!l.vatAmtFromSap && l.vatPct > 0) {
+      l.vatAmt = Math.round((vatBase * l.vatPct) / 100)
+    }
+    l.grandTotal = Math.round(vatBase + l.vatAmt)
+  })
   row.vatAmt = lines.reduce((s, l) => s + l.vatAmt, 0)
   row.grandTotal = lines.reduce((s, l) => s + l.grandTotal, 0)
   return row

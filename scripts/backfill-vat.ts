@@ -21,12 +21,12 @@ async function main() {
       const vatAmt = Math.round((afterDisc * vatPct) / 100)
       const grand = afterDisc + vatAmt
       sumDisc += discAmt; sumVat += vatAmt; sumGrand += grand
-      await prisma.SalesOrderLine.update({
+      await prisma.salesOrderLine.update({
         where: { id: l.id },
         data: { discPct, discAmt, vatPct, vatAmt, grandTotal: grand },
       })
     }
-    await prisma.SalesOrder.update({
+    await prisma.salesOrder.update({
       where: { id: o.id },
       data: { discountAmt: sumDisc, vatAmt: sumVat, grandTotal: sumGrand },
     })

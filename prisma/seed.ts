@@ -1,12 +1,7 @@
 import { PrismaClient } from '@prisma/client'
-import { createHash } from 'crypto'
+import { hashPassword } from '../src/lib/fm-crypto'
 
 const prisma = new PrismaClient()
-
-const SALT = 'fm-salt-2024'
-export function hashPassword(pw: string) {
-  return createHash('sha256').update(pw + SALT).digest('hex')
-}
 
 function d(daysAgo: number) {
   const dt = new Date()
@@ -21,6 +16,7 @@ function dPlus(daysAgo: number, plus: number) {
 
 async function main() {
   console.log('🌱 Seeding Farmers Market — SAP B1 SO System...')
+  console.warn('⚠️  Seed sẽ XÓA TOÀN BỘ dữ liệu hiện có (đơn hàng, KH, mặt hàng, user, settings) — chỉ chạy ở môi trường dev/demo!')
 
   await prisma.salesOrderLine.deleteMany()
   await prisma.salesOrder.deleteMany()
@@ -31,12 +27,16 @@ async function main() {
   await prisma.appSettings.deleteMany()
 
   // ---------- Users ----------
+  // Tài khoản demo — ĐỔI MẬT KHẨU ngay sau khi deploy production.
+  const [pwAdmin, pwKeToan, pwNhanVien, pwKiemKe] = await Promise.all(
+    ['admin123', 'ketoan123', 'nhanvien123', 'kiemke123'].map(hashPassword),
+  )
   await prisma.user.createMany({
     data: [
-      { username: 'admin', password: hashPassword('admin123'), fullName: 'Nguyễn Văn Quản', role: 'Admin' },
-      { username: 'ketoan', password: hashPassword('ketoan123'), fullName: 'Trần Thị Kế', role: 'KeToan' },
-      { username: 'nhanvien', password: hashPassword('nhanvien123'), fullName: 'Lê Văn Bán', role: 'NhanVien' },
-      { username: 'kiemke', password: hashPassword('kiemke123'), fullName: 'Phạm Thị Kiểm', role: 'NhanVien' },
+      { username: 'admin', password: pwAdmin, fullName: 'Nguyễn Văn Quản', role: 'Admin' },
+      { username: 'ketoan', password: pwKeToan, fullName: 'Trần Thị Kế', role: 'KeToan' },
+      { username: 'nhanvien', password: pwNhanVien, fullName: 'Lê Văn Bán', role: 'NhanVien' },
+      { username: 'kiemke', password: pwKiemKe, fullName: 'Phạm Thị Kiểm', role: 'NhanVien' },
     ],
   })
 
@@ -180,15 +180,17 @@ async function main() {
   }
 
   // ---------- Settings ----------
+  // Cấu hình Service Layer MẪU — điền thông tin thật ở trang Cài đặt của app
+  // (không commit thông tin kết nối/mật khẩu SAP thật vào repo).
   await prisma.appSettings.create({
     data: {
       id: 'main',
-      serviceLayerUrl: 'https://sapb1.farmersmarket.vn:50000/b1s/v1',
-      companyDb: 'FM_LIVE',
+      serviceLayerUrl: 'https://sap-b1-host:50000/b1s/v1',
+      companyDb: 'TESTDB',
       sapUser: 'manager',
-      sapPassword: hashPassword('sap@2024'),
-      connected: true,
-      lastSyncAt: d(0),
+      sapPassword: await hashPassword('doi-mat-khau-sap-o-day'),
+      connected: false,
+      lastSyncAt: null,
     },
   })
 

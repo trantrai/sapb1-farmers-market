@@ -3,7 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { pushOrderToSap } from '@/lib/sap-push-order'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { fetchSapOrders, fetchSapOrderDetail, type SapOrderRow } from '@/lib/sap-orders'
+import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals } from '@/lib/order-calc'
 
 // ---------- GET /api/orders : danh sách SO + filter + phân trang ----------
@@ -162,45 +162,48 @@ export async function POST(req: NextRequest) {
     const totals = orderTotals(calcLines)
     const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = totals
 
-    const last = await prisma.salesOrder.findFirst({ orderBy: { docNum: 'desc' } })
-    const docNum = (last?.docNum ?? 1000) + 1
-
-    const created = await prisma.salesOrder.create({
-      data: {
-        docNum,
-        cardCode,
-        cardName,
-        docDate: new Date(docDate),
-        docDueDate: new Date(docDueDate),
-        remarks: remarks?.trim() || null,
-        warehouseCode: warehouseCode?.trim() || null,
-        totalBeforeDisc,
-        discountAmt,
-        headerDiscPct: headerPct,
-        headerDiscAmt,
-        vatAmt,
-        grandTotal,
-        createdBy: user.username,
-        lines: {
-          create: calcLines.map((l, i) => ({
-            lineNum: i + 1,
-            itemCode: l.itemCode,
-            itemName: l.itemName,
-            uom: l.uom || 'kg',
-            taxCode: l.taxCode?.trim() || null,
-            warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
-            lineTotal: l.lineTotal,
-            discPct: l.discPct,
-            discAmt: l.discAmt,
-            vatPct: l.vatPct,
-            vatAmt: l.vatAmt,
-            grandTotal: l.grandTotal,
-          })),
+    // Cấp docNum + tạo đơn trong 1 transaction: 2 request tạo đơn đồng thời
+    // không thể nhận cùng docNum (trước đây findFirst + create rời nhau → trùng số).
+    const created = await prisma.$transaction(async (tx) => {
+      const last = await tx.salesOrder.findFirst({ orderBy: { docNum: 'desc' } })
+      const docNum = (last?.docNum ?? 1000) + 1
+      return tx.salesOrder.create({
+        data: {
+          docNum,
+          cardCode,
+          cardName,
+          docDate: new Date(docDate),
+          docDueDate: new Date(docDueDate),
+          remarks: remarks?.trim() || null,
+          warehouseCode: warehouseCode?.trim() || null,
+          totalBeforeDisc,
+          discountAmt,
+          headerDiscPct: headerPct,
+          headerDiscAmt,
+          vatAmt,
+          grandTotal,
+          createdBy: user.username,
+          lines: {
+            create: calcLines.map((l, i) => ({
+              lineNum: i + 1,
+              itemCode: l.itemCode,
+              itemName: l.itemName,
+              uom: l.uom || 'kg',
+              taxCode: l.taxCode?.trim() || null,
+              warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              lineTotal: l.lineTotal,
+              discPct: l.discPct,
+              discAmt: l.discAmt,
+              vatPct: l.vatPct,
+              vatAmt: l.vatAmt,
+              grandTotal: l.grandTotal,
+            })),
+          },
         },
-      },
-      include: { lines: true },
+        include: { lines: true },
+      })
     })
 
     // ---- Đẩy đơn sang SAP B1 (POST /Orders). Luôn lưu local trước, 
@@ -241,6 +244,7 @@ export async function POST(req: NextRequest) {
       include: { lines: true },
     })
 
+    clearSapOrdersCache() // đơn mới (local + có thể đã lên SAP) → danh sách phải tải lại
     return NextResponse.json({ ok: true, order, sap: push }, { status: 201 })
   } catch (e) {
     console.error('POST /api/orders', e)
