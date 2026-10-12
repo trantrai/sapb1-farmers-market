@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { History, RefreshCw, RotateCcw, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 
@@ -41,6 +41,23 @@ export default function SapAuditView() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [confirmRetry, setConfirmRetry] = useState<AuditRow | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const retryModalRef = useRef<HTMLDivElement>(null)
+  const clearModalRef = useRef<HTMLDivElement>(null)
+
+  // Modal xác nhận: đưa focus vào modal khi mở + đóng bằng Escape
+  useEffect(() => {
+    if (!confirmRetry && !confirmClear) return
+    ;(confirmClear ? clearModalRef.current : retryModalRef.current)?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setConfirmRetry(null)
+        setConfirmClear(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [confirmRetry, confirmClear])
 
   const load = useCallback(async (p = page, st = status, query = q) => {
     setRows(null)
@@ -90,7 +107,7 @@ export default function SapAuditView() {
   }
 
   const clearLog = async () => {
-    if (!window.confirm('Xóa TOÀN BỘ nhật ký Service Layer Audit?')) return
+    setConfirmClear(false)
     const res = await api('/api/sap-audit', { method: 'DELETE' })
     const json = await res.json().catch(() => ({}))
     if (res.ok) {
@@ -104,9 +121,9 @@ export default function SapAuditView() {
   return (
     <div>
       {msg && (
-        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`}>
+        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -122,7 +139,7 @@ export default function SapAuditView() {
         {/* Mobile (≤640px): .fm-filterbar tự chuyển sang lưới 2 cột (mục 15.6 globals.css) —
             KHÔNG đặt display:flex inline vì sẽ đè rule grid của mobile */}
         <div className="fm-filterbar">
-          <select className="fm-select" value={status} onChange={(e) => { const v = e.target.value as 'all' | 'ok' | 'error'; setStatus(v); load(1, v, q) }}>
+          <select className="fm-select" aria-label="Lọc theo trạng thái lệnh gọi" value={status} onChange={(e) => { const v = e.target.value as 'all' | 'ok' | 'error'; setStatus(v); load(1, v, q) }}>
             <option value="all">Tất cả trạng thái</option>
             <option value="ok">Chỉ thành công</option>
             <option value="error">Chỉ lỗi</option>
@@ -131,6 +148,7 @@ export default function SapAuditView() {
             className="fm-input"
             data-search
             placeholder="Tìm theo endpoint (/Orders…)"
+            aria-label="Tìm theo endpoint Service Layer"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && load(1, status, q)}
@@ -138,7 +156,7 @@ export default function SapAuditView() {
           <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => load(1, status, q)}>
             <RefreshCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Tải lại
           </button>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ color: 'var(--fm-red)' }} onClick={clearLog} title="Xóa toàn bộ nhật ký">
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ color: 'var(--fm-red)' }} onClick={() => setConfirmClear(true)} title="Xóa toàn bộ nhật ký">
             <Trash2 size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa log
           </button>
           <span className="fm-chip fm-chip--role">{total} bản ghi</span>
@@ -166,7 +184,20 @@ export default function SapAuditView() {
               )}
               {rows?.map((r) => (
                 <Fragment key={r.id}>
-                  <tr className={r.ok ? '' : 'fm-audit-row--err'} onClick={() => setExpanded(expanded === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
+                  <tr
+                    className={r.ok ? '' : 'fm-audit-row--err'}
+                    onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                    style={{ cursor: 'pointer' }}
+                    tabIndex={0}
+                    aria-expanded={expanded === r.id}
+                    aria-label={`${r.method} ${fmtPath(r.path)} — ${r.ok ? 'thành công' : 'lỗi'}. Bấm để xem chi tiết.`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setExpanded(expanded === r.id ? null : r.id)
+                      }
+                    }}
+                  >
                     <td data-label="">{expanded === r.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
                     <td data-label="Thời gian">{fmtTime(r.createdAt)}</td>
                     <td data-label="Method">
@@ -184,6 +215,7 @@ export default function SapAuditView() {
                       <button
                         className="fm-btn fm-btn--ghost fm-btn--sm"
                         title={r.method === 'POST' ? 'Gửi lại payload lên Service Layer (POST /Orders sẽ tạo chứng từ MỚI)' : r.method === 'PATCH' ? 'Gửi lại payload PATCH để cập nhật lại chứng từ' : 'Gọi lại endpoint GET này'}
+                        aria-label={`Retry ${r.method} ${fmtPath(r.path)}`}
                         disabled={busyId === r.id}
                         onClick={(e) => { e.stopPropagation(); setConfirmRetry(r) }}
                       >
@@ -228,11 +260,14 @@ export default function SapAuditView() {
       {confirmRetry && (
         <div className="fm-drawer-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmRetry(null)}>
           <div
+            ref={retryModalRef}
+            tabIndex={-1}
             className="fm-card"
             style={{ maxWidth: 460, margin: '10vh auto 0', position: 'relative', zIndex: 76, cursor: 'default' }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
+            aria-label={`Xác nhận retry ${confirmRetry.method} ${fmtPath(confirmRetry.path)}`}
           >
             <h2 className="fm-card__title">Xác nhận Retry</h2>
             <p className="fm-card__desc">
@@ -250,9 +285,41 @@ export default function SapAuditView() {
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="fm-btn fm-btn--ghost" onClick={() => setConfirmRetry(null)}>Hủy</button>
-              <button className="fm-btn fm-btn--primary" disabled={busyId === confirmRetry.id} onClick={() => doRetry(confirmRetry)}>
+              <button
+                className={`fm-btn ${confirmRetry.method === 'POST' ? 'fm-btn--danger' : 'fm-btn--primary'}`}
+                disabled={busyId === confirmRetry.id}
+                onClick={() => doRetry(confirmRetry)}
+              >
                 <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
                 {busyId === confirmRetry.id ? 'Đang gửi…' : 'Retry ngay'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Xác nhận Xóa log — dùng cùng pattern modal như Retry (không dùng window.confirm) */}
+      {confirmClear && (
+        <div className="fm-drawer-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmClear(false)}>
+          <div
+            ref={clearModalRef}
+            tabIndex={-1}
+            className="fm-card"
+            style={{ maxWidth: 460, margin: '10vh auto 0', position: 'relative', zIndex: 76, cursor: 'default' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Xác nhận xóa nhật ký Service Layer"
+          >
+            <h2 className="fm-card__title">Xóa nhật ký Audit?</h2>
+            <p className="fm-card__desc">
+              Xóa <b>TOÀN BỘ</b> nhật ký gọi Service Layer đã ghi nhận. Hành động không thể hoàn tác.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="fm-btn fm-btn--ghost" onClick={() => setConfirmClear(false)}>Hủy</button>
+              <button className="fm-btn fm-btn--danger" onClick={clearLog}>
+                <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                Xóa toàn bộ
               </button>
             </div>
           </div>

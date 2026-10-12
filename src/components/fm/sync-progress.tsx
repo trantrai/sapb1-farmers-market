@@ -86,6 +86,7 @@ export function SyncProgressCard({ progress }: { progress: SyncProgress | null }
       <div
         className={`fm-syncbar${determinate ? '' : ' fm-syncbar--indet'}`}
         role="progressbar"
+        aria-label="Tiến trình đồng bộ dữ liệu từ SAP B1"
         aria-valuenow={determinate ? pct : undefined}
         aria-valuemin={0}
         aria-valuemax={100}

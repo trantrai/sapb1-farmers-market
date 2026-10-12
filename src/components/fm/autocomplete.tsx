@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 
@@ -104,6 +104,9 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const uid = useId()
+  const inputId = `fm-ac-${uid}`
+  const listId = `fm-ac-list-${uid}`
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -279,15 +282,21 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
 
   return (
     <div className="fm-field" ref={boxRef}>
-      <label className="fm-label">
+      <label className="fm-label" htmlFor={inputId}>
         {label}
         {required && <span className="fm-label__req">*</span>}
       </label>
       <div className="fm-autocomplete">
         <input
           ref={inputRef}
+          id={inputId}
           className={`fm-input${error ? ' is-error' : ''}`}
           placeholder={placeholder}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          aria-activedescendant={open && shown[hlSafe] ? `${listId}-opt-${hlSafe}` : undefined}
+          aria-autocomplete="list"
           value={value ? `${value.code} — ${value.name}` : query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -298,6 +307,10 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           onFocus={() => {
             setQuery('')
             setOpen(true)
+          }}
+          // Bấm Tab/Shift+Tab ra ngoài ô nhập → đóng panel (click vào option không gây blur nhờ preventDefault ở panel)
+          onBlur={(e) => {
+            if (!boxRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false)
           }}
           // input đã có focus thì onFocus không fire lại — mở dropdown khi click vào ô đã chọn
           onMouseDown={() => {
@@ -316,11 +329,16 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           autoComplete="off"
           spellCheck={false}
         />
-        <Search size={15} style={{ position: 'absolute', right: 10, top: 9, color: 'var(--fm-text-3)', pointerEvents: 'none' }} />
+        <Search size={15} aria-hidden="true" style={{ position: 'absolute', right: 10, top: 9, color: 'var(--fm-text-3)', pointerEvents: 'none' }} />
         {open && rect && (
           <div
             className="fm-autocomplete__panel fm-scroll"
             ref={panelRef}
+            role="listbox"
+            id={listId}
+            aria-label={label}
+            // Giữ focus trong input khi bấm vào option → onClick vẫn chạy, onBlur không đóng panel sớm
+            onMouseDown={(e) => e.preventDefault()}
             style={{
               position: 'fixed',
               top: rect.top ?? 'auto',
@@ -342,6 +360,9 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
             {shown.map((o, i) => (
               <div
                 key={o.code}
+                id={`${listId}-opt-${i}`}
+                role="option"
+                aria-selected={i === hlSafe}
                 className={`fm-autocomplete__opt${i === hlSafe ? ' is-hl' : ''}`}
                 onMouseEnter={() => setHl(i)}
                 onClick={() => pick(o)}
@@ -365,7 +386,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           </div>
         )}
       </div>
-      {error ? <div className="fm-error-text">{error}</div> : null}
+      {error ? <div className="fm-error-text" role="alert">{error}</div> : null}
     </div>
   )
 }

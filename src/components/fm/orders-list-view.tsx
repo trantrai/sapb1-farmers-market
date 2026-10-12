@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
@@ -125,6 +125,18 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [detailRetryTick, setDetailRetryTick] = useState(0)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Modal chi tiết: đưa focus vào modal khi mở + đóng bằng Escape
+  useEffect(() => {
+    if (!detail) return
+    modalRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetail(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detail])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -190,21 +202,28 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
     setDetailRetryTick((t) => t + 1)
   }
 
+  const [closingId, setClosingId] = useState<string | null>(null)
   const closeOrder = async (o: Order) => {
-    const next = o.status === 'Open' ? 'Closed' : 'Open'
-    const res = await api(`/api/orders/${o.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: next }),
-    })
-    const json = await res.json()
-    if (!res.ok) {
-      setAlert({ type: 'error', msg: json.error ?? 'Không thể cập nhật trạng thái' })
-      return
+    if (closingId) return // chống bấm đúp gửi 2 request
+    setClosingId(o.id)
+    try {
+      const next = o.status === 'Open' ? 'Closed' : 'Open'
+      const res = await api(`/api/orders/${o.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setAlert({ type: 'error', msg: json.error ?? 'Không thể cập nhật trạng thái' })
+        return
+      }
+      setAlert({ type: 'success', msg: `Đã ${next === 'Closed' ? 'đóng' : 'mở lại'} đơn hàng #${o.docNum}` })
+      load()
+      setDetail((d) => (d && d.id === o.id ? { ...d, status: next } : d))
+    } finally {
+      setClosingId(null)
     }
-    setAlert({ type: 'success', msg: `Đã ${next === 'Closed' ? 'đóng' : 'mở lại'} đơn hàng #${o.docNum}` })
-    load()
-    setDetail((d) => (d && d.id === o.id ? { ...d, status: next } : d))
   }
 
   const deleteOrder = async (o: Order) => {
@@ -281,9 +300,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
   return (
     <div>
       {alert && (
-        <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`}>
+        <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
           <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{alert.msg}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setAlert(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setAlert(null)}>✕</button>
         </div>
       )}
 
@@ -312,12 +331,13 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
               className="fm-input"
               style={{ paddingLeft: 32 }}
               placeholder="Số CT, mã/N tên khách hàng…"
+              aria-label="Tìm kiếm đơn hàng theo số chứng từ, mã hoặc tên khách hàng"
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1) }}
             />
             <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
           </div>
-          <select className="fm-select" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
+          <select className="fm-select" aria-label="Lọc theo trạng thái đơn hàng" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
             <option value="">Tất cả trạng thái</option>
             <option value="Open">Open</option>
             <option value="Closed">Closed</option>
@@ -369,7 +389,20 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
                 </thead>
                 <tbody>
                   {orders.map((o) => (
-                    <tr key={o.id} style={{ cursor: 'pointer' }} title="Bấm để xem chi tiết" onClick={() => openDetail(o)}>
+                    <tr
+                      key={o.id}
+                      style={{ cursor: 'pointer' }}
+                      title="Bấm để xem chi tiết"
+                      tabIndex={0}
+                      aria-label={`Xem chi tiết đơn hàng #${o.docNum} — ${o.cardName}`}
+                      onClick={() => openDetail(o)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          openDetail(o)
+                        }
+                      }}
+                    >
                       <td><b>#{o.docNum}</b></td>
                       <td>{o.cardCode}</td>
                       <td>{o.cardName}</td>
@@ -408,8 +441,14 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
                   className="fm-ocard"
                   role="button"
                   tabIndex={0}
+                  aria-label={`Xem chi tiết đơn hàng #${o.docNum} — ${o.cardName}`}
                   onClick={() => openDetail(o)}
-                  onKeyDown={(e) => e.key === 'Enter' && openDetail(o)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openDetail(o)
+                    }
+                  }}
                 >
                   <div className="fm-ocard__top">
                     <span className="fm-ocard__num">#{o.docNum}</span>
@@ -451,17 +490,17 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
               <span style={{ color: 'var(--fm-text-2)', marginRight: 8 }}>
                 Trang {page}/{totalPages}
               </span>
-              <button className="fm-page-btn" disabled={page <= 1} onClick={() => setPage(1)}>«</button>
-              <button className="fm-page-btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
+              <button className="fm-page-btn" aria-label="Về trang đầu" disabled={page <= 1} onClick={() => setPage(1)}>«</button>
+              <button className="fm-page-btn" aria-label="Trang trước" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
               {Array.from({ length: totalPages }, (_, i) => i + 1)
                 .filter((p) => Math.abs(p - page) <= 1 || p === 1 || p === totalPages)
                 .map((p) => (
-                  <button key={p} className={`fm-page-btn${p === page ? ' is-active' : ''}`} onClick={() => setPage(p)}>
+                  <button key={p} className={`fm-page-btn${p === page ? ' is-active' : ''}`} aria-label={`Trang ${p}`} aria-current={p === page ? 'page' : undefined} onClick={() => setPage(p)}>
                     {p}
                   </button>
                 ))}
-              <button className="fm-page-btn" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>›</button>
-              <button className="fm-page-btn" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>»</button>
+              <button className="fm-page-btn" aria-label="Trang sau" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>›</button>
+              <button className="fm-page-btn" aria-label="Đến trang cuối" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>»</button>
             </div>
           </>
         )}
@@ -470,7 +509,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
       {/* Modal chi tiết */}
       {detail && (
         <div className="fm-backdrop" onClick={() => setDetail(null)}>
-          <div className="fm-modal fm-modal--wide fm-scroll" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div ref={modalRef} tabIndex={-1} className="fm-modal fm-modal--wide fm-scroll" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Chi tiết Sale Order #${detail.docNum}`}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <h3 style={{ margin: 0, color: 'var(--fm-navy)', fontSize: 20 }}>
                 Sale Order #{detail.docNum}{' '}
@@ -482,7 +521,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
                   <span className="fm-chip fm-chip--closed">Closed</span>
                 )}
               </h3>
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setDetail(null)}>✕</button>
+              <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng chi tiết đơn hàng" onClick={() => setDetail(null)}>✕</button>
             </div>
 
             <dl className="fm-view-detail">
@@ -675,10 +714,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, refreshKey 
             {canEdit && detail.source !== 'sap' && (
               <button
                 className={`fm-btn ${detail.status === 'Open' ? 'fm-btn--secondary' : 'fm-btn--ghost'}`}
+                disabled={closingId === detail.id}
                 onClick={() => closeOrder(detail)}
               >
                 <LockOpen size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-                {detail.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng (Open)'}
+                {closingId === detail.id ? 'Đang cập nhật…' : detail.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng (Open)'}
               </button>
             )}
           </div>

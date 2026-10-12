@@ -385,16 +385,17 @@ export default function OrderFormView({
             error={partnerErr || undefined}
           />
           <div className="fm-field">
-            <label className="fm-label">Ngày chứng từ <span className="fm-label__req">*</span></label>
-            <input type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
+            <label className="fm-label" htmlFor="fm-doc-date">Ngày chứng từ <span className="fm-label__req">*</span></label>
+            <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
           </div>
           <div className="fm-field">
-            <label className="fm-label">Ngày giao hàng <span className="fm-label__req">*</span></label>
-            <input type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} />
+            <label className="fm-label" htmlFor="fm-doc-due-date">Ngày giao hàng <span className="fm-label__req">*</span></label>
+            <input id="fm-doc-due-date" type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} />
           </div>
           <div className="fm-field">
-            <label className="fm-label" title="Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng ở Bước 2">Kho hàng xuất bán</label>
+            <label className="fm-label" htmlFor="fm-header-wh" title="Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng ở Bước 2">Kho hàng xuất bán</label>
             <select
+              id="fm-header-wh"
               className="fm-input"
               value={headerWh}
               onChange={(e) => applyHeaderWarehouse(e.target.value)}
@@ -411,15 +412,17 @@ export default function OrderFormView({
             <div className="fm-hint">Tải trực tiếp từ SAP B1 (OWHS) — đổi kho sẽ áp dụng cho mọi dòng hàng.</div>
           </div>
           <div className="fm-field">
-            <label className="fm-label" title="Chiết khấu áp dụng cho TOÀN BỘ chứng từ (SAP: Documents.DiscountPercent) — tính trên tiền sau chiết khấu các dòng, trước thuế">
+            <label className="fm-label" htmlFor="fm-header-disc" title="Chiết khấu áp dụng cho TOÀN BỘ chứng từ (SAP: Documents.DiscountPercent) — tính trên tiền sau chiết khấu các dòng, trước thuế">
               Chiết khấu đầu chứng từ (%)
             </label>
             <input
+              id="fm-header-disc"
               type="number"
               className="fm-input"
               min={0}
               max={100}
               step="any"
+              inputMode="decimal"
               placeholder="0"
               value={headerDiscPct || ''}
               onChange={(e) => setHeaderDiscPct(clampPct(Number(e.target.value)))}
@@ -429,8 +432,8 @@ export default function OrderFormView({
         </div>
 
         <div className="fm-field">
-          <label className="fm-label">Ghi chú</label>
-          <textarea className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          <label className="fm-label" htmlFor="fm-remarks">Ghi chú</label>
+          <textarea id="fm-remarks" className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           <div className="fm-hint">Ghi chú sẽ được lưu vào trường Comments của chứng từ SAP B1.</div>
         </div>
       </div>
@@ -507,9 +510,11 @@ export default function OrderFormView({
                         type="number"
                         min={0}
                         step="0.5"
+                        inputMode="decimal"
+                        aria-label={`Số lượng dòng ${l.key}`}
                         className="fm-line-input"
-                        value={l.quantity}
-                        onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) })}
+                        value={l.quantity || ''}
+                        onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
                     </td>
                     <td data-label="Đơn vị tính">
@@ -563,6 +568,7 @@ export default function OrderFormView({
                             type="button"
                             className="fm-atp-recheck"
                             title="Kiểm tra lại tồn kho khả dụng (ATP)"
+                            aria-label={`Kiểm tra lại tồn kho cho ${l.item?.name ?? 'mặt hàng'}`}
                             onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
                           >
                             <RefreshCw size={12} />
@@ -576,11 +582,13 @@ export default function OrderFormView({
                           type="number"
                           min={0}
                           step="1000"
+                          inputMode="decimal"
+                          aria-label={`Đơn giá dòng ${l.key}`}
                           className="fm-line-input"
                           style={{ flex: 1, minWidth: 0 }}
-                          value={l.unitPrice}
+                          value={l.unitPrice || ''}
                           title={l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
-                          onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value), priceSource: l.item ? 'manual' : undefined })}
+                          onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value) || 0, priceSource: l.item ? 'manual' : undefined })}
                         />
                         {l.priceSource === 'special' && (
                           <span className="fm-price-star" title="Giá đặc biệt theo khách hàng (SAP OSPP)">★</span>
@@ -593,8 +601,10 @@ export default function OrderFormView({
                         min={0}
                         max={100}
                         step="1"
+                        inputMode="decimal"
+                        aria-label={`Chiết khấu % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
-                        value={l.discPct}
+                        value={l.discPct || ''}
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
                       />
                     </td>
@@ -614,14 +624,16 @@ export default function OrderFormView({
                         min={0}
                         max={100}
                         step="1"
+                        inputMode="decimal"
+                        aria-label={`VAT % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
-                        value={l.vatPct}
+                        value={l.vatPct || ''}
                         onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)) })}
                       />
                     </td>
                     <td className="fm-num" data-label="Sau CK (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
                     <td data-label="Xóa dòng">
-                      <button className="fm-row-del" title="Xóa dòng" onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
+                      <button className="fm-row-del" title="Xóa dòng" aria-label={`Xóa dòng ${l.key}`} onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
                         <Trash2 size={14} />
                       </button>
                     </td>

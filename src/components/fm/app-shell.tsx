@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
@@ -69,6 +69,16 @@ export default function AppShell({ user, onLogout }: Props) {
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
 
+  // Đóng drawer mobile bằng phím Escape
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawerOpen])
+
   const menu = useMemo(
     () => MENU.filter((m) => user.permissions?.[m.module]?.view),
     [user],
@@ -93,9 +103,15 @@ export default function AppShell({ user, onLogout }: Props) {
       className={`fm-menu-item${view === m.key ? ' is-active' : ''}`}
       role="button"
       tabIndex={0}
+      aria-label={m.label}
       aria-current={view === m.key ? 'page' : undefined}
       onClick={() => go(m.key)}
-      onKeyDown={(e) => e.key === 'Enter' && go(m.key)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          go(m.key)
+        }
+      }}
     >
       {m.icon}
       <span>{m.label}</span>
@@ -120,7 +136,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
           <button
             className="fm-burger"
-            style={{ background: 'rgba(255,255,255,.1)', border: 'none', color: '#fff', width: 30, height: 30 }}
+            style={{ background: 'rgba(255,255,255,.1)', border: 'none', color: '#fff', width: 44, height: 44 }}
             aria-label="Đóng menu"
             onClick={() => setDrawerOpen(false)}
           >
@@ -151,8 +167,14 @@ export default function AppShell({ user, onLogout }: Props) {
             className="fm-menu-item"
             role="button"
             tabIndex={0}
+            aria-label="Đăng xuất"
             onClick={onLogout}
-            onKeyDown={(e) => e.key === 'Enter' && onLogout()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onLogout()
+              }
+            }}
           >
             <LogOut size={16} />
             <span>Đăng xuất</span>
@@ -167,11 +189,12 @@ export default function AppShell({ user, onLogout }: Props) {
             <button
               className="fm-burger"
               aria-label="Mở menu"
+              aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen(true)}
             >
               <MenuIcon size={17} />
             </button>
-            <h1 className="fm-topbar__title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{VIEW_TITLES[view]}</h1>
+            <h1 className="fm-topbar__title" title={VIEW_TITLES[view]} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{VIEW_TITLES[view]}</h1>
           </div>
           <div className="fm-topbar__user">
             <span
@@ -269,7 +292,7 @@ export default function AppShell({ user, onLogout }: Props) {
       {/* Toast */}
       {toast && (
         <div className="fm-toast-host">
-          <div className="fm-alert fm-alert--success" style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto' }}>
+          <div role="status" className="fm-alert fm-alert--success" style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto' }}>
             <div><b>Hoàn tất</b>{toast}</div>
           </div>
         </div>

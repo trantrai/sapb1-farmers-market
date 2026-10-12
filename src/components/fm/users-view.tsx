@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -82,6 +82,8 @@ export default function UsersView({ user }: Props) {
   const nLocked = users.length - nActive
 
   const toggleActive = async (u: UserRow) => {
+    // Vô hiệu hóa tài khoản đang hoạt động cần xác nhận — tránh khóa nhầm người đang làm việc
+    if (u.active && !window.confirm(`Vô hiệu hóa tài khoản @${u.username} — ${u.fullName}? Người dùng này sẽ không thể đăng nhập.`)) return
     const res = await api(`/api/users/${u.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -116,9 +118,9 @@ export default function UsersView({ user }: Props) {
   return (
     <div>
       {alert && (
-        <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`}>
+        <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
           <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{alert.msg}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setAlert(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setAlert(null)}>✕</button>
         </div>
       )}
 
@@ -165,6 +167,7 @@ export default function UsersView({ user }: Props) {
               className="fm-input"
               style={{ paddingLeft: 32 }}
               placeholder="Tìm tên đăng nhập, họ tên, vai trò…"
+              aria-label="Tìm kiếm người dùng theo tên đăng nhập, họ tên hoặc vai trò"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -235,12 +238,12 @@ export default function UsersView({ user }: Props) {
                         <td onClick={(e) => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                             {canEdit && (
-                              <button className="fm-row-del fm-row-edit" title="Sửa người dùng" onClick={() => setModal({ mode: 'edit', u })}>
+                              <button className="fm-row-del fm-row-edit" title="Sửa người dùng" aria-label={`Sửa người dùng @${u.username}`} onClick={() => setModal({ mode: 'edit', u })}>
                                 <Pencil size={14} />
                               </button>
                             )}
                             {canDelete && !isMe && (
-                              <button className="fm-row-del" title="Xóa người dùng" onClick={() => removeUser(u)}>
+                              <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => removeUser(u)}>
                                 <Trash2 size={14} />
                               </button>
                             )}
@@ -276,12 +279,12 @@ export default function UsersView({ user }: Props) {
                       </span>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                         {canEdit && (
-                          <button className="fm-row-del fm-row-edit" title="Sửa người dùng" onClick={() => setModal({ mode: 'edit', u })}>
+                          <button className="fm-row-del fm-row-edit" title="Sửa người dùng" aria-label={`Sửa người dùng @${u.username}`} onClick={() => setModal({ mode: 'edit', u })}>
                             <Pencil size={15} />
                           </button>
                         )}
                         {canDelete && !isMe && (
-                          <button className="fm-row-del" title="Xóa người dùng" onClick={() => removeUser(u)}>
+                          <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => removeUser(u)}>
                             <Trash2 size={15} />
                           </button>
                         )}
@@ -319,8 +322,7 @@ export default function UsersView({ user }: Props) {
 
 /* ================= Modal thêm / sửa người dùng ================= */
 
-function UserModal({
-  mode,
+function UserModal({  mode,
   initial,
   roles,
   isSelf,
@@ -345,6 +347,17 @@ function UserModal({
   const [role, setRole] = useState(initial?.role ?? (roles[0]?.name ?? 'NhanVien'))
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Đóng modal bằng Escape + đưa focus vào modal khi mở
+  useEffect(() => {
+    modalRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const submit = async () => {
     setErr('')
@@ -380,12 +393,12 @@ function UserModal({
 
   return (
     <div className="fm-backdrop" onClick={onClose}>
-      <div className="fm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div ref={modalRef} tabIndex={-1} className="fm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <h3 style={{ margin: 0, color: 'var(--fm-navy)', fontSize: 19 }}>
             {mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}
           </h3>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={onClose}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng" onClick={onClose}>✕</button>
         </div>
 
         {err && (
@@ -440,7 +453,7 @@ function UserModal({
           <input
             type="password"
             className="fm-input"
-            placeholder={mode === 'create' ? 'Tối thiểu 6 ký tự' : 'Bỏ trống nếu giữ nguyên mật khẩu cũ'}
+            placeholder={mode === 'create' ? 'Tối thiểu 8 ký tự' : 'Bỏ trống nếu giữ nguyên mật khẩu cũ'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"

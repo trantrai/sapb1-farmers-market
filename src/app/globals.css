@@ -150,7 +150,7 @@
   --fm-line:          #E8E2CE;   /* Đường kẻ, border */
   --fm-text:          #2B2B2B;
   --fm-text-2:        #6B6B5E;   /* Metadata, phụ đề */
-  --fm-text-3:        #9A9A8A;
+  --fm-text-3:        #6E6E60;   /* chữ phụ — đủ tương phản 4.5:1 trên nền sáng */
 
   /* ---------- Typography ---------- */
   --fm-font: var(--font-fm), 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -323,11 +323,11 @@
   background: var(--fm-yellow-faint); font-weight: 700; color: var(--fm-navy);
   border-top: 2px solid var(--fm-yellow);
 }
-.fm-table-wrap { border: 1px solid var(--fm-line); border-radius: var(--fm-r-lg); overflow: hidden; box-shadow: var(--fm-shadow); }
+.fm-table-wrap { border: 1px solid var(--fm-line); border-radius: var(--fm-r-lg); overflow-x: auto; box-shadow: var(--fm-shadow); }
 
 /* Dòng line-item đang nhập dở (form tạo SO) */
 .fm-table tr.is-draft td { background: var(--fm-yellow-faint); }
-.fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 15px; padding: 2px 6px; border-radius: var(--fm-r-sm); }
+.fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 15px; padding: 8px 10px; border-radius: var(--fm-r-sm); min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; }
 .fm-row-del:hover { background: var(--fm-red-soft); }
 
 /* ============================================================
@@ -419,7 +419,8 @@
    ============================================================ */
 .fm-perm-matrix td:not(:first-child), .fm-perm-matrix th:not(:first-child) { text-align: center; }
 .fm-switch { position: relative; width: 36px; height: 20px; display: inline-block; cursor: pointer; }
-.fm-switch input { display: none; }
+/* Input ẩn bằng mắt nhưng VẪN focus được bằng bàn phím (không dùng display:none) */
+.fm-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .fm-switch .track { position: absolute; inset: 0; background: #D8D3C0; border-radius: var(--fm-r-pill); transition: background .2s; }
 .fm-switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; }
 .fm-switch input:checked + .track { background: var(--fm-yellow); }
@@ -683,7 +684,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 @media (max-width: 640px) {
   .fm-burger {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 34px; height: 34px; border-radius: var(--fm-r-md);
+    width: 44px; height: 44px; border-radius: var(--fm-r-md);
     border: 1px solid var(--fm-line); background: var(--fm-surface);
     color: var(--fm-navy); cursor: pointer;
   }
@@ -909,7 +910,8 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   -webkit-tap-highlight-color: transparent;
 }
 @media (max-width: 640px) {
-  .fm-btn--sm { min-height: 38px; }           /* nút nhỏ đạt chuẩn chạm */
+  .fm-btn--sm { min-height: 44px; }           /* nút nhỏ đạt chuẩn chạm 44px */
+  .fm-chip--btn { min-height: 44px; }        /* chip là nút bấm: đủ vùng chạm */
   .fm-demo-chip { padding: 8px 14px; font-size: 12.5px; } /* chip đăng nhập nhanh dễ bấm hơn */
   .fm-topbar__user b { display: inline-block; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 }
@@ -955,7 +957,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-btn:not(.fm-btn--sm) { min-height: 42px; }
   .fm-row-del { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; }
   .fm-pagination { justify-content: center; flex-wrap: wrap; }
-  .fm-page-btn { min-width: 40px; min-height: 40px; }
+  .fm-page-btn { min-width: 44px; min-height: 44px; }
   .fm-topbar { padding: 0 12px; padding-top: env(safe-area-inset-top, 0px); }
   .fm-login { padding: 16px; align-items: center; }
   .fm-login__panel { width: min(380px, 100%); padding: 24px 18px; }

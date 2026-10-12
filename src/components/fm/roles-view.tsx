@@ -49,6 +49,16 @@ export default function RolesView({ user, onGoUsers }: Props) {
 
   useEffect(() => { load() }, [load])
 
+  // Cảnh báo khi rời trang mà còn thay đổi chưa lưu
+  useEffect(() => {
+    if (!dirty) return
+    const onBefore = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBefore)
+    return () => window.removeEventListener('beforeunload', onBefore)
+  }, [dirty])
+
   useEffect(() => {
     const role = roles.find((r) => r.id === selectedId)
     setPermDraft(role ? parsePerm(role.permissions) : null)
@@ -109,9 +119,9 @@ export default function RolesView({ user, onGoUsers }: Props) {
   return (
     <div>
       {msg && (
-        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`}>
+        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -129,7 +139,17 @@ export default function RolesView({ user, onGoUsers }: Props) {
             return (
               <div
                 key={r.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={r.id === selectedId}
+                aria-label={`Chọn vai trò ${r.label}`}
                 onClick={() => setSelectedId(r.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setSelectedId(r.id)
+                  }
+                }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
                   padding: '10px 12px', borderRadius: 'var(--fm-r-md)', marginBottom: 4, fontSize: 13,

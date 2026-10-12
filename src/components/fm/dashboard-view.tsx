@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -26,21 +26,53 @@ interface Stats {
 
 export default function DashboardView({ onGoOrders }: { onGoOrders: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [loadError, setLoadError] = useState(false)
+
+  // setState chỉ nằm trong callback .then/.catch (bất đồng bộ) để qua rule react-hooks/set-state-in-effect
+  const load = useCallback(() => {
+    api('/api/stats')
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((j: Stats) => {
+        setStats(j)
+        setLoadError(false)
+      })
+      .catch(() => {
+        setStats(null)
+        setLoadError(true)
+      })
+  }, [])
 
   useEffect(() => {
-    api('/api/stats')
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setStats)
-      .catch(() => setStats(null))
-  }, [])
+    load()
+  }, [load])
+
+  const loadFailed = loadError && !stats
+
+  const retry = () => {
+    setLoadError(false) // hiện skeleton lại trong lúc tải
+    load()
+  }
 
   return (
     <div>
-      <div className="fm-stats">
+      {loadFailed && (
+        <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
+          <div><b>Không tải được số liệu tổng quan.</b> Kiểm tra kết nối mạng rồi thử lại.</div>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={retry}>
+            Thử lại
+          </button>
+        </div>
+      )}
+      <div className="fm-stats" aria-busy={!stats && !loadError}>
         {!stats ? (
-          Array.from({ length: 5 }, (_, i) => (
-            <div key={i} className="fm-skeleton fm-skeleton--stat" />
-          ))
+          loadFailed ? null : (
+            Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="fm-skeleton fm-skeleton--stat" />
+            ))
+          )
         ) : (
           <>
             <div className="fm-stat">
@@ -89,11 +121,13 @@ export default function DashboardView({ onGoOrders }: { onGoOrders: () => void }
         </div>
 
         {!stats ? (
-          <div>
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="fm-skeleton fm-skeleton--row" />
-            ))}
-          </div>
+          loadFailed ? null : (
+            <div>
+              {Array.from({ length: 5 }, (_, i) => (
+                <div key={i} className="fm-skeleton fm-skeleton--row" />
+              ))}
+            </div>
+          )
         ) : stats.recent.length === 0 ? (
           <div className="fm-empty">Chưa có đơn hàng nào</div>
         ) : (
