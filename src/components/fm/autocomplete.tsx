@@ -146,26 +146,23 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
     if (!open || minChars !== undefined) return
     let cancelled = false
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- place() đo DOM để định vị dropdown, use case hợp lệ của effect
     place()
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
 
     const hit = listCache.get(fetchUrl)
     if (hit && Date.now() - hit.ts < CACHE_TTL) {
-      queueMicrotask(() => {
-        if (cancelled) return
-        setAll(hit.options)
-        setMeta({ source: hit.source, error: hit.error })
-        setLoading(false)
-      })
+      // Cache hit: setState đồng bộ khi mở dropdown (hợp lệ, không cần defer)
+      setAll(hit.options)
+      setMeta({ source: hit.source, error: hit.error })
+      setLoading(false)
       return () => {
         window.removeEventListener('resize', place)
         window.removeEventListener('scroll', place, true)
       }
     }
-    queueMicrotask(() => {
-      if (!cancelled) setLoading(true)
-    })
+    setLoading(true)
     api(fetchUrl)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -199,15 +196,15 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
   useEffect(() => {
     if (minChars === undefined || !open) return
     const qq = query.trim()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- place() đo DOM để định vị dropdown, use case hợp lệ của effect
     place()
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
     if (qq.length < minChars) {
-      queueMicrotask(() => {
-        setAll(null)
-        setMeta({ source: '', error: '' })
-        setLoading(false)
-      })
+      // Query quá ngắn: reset state đồng bộ (hợp lệ, không cần defer)
+      setAll(null)
+      setMeta({ source: '', error: '' })
+      setLoading(false)
       return () => {
         window.removeEventListener('resize', place)
         window.removeEventListener('scroll', place, true)

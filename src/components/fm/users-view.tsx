@@ -49,7 +49,6 @@ export default function UsersView({ user }: Props) {
   }, [roles])
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await api('/api/users')
       if (res.status === 401) { window.location.reload(); return }
@@ -66,7 +65,7 @@ export default function UsersView({ user }: Props) {
     }
   }, [])
 
-  useEffect(() => { void Promise.resolve().then(load) }, [load])
+  useEffect(() => { load() }, [load])
 
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()

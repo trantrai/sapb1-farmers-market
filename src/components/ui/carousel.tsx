@@ -95,7 +95,8 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return
-    queueMicrotask(() => onSelect(api))
+    // Đồng bộ trạng thái carousel ban đầu (hợp lệ, không cần defer)
+    onSelect(api)
     api.on("reInit", onSelect)
     api.on("select", onSelect)
 

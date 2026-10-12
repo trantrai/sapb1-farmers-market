@@ -52,9 +52,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    queueMicrotask(() => {
-      if (!cancelled) setLoading(true)
-    })
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- orderId đổi → reset loading để fetch lại, pattern refetch hợp lệ
+    setLoading(true)
     api(`/api/orders/${orderId}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)

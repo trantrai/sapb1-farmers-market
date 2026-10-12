@@ -48,7 +48,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
     setSelectedId((cur) => cur ?? json.data?.[0]?.id ?? null)
   }, [])
 
-  useEffect(() => { void Promise.resolve().then(load) }, [load])
+  useEffect(() => { load() }, [load])
 
   // Cảnh báo khi rời trang mà còn thay đổi chưa lưu
   useEffect(() => {
@@ -62,10 +62,9 @@ export default function RolesView({ user, onGoUsers }: Props) {
 
   useEffect(() => {
     const role = roles.find((r) => r.id === selectedId)
-    queueMicrotask(() => {
-      setPermDraft(role ? parsePerm(role.permissions) : null)
-      setDirty(false)
-    })
+    // Đồng bộ draft quyền theo role được chọn (hợp lệ, không cần defer)
+    setPermDraft(role ? parsePerm(role.permissions) : null)
+    setDirty(false)
   }, [selectedId, roles])
 
   const toggle = (mod: ModuleKey, act: ActionKey) => {

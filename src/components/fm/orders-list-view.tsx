@@ -143,7 +143,6 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
   }, [detail])
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const sp = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
       if (q) sp.set('q', q)
@@ -163,7 +162,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
     }
   }, [page, pageSize, q, status, from, to])
 
-  useEffect(() => { void Promise.resolve().then(load) }, [load, refreshKey])
+  useEffect(() => { load() }, [load, refreshKey])
 
   // Đơn lấy trực tiếp từ SAP B1 chưa có dòng hàng → tải khi mở modal chi tiết.
   // Đơn local thiếu dòng (hiếm) → tải từ /api/orders/[id].
@@ -174,11 +173,6 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
     if (!isSap && !isLocal) return
     const url = isSap ? `/api/orders?docEntry=${detail.sapDocEntry}` : `/api/orders/${detail.id}`
     let cancelled = false
-    void Promise.resolve().then(() => {
-      if (cancelled) return
-      setDetailLoading(true)
-      setDetailError('')
-    })
     api(url)
       .then(async (res) => {
         const json = await res.json().catch(() => ({}))
@@ -203,6 +197,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
     setDetailError('')
     setDetail(o)
     setDetailPartner(null)
+    // Đơn chưa có dòng hàng → effect sẽ tải, bật loading trước
+    if (o.lines.length === 0) setDetailLoading(true)
     if (o.cardCode) {
       fetch(`/api/partners?q=${encodeURIComponent(o.cardCode)}`)
         .then((r) => (r.ok ? r.json() : null))

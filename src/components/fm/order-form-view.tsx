@@ -144,9 +144,7 @@ export default function OrderFormView({
   // ---- Điền sẵn dữ liệu đơn khi vào chế độ SỬA ----
   useEffect(() => {
     if (!editOrder) return
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
+    // Khởi tạo form từ editOrder (đồng bộ, hợp lệ — chạy 1 lần khi vào chế độ sửa)
     setPartner({ code: editOrder.cardCode, name: editOrder.cardName })
     setDocDate((editOrder.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
     setDocDueDate((editOrder.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
@@ -174,9 +172,6 @@ export default function OrderFormView({
     setFieldErr({})
     // Kiểm tra ATP cho các dòng đã điền
     for (const l of prefilled) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
-
-    })
-    return () => { cancelled = true }
   }, [editOrder])
 
   const totals = useMemo(() => {

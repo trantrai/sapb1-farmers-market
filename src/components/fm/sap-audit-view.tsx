@@ -61,7 +61,6 @@ export default function SapAuditView() {
   }, [confirmRetry, confirmClear])
 
   const load = useCallback(async (p = page, st = status, query = q) => {
-    setRows(null)
     try {
       const sp = new URLSearchParams({ page: String(p), pageSize: '20', status: st })
       if (query.trim()) sp.set('q', query.trim())
@@ -83,7 +82,7 @@ export default function SapAuditView() {
     }
   }, [page, status, q])
 
-  useEffect(() => { void Promise.resolve().then(() => load(1, status, q)) }, [status, q])
+  useEffect(() => { load(1, status, q) }, [status, q])
 
   const doRetry = async (row: AuditRow) => {
     setBusyId(row.id)

@@ -56,7 +56,6 @@ export default function PartnersSyncView() {
   })
 
   const load = useCallback(async (p = page, query = q) => {
-    setRows(null)
     try {
       const sp = new URLSearchParams({ page: String(p), pageSize: '20' })
       if (query.trim()) sp.set('q', query.trim())
@@ -86,7 +85,7 @@ export default function PartnersSyncView() {
     }
   }, [page, q, startPolling])
 
-  useEffect(() => { void Promise.resolve().then(() => load(1, '')) }, [])
+  useEffect(() => { load(1, '') }, [])
   // onDone → luôn gọi bản load mới nhất (q hiện tại)
   useEffect(() => { loadRef.current = () => { void load(1, q) } })
 
