@@ -1,7 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle } from 'lucide-react'
+import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle, BarChart3 } from 'lucide-react'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  PieChart, Pie, Legend,
+} from 'recharts'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -25,9 +29,20 @@ interface Stats {
   recent: RecentOrder[]
 }
 
+interface ChartStats {
+  range: number
+  revenueByDay: { day: string; total: number }[]
+  topCustomers: { cardCode: string; cardName: string; total: number; orderCount: number }[]
+  topItems: { itemCode: string; itemName: string; quantity: number; total: number }[]
+}
+
+const CHART_COLORS = ['#fea619', '#0e1c2f', '#2e7d32', '#c62828', '#1565c0', '#6a1b9a']
+
 export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: () => void; onGoCreate: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loadError, setLoadError] = useState(false)
+  const [chartRange, setChartRange] = useState<7 | 30>(7)
+  const [charts, setCharts] = useState<ChartStats | null>(null)
 
   // setState chỉ nằm trong callback .then/.catch (bất đồng bộ) để qua rule react-hooks/set-state-in-effect
   const load = useCallback(() => {
@@ -49,6 +64,18 @@ export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: 
   useEffect(() => {
     load()
   }, [load])
+
+  // Biểu đồ: tải lại khi đổi khoảng thời gian
+  useEffect(() => {
+    let cancelled = false
+    api(`/api/dashboard/stats?range=${chartRange}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: ChartStats | null) => {
+        if (!cancelled && j) setCharts(j)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [chartRange])
 
   const loadFailed = loadError && !stats
 
@@ -123,6 +150,99 @@ export default function DashboardView({ onGoOrders, onGoCreate }: { onGoOrders: 
             </div>
           </>
         )}
+      </div>
+
+      <div className="fm-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+            <BarChart3 size={18} /> Doanh số theo ngày
+          </h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([7, 30] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={`fm-btn fm-btn--sm ${chartRange === r ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
+                onClick={() => setChartRange(r)}
+              >
+                {r} ngày
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ width: '100%', height: 280, marginTop: 12 }}>
+          {!charts ? (
+            <div className="fm-skeleton" style={{ height: 280 }} />
+          ) : charts.revenueByDay.every((d) => d.total === 0) ? (
+            <div className="fm-empty">Chưa có doanh số trong {chartRange} ngày qua</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={charts.revenueByDay} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} interval={chartRange === 30 ? 2 : 0} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => (v >= 1000000 ? `${Math.round(v / 1000000)}M` : v >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`)} />
+                <Tooltip formatter={(v) => [formatVND(Number(v)), 'Doanh số']} labelFormatter={(l) => `Ngày ${l}`} />
+                <Bar dataKey="total" fill="#fea619" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+        <div className="fm-card">
+          <h2 className="fm-card__title">Top 5 khách hàng theo doanh số</h2>
+          <div style={{ width: '100%', height: 280 }}>
+            {!charts ? (
+              <div className="fm-skeleton" style={{ height: 280 }} />
+            ) : charts.topCustomers.length === 0 ? (
+              <div className="fm-empty">Chưa có dữ liệu</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={charts.topCustomers}
+                    dataKey="total"
+                    nameKey="cardName"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    label={({ cardName, percent }) => `${cardName.slice(0, 18)}${cardName.length > 18 ? '…' : ''} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
+                    fontSize={11}
+                  >
+                    {charts.topCustomers.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v) => [formatVND(Number(v)), 'Doanh số']} />
+                  <Legend fontSize={11} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="fm-card">
+          <h2 className="fm-card__title">Top 5 mặt hàng bán chạy</h2>
+          <div style={{ width: '100%', height: 280 }}>
+            {!charts ? (
+              <div className="fm-skeleton" style={{ height: 280 }} />
+            ) : charts.topItems.length === 0 ? (
+              <div className="fm-empty">Chưa có dữ liệu</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={charts.topItems} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="itemCode" tick={{ fontSize: 11 }} width={90} />
+                  <Tooltip formatter={(v, name) => (name === 'quantity' ? [`${v}`, 'Số lượng'] : [formatVND(Number(v)), 'Doanh số'])} />
+                  <Bar dataKey="quantity" fill="#0e1c2f" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="fm-card">
