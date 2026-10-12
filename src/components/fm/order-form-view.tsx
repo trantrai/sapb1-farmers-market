@@ -385,23 +385,18 @@ export default function OrderFormView({
             error={partnerErr || undefined}
           />
           {/* Thông tin khách hàng: địa chỉ + người liên hệ (từ đồng bộ SAP B1) */}
-          {partner && (partner.address || partner.contactPerson) && (
-            <div className="fm-field" style={{ gridColumn: '1 / -1' }}>
-              <div style={{
-                display: 'flex', flexWrap: 'wrap', gap: '6px 20px',
-                padding: '10px 14px', background: 'var(--fm-blue-faint)',
-                border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)',
-                fontSize: 12.5, color: 'var(--fm-text-2)',
-              }}>
-                {partner.address && (
-                  <span><b style={{ color: 'var(--fm-text)' }}>Địa chỉ:</b> {partner.address}</span>
-                )}
-                {partner.contactPerson && (
-                  <span><b style={{ color: 'var(--fm-text)' }}>Người liên hệ:</b> {partner.contactPerson}{partner.contactPhone ? ` · ${partner.contactPhone}` : ''}</span>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="fm-field">
+            <label>Địa chỉ</label>
+            <input className="fm-input" value={partner?.address || ''} readOnly placeholder="—" tabIndex={-1} />
+          </div>
+          <div className="fm-field">
+            <label>Người liên hệ</label>
+            <input
+              className="fm-input"
+              value={partner?.contactPerson ? `${partner.contactPerson}${partner.contactPhone ? ` · ${partner.contactPhone}` : ''}` : ''}
+              readOnly placeholder="—" tabIndex={-1}
+            />
+          </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-date">Ngày chứng từ <span className="fm-label__req">*</span></label>
             <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
