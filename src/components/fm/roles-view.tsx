@@ -153,8 +153,8 @@ export default function RolesView({ user, onGoUsers }: Props) {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
                   padding: '10px 12px', borderRadius: 'var(--fm-r-md)', marginBottom: 4, fontSize: 13,
-                  background: r.id === selectedId ? '#F0F0F0' : 'transparent',
-                  borderLeft: r.id === selectedId ? '3px solid var(--fm-primary)' : '3px solid transparent',
+                  background: r.id === selectedId ? 'var(--fm-yellow-faint)' : 'transparent',
+                  borderLeft: r.id === selectedId ? '3px solid var(--fm-yellow)' : '3px solid transparent',
                   fontWeight: r.id === selectedId ? 700 : 500,
                   color: r.id === selectedId ? 'var(--fm-navy)' : 'var(--fm-text)',
                 }}
