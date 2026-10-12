@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
-  Percent, Contact,
+  Percent, Contact, Bell, Search, Home,
 } from 'lucide-react'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -216,7 +216,7 @@ export default function AppShell({ user, onLogout }: Props) {
               <MenuIcon size={17} />
             </button>
             <div className="fm-search">
-              <span className="fm-search__icon">⌕</span>
+              <Search size={18} className="fm-search__icon" />
               <input
                 className="fm-search__input"
                 placeholder="Tìm kiếm mã hàng, SO, khách hàng (Ctrl+K)..."
@@ -227,7 +227,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <button className="fm-header__bell" aria-label="Thông báo">
-              <span style={{ fontSize: 20 }}>🔔</span>
+              <Bell size={20} />
               <span className="fm-header__dot" />
             </button>
             <div className="fm-header__user">

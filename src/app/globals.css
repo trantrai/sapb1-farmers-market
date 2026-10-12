@@ -259,8 +259,8 @@
   position: relative; flex: 1; display: flex; align-items: center;
 }
 .fm-search__icon {
-  position: absolute; left: 12px; font-size: 18px; color: var(--fm-text-2);
-  pointer-events: none;
+  position: absolute; left: 12px; color: var(--fm-text-2);
+  pointer-events: none; flex-shrink: 0;
 }
 .fm-search__input {
   width: 100%; padding: 8px 70px 8px 36px;

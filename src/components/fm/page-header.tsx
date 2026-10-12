@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { Home } from 'lucide-react'
 
 interface PageHeaderProps {
   breadcrumb: string[]
@@ -17,7 +18,7 @@ export default function PageHeader({ breadcrumb, title, badge, actions }: PageHe
     <div className="fm-pageheader">
       <div>
         <nav className="fm-breadcrumb" aria-label="Breadcrumb">
-          <span className="fm-breadcrumb__icon">⌂</span>
+          <Home size={14} className="fm-breadcrumb__icon" />
           {breadcrumb.map((crumb, i) => (
             <span key={i} className="fm-breadcrumb__item">
               {i > 0 && <span className="fm-breadcrumb__sep">›</span>}
