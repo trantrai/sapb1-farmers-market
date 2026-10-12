@@ -170,3 +170,19 @@ model ExcelTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ==================== ORDER TEMPLATES ====================
+
+// Mẫu đơn hàng — lưu đơn thường lặp lại để tạo nhanh.
+// lines: JSON array [{ itemCode, itemName, quantity, unitPrice, discPct, vatPct, uom, taxCode, warehouseCode }]
+model OrderTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  cardCode    String?
+  cardName    String?
+  lines       String   // JSON array of line items
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

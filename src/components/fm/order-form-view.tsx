@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import Autocomplete, { ACOption } from './autocomplete'
 import { formatVND, formatNum } from '@/lib/fm-shared'
@@ -123,6 +123,140 @@ export default function OrderFormView({
   // ---- Nhập từ Excel ----
   const fileRef = useRef<HTMLInputElement>(null)
   const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // ---- Mẫu đơn hàng (Order Template) ----
+  interface TemplateLine {
+    itemCode: string
+    itemName?: string
+    quantity?: number
+    unitPrice?: number
+    discPct?: number
+    vatPct?: number
+    uom?: string
+    taxCode?: string
+    warehouseCode?: string
+  }
+  interface OrderTemplate {
+    id: string
+    name: string
+    description?: string | null
+    cardCode?: string | null
+    cardName?: string | null
+    lines: TemplateLine[]
+    createdBy: string
+    createdAt: string
+  }
+  const [templates, setTemplates] = useState<OrderTemplate[]>([])
+  const [tplModal, setTplModal] = useState(false)
+  const [tplName, setTplName] = useState('')
+  const [tplDesc, setTplDesc] = useState('')
+  const [tplSaving, setTplSaving] = useState(false)
+  const [tplMsg, setTplMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const loadTemplates = async () => {
+    try {
+      const res = await api('/api/order-templates')
+      const json = await res.json()
+      if (json?.data) setTemplates(json.data)
+    } catch {
+      // im lặng — tính năng phụ
+    }
+  }
+
+  // Tải danh sách mẫu khi vào chế độ tạo mới
+  useEffect(() => {
+    if (!isEdit) loadTemplates()
+  }, [isEdit])
+
+  // Áp dụng mẫu: điền toàn bộ dữ liệu vào form
+  const applyTemplate = (tpl: OrderTemplate) => {
+    if (tpl.cardCode) {
+      setPartner({ code: tpl.cardCode, name: tpl.cardName || tpl.cardCode } as ACOption)
+    }
+    const newLines: DraftLine[] = tpl.lines.map((tl) => ({
+      key: nextKey(),
+      item: { code: tl.itemCode, name: tl.itemName || tl.itemCode } as ACOption,
+      quantity: tl.quantity ?? 1,
+      unitPrice: tl.unitPrice ?? 0,
+      discPct: tl.discPct ?? 0,
+      vatPct: tl.vatPct ?? 8,
+      uom: tl.uom,
+      taxCode: tl.taxCode,
+      warehouseCode: tl.warehouseCode || headerWh || undefined,
+    }))
+    setLines(newLines)
+    // Tự động resolve giá/VAT/tồn kho cho từng dòng
+    newLines.forEach((l) => {
+      if (l.item) {
+        void resolvePrice(l.key, l.item.code, tpl.cardCode ?? partner?.code ?? null)
+        void checkAtp(l.key, l.item.code, l.warehouseCode)
+      }
+    })
+    setTplMsg({ type: 'success', text: `Đã áp dụng mẫu "${tpl.name}" (${newLines.length} dòng).` })
+  }
+
+  // Lưu form hiện tại thành mẫu
+  const saveAsTemplate = async () => {
+    if (!tplName.trim()) {
+      setTplMsg({ type: 'error', text: 'Vui lòng nhập tên mẫu.' })
+      return
+    }
+    const validLines = lines.filter((l) => l.item && l.quantity > 0)
+    if (validLines.length === 0) {
+      setTplMsg({ type: 'error', text: 'Form phải có ít nhất 1 dòng hàng hợp lệ.' })
+      return
+    }
+    setTplSaving(true)
+    try {
+      const res = await api('/api/order-templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: tplName.trim(),
+          description: tplDesc.trim() || undefined,
+          cardCode: partner?.code || undefined,
+          cardName: partner?.name || undefined,
+          lines: validLines.map((l) => ({
+            itemCode: l.item!.code,
+            itemName: l.item!.name,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discPct: l.discPct,
+            vatPct: l.vatPct,
+            uom: l.uom,
+            taxCode: l.taxCode,
+            warehouseCode: l.warehouseCode,
+          })),
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setTplMsg({ type: 'error', text: json.error ?? 'Không lưu được mẫu.' })
+        return
+      }
+      setTplMsg({ type: 'success', text: `Đã lưu mẫu "${tplName.trim()}".` })
+      setTplModal(false)
+      setTplName('')
+      setTplDesc('')
+      loadTemplates()
+    } catch {
+      setTplMsg({ type: 'error', text: 'Không thể kết nối máy chủ.' })
+    } finally {
+      setTplSaving(false)
+    }
+  }
+
+  const deleteTemplate = async (id: string, name: string) => {
+    if (!window.confirm(`Xóa mẫu "${name}"?`)) return
+    try {
+      const res = await api(`/api/order-templates/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setTplMsg({ type: 'success', text: `Đã xóa mẫu "${name}".` })
+        loadTemplates()
+      }
+    } catch {
+      // im lặng
+    }
+  }
 
   // ---- Gợi ý mặt hàng theo lịch sử mua hàng của khách ----
   interface SuggestItem {
@@ -552,6 +686,41 @@ export default function OrderFormView({
           <ShoppingCart size={18} /> {isEdit ? `Cập nhật đơn hàng #${editOrder?.docNum}` : 'Bước 1 — Thông tin chung'}
         </h2>
 
+        {!isEdit && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+            <label className="fm-label" style={{ margin: 0, whiteSpace: 'nowrap' }} htmlFor="fm-template-select">
+              Chọn từ mẫu:
+            </label>
+            <select
+              id="fm-template-select"
+              className="fm-select"
+              style={{ minWidth: 220, flex: '1 1 220px', maxWidth: 360 }}
+              defaultValue=""
+              onChange={(e) => {
+                const tpl = templates.find((t) => t.id === e.target.value)
+                if (tpl) applyTemplate(tpl)
+                e.target.value = ''
+              }}
+            >
+              <option value="" disabled>-- Chọn mẫu đơn hàng --</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.cardName ? ` — ${t.cardName}` : ''} ({t.lines.length} dòng)
+                </option>
+              ))}
+            </select>
+            {templates.length > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--fm-text-2)' }}>{templates.length} mẫu có sẵn</span>
+            )}
+          </div>
+        )}
+        {tplMsg && (
+          <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role="status">
+            <div>{tplMsg.text}</div>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setTplMsg(null)}>✕</button>
+          </div>
+        )}
+
         <div className="fm-form-grid">
           <Autocomplete
             label="Khách hàng (CardCode)"
@@ -944,11 +1113,22 @@ export default function OrderFormView({
           </div>
         </div>
 
-        <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+        <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
             <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
             {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng'}
           </button>
+          {!isEdit && (
+            <button
+              className="fm-btn fm-btn--secondary"
+              onClick={() => { setTplModal(true); setTplMsg(null) }}
+              disabled={saving}
+              title="Lưu đơn hàng hiện tại thành mẫu để tạo nhanh lần sau"
+            >
+              <BookmarkPlus size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+              Lưu thành mẫu
+            </button>
+          )}
           {isEdit ? (
             <button className="fm-btn fm-btn--ghost" onClick={onCancel} disabled={saving}>
               Hủy — không lưu thay đổi
@@ -970,6 +1150,88 @@ export default function OrderFormView({
           )}
         </div>
       </div>
+
+      {/* Modal lưu thành mẫu đơn hàng */}
+      {tplModal && (
+        <div className="fm-backdrop" onClick={() => setTplModal(false)}>
+          <div className="fm-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <BookmarkPlus size={17} /> Lưu thành mẫu đơn hàng
+            </h3>
+            <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 14px' }}>
+              {partner ? `${partner.name} (${partner.code})` : 'Chưa chọn khách hàng'} — {lines.filter((l) => l.item && l.quantity > 0).length} dòng hàng
+            </p>
+            <div className="fm-field" style={{ marginBottom: 12 }}>
+              <label className="fm-label" htmlFor="fm-tpl-name">Tên mẫu *</label>
+              <input
+                id="fm-tpl-name"
+                className="fm-input"
+                placeholder="VD: Đơn rau củ tuần — KH Coopmart"
+                value={tplName}
+                onChange={(e) => setTplName(e.target.value)}
+                maxLength={100}
+              />
+            </div>
+            <div className="fm-field" style={{ marginBottom: 16 }}>
+              <label className="fm-label" htmlFor="fm-tpl-desc">Mô tả</label>
+              <textarea
+                id="fm-tpl-desc"
+                className="fm-input"
+                rows={2}
+                placeholder="Ghi chú về mẫu này…"
+                value={tplDesc}
+                onChange={(e) => setTplDesc(e.target.value)}
+                maxLength={255}
+              />
+            </div>
+            {tplMsg && (
+              <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role="status">
+                <div>{tplMsg.text}</div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="fm-btn fm-btn--ghost" onClick={() => setTplModal(false)} disabled={tplSaving}>
+                Hủy
+              </button>
+              <button className="fm-btn fm-btn--primary" onClick={saveAsTemplate} disabled={tplSaving}>
+                <BookmarkPlus size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                {tplSaving ? 'Đang lưu…' : 'Lưu mẫu'}
+              </button>
+            </div>
+
+            {templates.length > 0 && (
+              <div style={{ marginTop: 18, borderTop: '1px solid var(--fm-line)', paddingTop: 12 }}>
+                <div className="fm-label" style={{ marginBottom: 8 }}>Mẫu đã lưu ({templates.length})</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+                  {templates.map((t) => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--fm-cream)', borderRadius: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--fm-text-2)' }}>{t.lines.length} dòng{t.cardName ? ` — ${t.cardName}` : ''}</div>
+                      </div>
+                      <button
+                        className="fm-btn fm-btn--ghost fm-btn--sm"
+                        onClick={() => { setTplModal(false); applyTemplate(t) }}
+                        title="Áp dụng mẫu này"
+                      >
+                        Dùng
+                      </button>
+                      <button
+                        className="fm-icon-btn fm-icon-btn--danger"
+                        onClick={() => deleteTemplate(t.id, t.name)}
+                        title={`Xóa mẫu "${t.name}"`}
+                        aria-label={`Xóa mẫu ${t.name}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal lịch sử giá theo khách hàng */}
       {priceHistFor && (
