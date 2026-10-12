@@ -681,15 +681,15 @@
 /* ============================================================
    11. LOGIN — thẻ trắng trên nền gradient xám-xanh
    ============================================================ */
-.fm-login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8f9ff; position: relative; overflow: hidden; }
+.fm-login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8f9ff; position: relative; overflow: hidden; padding: 24px; }
 .fm-login::before, .fm-login::after {
-  content: ''; position: absolute; border-radius: 50%; filter: blur(80px); opacity: .3;
+  content: ''; position: absolute; border-radius: 50%; filter: blur(90px); opacity: .22;
   pointer-events: none;
 }
-.fm-login::before { width: 400px; height: 400px; background: #fea619; top: -100px; right: -100px; }
-.fm-login::after { width: 300px; height: 300px; background: #d3e4fe; bottom: -80px; left: -80px; }
-.fm-login__panel { width: 440px; max-width: 92vw; background: var(--fm-surface); border: 1px solid var(--fm-line); border-top: 2px solid #fea619; border-radius: var(--fm-r-lg); box-shadow: var(--fm-shadow-pop); padding: 36px 32px; position: relative; z-index: 1; }
-.fm-login__brand { text-align: center; margin-bottom: 22px; }
+.fm-login::before { width: 480px; height: 480px; background: #fea619; top: -140px; right: -120px; }
+.fm-login::after { width: 480px; height: 480px; background: #d3e4fe; bottom: -140px; left: -120px; }
+.fm-login__panel { width: 400px; max-width: 92vw; background: var(--fm-surface); border: 1px solid var(--fm-line); border-top: 3px solid #fea619; border-radius: var(--fm-r-lg); box-shadow: var(--fm-shadow-pop); padding: 40px 36px 36px; position: relative; z-index: 1; margin: auto; }
+.fm-login__brand { text-align: center; margin-bottom: 26px; }
 
 /* ============================================================
    12. RESPONSIVE
