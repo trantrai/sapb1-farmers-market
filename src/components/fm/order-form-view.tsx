@@ -369,7 +369,6 @@ export default function OrderFormView({
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ShoppingCart size={18} /> {isEdit ? `Cập nhật đơn hàng #${editOrder?.docNum}` : 'Bước 1 — Thông tin chung'}
         </h2>
-        <p className="fm-card__desc">Chọn khách hàng từ danh sách Business Partner (OCTR) và ngày chứng từ.</p>
 
         <div className="fm-form-grid">
           <Autocomplete
@@ -424,7 +423,6 @@ export default function OrderFormView({
                 </option>
               ))}
             </select>
-            <div className="fm-hint">Tải trực tiếp từ SAP B1 (OWHS) — đổi kho sẽ áp dụng cho mọi dòng hàng.</div>
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-header-disc" title="Chiết khấu áp dụng cho TOÀN BỘ chứng từ (SAP: Documents.DiscountPercent) — tính trên tiền sau chiết khấu các dòng, trước thuế">
@@ -442,14 +440,12 @@ export default function OrderFormView({
               value={headerDiscPct || ''}
               onChange={(e) => setHeaderDiscPct(clampPct(Number(e.target.value)))}
             />
-            <div className="fm-hint">CK cấp đơn — phân bổ về từng dòng trước khi tính VAT từng dòng.</div>
           </div>
         </div>
 
         <div className="fm-field">
           <label className="fm-label" htmlFor="fm-remarks">Ghi chú</label>
           <textarea id="fm-remarks" className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-          <div className="fm-hint">Ghi chú sẽ được lưu vào trường Comments của chứng từ SAP B1.</div>
         </div>
       </div>
 
@@ -458,10 +454,6 @@ export default function OrderFormView({
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ShoppingBasket size={18} /> Bước 2 — Hàng hóa
         </h2>
-        <p className="fm-card__desc">
-          Mỗi dòng tương ứng 1 bản ghi trong bảng RDR1. Nhập số lượng, đơn giá, <b>chiết khấu %</b> và{' '}
-          <b>thuế suất VAT %</b> riêng cho từng mặt hàng. Danh sách chỉ tải khi gõ tối thiểu 2 ký tự (tìm trực tiếp trên SAP B1).
-        </p>
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
           <table className="fm-table fm-stack-table">
@@ -662,12 +654,6 @@ export default function OrderFormView({
         <button className="fm-btn fm-btn--dashed fm-btn--sm" style={{ marginTop: 10 }} onClick={addLine}>
           <Plus size={14} /> Thêm dòng hàng
         </button>
-        <div className="fm-hint" style={{ marginTop: 6 }}>
-          Cột “Sau CK” = số lượng × đơn giá − chiết khấu (chưa gồm VAT). Sau khi chọn mặt hàng, hệ thống tự tải
-          <b> đơn giá</b> (giá đặc biệt ★ của khách hàng hoặc Price List 1), <b>đơn vị tính</b> (SalesUnit),
-          <b> mã thuế</b> (SalesVATGroup), <b>VAT %</b>, <b>Kho</b> (theo header) và <b>kiểm tra tồn kho ATP</b> —
-          chip xanh = đủ hàng, chip đỏ “Thiếu” = số lượng vượt tồn khả dụng. Mọi cột vẫn chỉnh tay được.
-        </div>
       </div>
 
       {/* Bước 3 — Tổng kết */}
@@ -675,7 +661,6 @@ export default function OrderFormView({
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <BadgeCheck size={18} /> Bước 3 — Tổng kết
         </h2>
-        <p className="fm-card__desc">Kiểm tra lại số liệu trước khi lưu chứng từ vào hệ thống.</p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
           <div style={{ flex: '1 1 220px', minWidth: 220 }}>
@@ -683,9 +668,6 @@ export default function OrderFormView({
               <label className="fm-label">Số dòng hàng hóa</label>
               <div className="fm-input" style={{ background: 'var(--fm-cream)', color: 'var(--fm-text-2)' }}>
                 {lines.filter((l) => l.item && l.quantity > 0).length} dòng hợp lệ / {lines.length} dòng
-              </div>
-              <div className="fm-hint">
-                Chiết khấu dòng và thuế VAT tính riêng theo từng dòng; chiết khấu ĐẦU CHỨNG TỪ (nếu có, khai ở Bước 1) được phân bổ về từng dòng trước khi tính VAT.
               </div>
             </div>
           </div>
