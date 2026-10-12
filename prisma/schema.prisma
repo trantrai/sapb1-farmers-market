@@ -155,3 +155,15 @@ model Role {
   permissions String // JSON: { [module]: { view, create, edit, delete } }
   builtin     Boolean @default(false)
 }
+
+// ==================== EXCEL TEMPLATES ====================
+
+model ExcelTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  mapping     String   // JSON: { "excelColumn": "fieldName" }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

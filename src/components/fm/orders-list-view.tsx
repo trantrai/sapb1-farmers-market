@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download } from 'lucide-react'
+import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -60,6 +60,8 @@ interface Props {
   onGoCreate: () => void
   /** Mở form SỬA đơn đang Open */
   onGoEdit: (data: EditOrderData) => void
+  /** Mở form TẠO MỚI với dữ liệu từ đơn có sẵn (nhân bản) */
+  onGoDuplicate: (data: EditOrderData) => void
   /** Mở trang chi tiết đơn */
   onGoDetail: (orderId: string) => void
   refreshKey: number
@@ -108,7 +110,7 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
   )
 }
 
-export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail, refreshKey }: Props) {
+export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplicate, onGoDetail, refreshKey }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -437,6 +439,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDetail,
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
                       <td onClick={(e) => e.stopPropagation()}>
+                        <button className="fm-icon-btn" title="Nhân bản đơn hàng" onClick={() => onGoDuplicate({ ...toEditData(o), id: undefined })}>
+                          <Copy size={14} />
+                        </button>
                         {canDelete && o.source !== 'sap' && (
                           <button className="fm-row-del" title="Xóa đơn hàng" onClick={() => deleteOrder(o)}>
                             <Trash2 size={14} />

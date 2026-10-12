@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import Autocomplete, { ACOption } from './autocomplete'
 import { formatVND, formatNum } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
@@ -44,7 +45,7 @@ export interface EditOrderLine {
   taxCode?: string
 }
 export interface EditOrderData {
-  id: string
+  id?: string
   docNum: number
   cardCode: string
   cardName: string
@@ -118,6 +119,100 @@ export default function OrderFormView({
   const [error, setError] = useState('')
   const [fieldErr, setFieldErr] = useState<Record<number, string>>({})
   const isEdit = Boolean(editOrder)
+
+  // ---- Nhập từ Excel ----
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    try {
+      // Lấy template mặc định
+      const tRes = await api('/api/excel-templates')
+      const tJson = await tRes.json()
+      const templates = tJson.data ?? []
+      const template = templates.find((t: { isDefault: boolean }) => t.isDefault) ?? templates[0]
+      if (!template) {
+        setImportMsg({ type: 'error', text: 'Chưa có template Excel nào. Vào "Mẫu Excel" để tạo template trước.' })
+        return
+      }
+      const mapping: Record<string, string> = template.mapping
+
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+      if (rows.length === 0) {
+        setImportMsg({ type: 'error', text: 'File Excel không có dữ liệu.' })
+        return
+      }
+
+      // Đảo mapping: fieldKey -> excelColumn
+      const fieldToCol: Record<string, string> = {}
+      for (const [col, field] of Object.entries(mapping)) fieldToCol[field] = col
+
+      const newLines: DraftLine[] = []
+      const errors: string[] = []
+      rows.forEach((row, idx) => {
+        const get = (field: string): string => {
+          const col = fieldToCol[field]
+          if (!col) return ''
+          return String(row[col] ?? '').trim()
+        }
+        const itemCode = get('itemCode')
+        if (!itemCode) {
+          errors.push(`Dòng ${idx + 2}: thiếu Mã hàng`)
+          return
+        }
+        const quantity = Number(get('quantity')) || 0
+        if (quantity <= 0) {
+          errors.push(`Dòng ${idx + 2}: Số lượng không hợp lệ`)
+          return
+        }
+        newLines.push({
+          key: nextKey(),
+          item: { code: itemCode, name: get('itemName') || itemCode } as ACOption,
+          quantity,
+          unitPrice: Number(get('unitPrice')) || 0,
+          discPct: Number(get('discPct')) || 0,
+          vatPct: 8,
+          uom: get('uom') || undefined,
+          taxCode: get('taxCode') || undefined,
+          warehouseCode: get('warehouseCode') || headerWh || undefined,
+        })
+      })
+
+      if (newLines.length === 0) {
+        setImportMsg({ type: 'error', text: `Không nhập được dòng nào. ${errors.slice(0, 3).join('; ')}` })
+        return
+      }
+
+      // Thay dòng trống đầu tiên nếu chưa có dữ liệu
+      setLines((ls) => {
+        const hasData = ls.some((l) => l.item)
+        const base = hasData ? ls : []
+        return [...base, ...newLines]
+      })
+      // Tự động resolve giá/VAT cho từng dòng đã nhập
+      newLines.forEach((l) => {
+        if (l.item) {
+          void resolvePrice(l.key, l.item.code, partner?.code ?? null)
+          void checkAtp(l.key, l.item.code, l.warehouseCode)
+        }
+      })
+
+      const msg = `Đã nhập ${newLines.length} dòng từ Excel (template "${template.name}").`
+      setImportMsg({
+        type: errors.length > 0 ? 'error' : 'success',
+        text: errors.length > 0 ? `${msg} ${errors.length} dòng lỗi: ${errors.slice(0, 3).join('; ')}` : msg,
+      })
+    } catch {
+      setImportMsg({ type: 'error', text: 'Không đọc được file Excel.' })
+    }
+  }
 
   // ---- ATP check: tồn kho khả dụng của mặt hàng (theo kho của dòng nếu có) ----
   async function checkAtp(key: number, itemCode: string, whCode?: string) {
@@ -649,9 +744,27 @@ export default function OrderFormView({
           </table>
         </div>
 
-        <button className="fm-btn fm-btn--dashed fm-btn--sm" style={{ marginTop: 10 }} onClick={addLine}>
-          <Plus size={14} /> Thêm dòng hàng
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button className="fm-btn fm-btn--dashed fm-btn--sm" onClick={addLine}>
+            <Plus size={14} /> Thêm dòng hàng
+          </button>
+          <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()}>
+            <Upload size={14} /> Nhập từ Excel
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ display: 'none' }}
+            onChange={handleExcelImport}
+          />
+        </div>
+        {importMsg && (
+          <div className={`fm-alert ${importMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginTop: 10 }}>
+            <div>{importMsg.text}</div>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => setImportMsg(null)}>✕</button>
+          </div>
+        )}
       </div>
 
       {/* Bước 3 — Tổng kết */}
