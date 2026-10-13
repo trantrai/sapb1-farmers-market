@@ -18,6 +18,28 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params
+
+  // ---------- Đơn lấy TRỰC TIẾP từ SAP B1 (id dạng 'sap-<DocEntry>', chưa có bản ghi local) ----------
+  // Lấy chi tiết từ Service Layer, giống logic ở PUT.
+  if (id.startsWith('sap-')) {
+    const docEntry = Number(id.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: 'DocEntry không hợp lệ' }, { status: 400 })
+    }
+    const s = await loadSapSettings(user.databaseId)
+    if (!isSapConfigured(s)) {
+      return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+    }
+    const cur = await fetchSapOrderDetail(s, docEntry)
+    if (!cur.ok || !cur.order) {
+      return NextResponse.json(
+        { error: `Không đọc được chứng từ từ SAP B1 — ${cur.error ?? 'lỗi không rõ'}` },
+        { status: 502 },
+      )
+    }
+    return NextResponse.json({ order: cur.order })
+  }
+
   const order = await prisma.salesOrder.findUnique({
     where: { id },
     include: { lines: { orderBy: { lineNum: 'asc' } } },
