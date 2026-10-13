@@ -237,7 +237,7 @@ actions={
           <p style={{ color: 'var(--fm-text-2)' }}>Chưa có template nào. Bấm "Thêm template" để tạo mới.</p>
         ) : (
           <div className="fm-table-wrap" style={{ overflowX: 'auto' }}>
-            <table className="fm-table">
+            <table className="fm-table fm-stack-table">
               <thead>
                 <tr>
                   <th>Tên template</th>
@@ -250,17 +250,17 @@ actions={
               <tbody>
                 {templates.map((t) => (
                   <tr key={t.id}>
-                    <td><b>{t.name}</b></td>
-                    <td>{t.description || '—'}</td>
-                    <td className="fm-num">{Object.keys(t.mapping).length}</td>
-                    <td>
+                    <th scope="row" data-label="Tên template"><b>{t.name}</b></th>
+                    <td data-label="Mô tả">{t.description || '—'}</td>
+                    <td data-label="Số cột map" className="fm-num">{Object.keys(t.mapping).length}</td>
+                    <td data-label="Mặc định">
                       {t.isDefault ? (
                         <span className="fm-chip fm-chip--role"><Star size={12} /> Mặc định</span>
                       ) : (
                         <button className="fm-link" onClick={() => setDefault(t)}>Đặt mặc định</button>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Thao tác">
                       <button className="fm-icon-btn" title="Tải template mẫu" aria-label="Tải template mẫu" onClick={() => downloadSample(t)}>
                         <Download size={15} />
                       </button>
@@ -284,7 +284,7 @@ actions={
         <div className="fm-backdrop" onClick={() => setShowForm(false)}>
           <div ref={formTrapRef} className="fm-modal fm-modal--wide" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editing ? 'Sửa template' : 'Thêm template'}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <b style={{ fontSize: 17 }}>{editing ? 'Sửa template' : 'Thêm template mới'}</b>
+              <h3 className="fm-modal__title">{editing ? 'Sửa template' : 'Thêm template mới'}</h3>
               <button className="fm-icon-btn" onClick={() => setShowForm(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
             <div>
@@ -361,7 +361,7 @@ actions={
         <div className="fm-backdrop" onClick={() => setConfirmDelete(null)}>
           <div ref={delTrapRef} className="fm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Xác nhận xóa">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <b style={{ fontSize: 16 }}>Xác nhận xóa</b>
+              <h3 className="fm-modal__title">Xác nhận xóa</h3>
               <button className="fm-icon-btn" onClick={() => setConfirmDelete(null)} aria-label="Đóng"><X size={16} /></button>
             </div>
             <div>

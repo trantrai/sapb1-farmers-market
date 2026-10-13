@@ -15,7 +15,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Thao tác quá nhanh — vui lòng thử lại sau' }, { status: 429 })
   }
 
-  let body: { orderId?: string }
+  let body: {
+    orderId?: string
+    // (mở rộng) danh sách dòng chỉ định: [{ sourceOrderLineId, quantity }]
+    // — nếu không gửi, giữ hành vi cũ: copy toàn bộ OpenQty
+    lines?: Array<{ sourceOrderLineId?: string; quantity?: number }>
+  }
   try {
     body = await req.json()
   } catch {
@@ -48,22 +53,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Copy dòng (bỏ dòng con BOM — delivery chỉ giao mặt hàng cha/hàng thường)
-  // Chỉ lấy dòng có OpenQty > 0
-  const srcLines = order.lines
-    .filter((l) => !l.isBomChild)
-    .map((l) => {
-      const delivered = deliveredByLine.get(l.id) ?? 0
-      const openQty = Math.round((l.quantity - delivered) * 1000) / 1000
-      return { line: l, openQty }
-    })
-    .filter((x) => x.openQty > 0)
-
-  if (srcLines.length === 0) {
-    return NextResponse.json({ error: 'Đơn hàng không còn dòng nào mở (OpenQty = 0) để giao' }, { status: 400 })
+  const openQtyOf = (line: { id: string; quantity: number }) => {
+    const delivered = deliveredByLine.get(line.id) ?? 0
+    return Math.round((line.quantity - delivered) * 1000) / 1000
   }
 
-  const grandTotal = srcLines.reduce((s, x) => s + (x.line.unitPrice * x.openQty), 0)
+  // Copy dòng (bỏ dòng con BOM — delivery chỉ giao mặt hàng cha/hàng thường)
+  type OrderLineRow = (typeof order.lines)[number]
+  let picked: Array<{ line: OrderLineRow; qty: number }>
+  if (Array.isArray(body.lines)) {
+    // Chế độ chỉ định: chỉ lấy các dòng được gửi lên, SL giao phải ≤ OpenQty
+    const byId = new Map(order.lines.map((l) => [l.id, l]))
+    picked = []
+    for (const reqLine of body.lines) {
+      const lineId = String(reqLine.sourceOrderLineId ?? '').trim()
+      const qty = Number(reqLine.quantity)
+      if (!lineId || !Number.isFinite(qty) || qty <= 0) continue
+      const line = byId.get(lineId)
+      if (!line || line.isBomChild) {
+        return NextResponse.json({ error: `Dòng đơn hàng không hợp lệ: ${lineId}` }, { status: 400 })
+      }
+      const openQty = openQtyOf(line)
+      if (qty > openQty) {
+        return NextResponse.json(
+          { error: `SL giao (${qty}) vượt quá SL còn mở (${openQty}) của mặt hàng ${line.itemCode}` },
+          { status: 400 },
+        )
+      }
+      picked.push({ line, qty })
+    }
+    if (picked.length === 0) {
+      return NextResponse.json({ error: 'Chưa chọn dòng nào để giao (SL giao phải > 0)' }, { status: 400 })
+    }
+  } else {
+    // Hành vi cũ: copy toàn bộ OpenQty
+    picked = order.lines
+      .filter((l) => !l.isBomChild)
+      .map((l) => ({ line: l, qty: openQtyOf(l) }))
+      .filter((x) => x.qty > 0)
+    if (picked.length === 0) {
+      return NextResponse.json({ error: 'Đơn hàng không còn dòng nào mở (OpenQty = 0) để giao' }, { status: 400 })
+    }
+  }
+
+  const grandTotal = picked.reduce((s, x) => s + (x.line.unitPrice * x.qty), 0)
   // Cấp docNum: max+1 (retry khi trùng)
   let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
   for (let attempt = 0; attempt < 3 && !delivery; attempt++) {
@@ -81,14 +114,14 @@ export async function POST(req: NextRequest) {
       grandTotal: Math.round(grandTotal),
       createdBy: user.id,
       lines: {
-        create: srcLines.map((x, i) => ({
+        create: picked.map((x, i) => ({
           lineNum: i + 1,
           itemCode: x.line.itemCode,
           itemName: x.line.itemName,
-          quantity: x.openQty,
+          quantity: x.qty,
           uom: x.line.uom || '',
           unitPrice: x.line.unitPrice,
-          lineTotal: Math.round(x.line.unitPrice * x.openQty),
+          lineTotal: Math.round(x.line.unitPrice * x.qty),
           sourceOrderLineId: x.line.id,
         })),
       },

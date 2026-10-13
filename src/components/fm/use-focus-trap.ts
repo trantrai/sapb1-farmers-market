@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 /**
  * Focus trap cho dialog: giữ Tab/Shift+Tab trong dialog, Escape để đóng.
+ * Lưu phần tử đang focus khi mở và TRẢ FOCUS về đúng chỗ đó khi đóng (cleanup).
  * Trả về ref để gắn vào phần tử dialog.
  */
 export function useFocusTrap<T extends HTMLElement>(
@@ -14,6 +15,9 @@ export function useFocusTrap<T extends HTMLElement>(
     if (!active) return
     const el = ref.current
     if (!el) return
+
+    // Lưu nơi focus đang đứng trước khi mở dialog để trả lại khi đóng
+    const prevFocused = document.activeElement as HTMLElement | null
 
     // Focus vào phần tử đầu tiên có thể focus trong dialog
     const focusables = () =>
@@ -46,7 +50,13 @@ export function useFocusTrap<T extends HTMLElement>(
     }
 
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      // Trả focus về phần tử đã mở dialog (nếu còn trong DOM)
+      if (prevFocused && document.contains(prevFocused)) {
+        prevFocused.focus({ preventScroll: true })
+      }
+    }
   }, [active, onEscape])
 
   return ref

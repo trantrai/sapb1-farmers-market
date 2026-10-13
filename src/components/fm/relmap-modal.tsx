@@ -78,12 +78,12 @@ export default function RelMapModal({ orderId, orderDocNum, onClose, onGoOrder, 
         style={{ maxWidth: 640 }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 17 }}>Sơ đồ liên kết — Đơn #{orderDocNum}</h3>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={onClose} aria-label="Đóng">
+          <h3 className="fm-modal__title">Sơ đồ liên kết — Đơn #{orderDocNum}</h3>
+          <button className="fm-icon-btn" onClick={onClose} aria-label="Đóng">
             <X size={16} />
           </button>
         </div>
-        {error && <div className="fm-alert fm-alert--error">{error}</div>}
+        {error && <div className="fm-alert fm-alert--error" role="alert">{error}</div>}
         {!nodes && !error && (
           <div style={{ textAlign: 'center', padding: 32, color: 'var(--fm-text-2)' }}>
             <Loader2 size={24} className="fm-spin" /> Đang tải sơ đồ…
@@ -92,7 +92,7 @@ export default function RelMapModal({ orderId, orderDocNum, onClose, onGoOrder, 
         {nodes && (
           <RelationshipMap
             nodes={nodes}
-            onGoOrder={onGoOrder}
+            onGoOrder={(id) => { onClose(); onGoOrder(id) }}
             onGoDelivery={(id) => { onClose(); onGoDelivery(id) }}
           />
         )}

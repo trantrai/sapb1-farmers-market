@@ -208,7 +208,7 @@ actions={<>
                     <td data-label="Method">
                       <span className={`fm-line-meta ${r.method === 'POST' ? 'fm-audit-method--post' : r.method === 'PATCH' ? 'fm-audit-method--patch' : ''}`}>{r.method}</span>
                     </td>
-                    <td data-label="Endpoint" data-full title={r.path}>{fmtPath(r.path)}</td>
+                    <th scope="row" data-label="Endpoint" data-full title={r.path}>{fmtPath(r.path)}</th>
                     <td data-label="Kết quả">
                       <span className={`fm-chip ${r.ok ? 'fm-chip--sap' : 'fm-chip--overdue'}`} title={r.error ?? r.resultSummary ?? ''}>
                         {r.ok ? 'OK' : 'LỖI'}{r.httpStatus != null && r.httpStatus > 0 ? ` ${r.httpStatus}` : ''}
@@ -268,7 +268,7 @@ actions={<>
             aria-modal="true"
             aria-label={`Xác nhận retry ${confirmRetry.method} ${fmtPath(confirmRetry.path)}`}
           >
-            <h2 className="fm-card__title">Xác nhận Retry</h2>
+            <h2 className="fm-modal__title">Xác nhận retry</h2>
             <p className="fm-card__desc">
               Gửi lại <b>{confirmRetry.method} {fmtPath(confirmRetry.path)}</b> lên Service Layer?
               {confirmRetry.method === 'POST' && (
@@ -310,7 +310,7 @@ actions={<>
             aria-modal="true"
             aria-label="Xác nhận xóa nhật ký Service Layer"
           >
-            <h2 className="fm-card__title">Xóa nhật ký Audit?</h2>
+            <h2 className="fm-modal__title">Xóa nhật ký Audit?</h2>
             <p className="fm-card__desc">
               Xóa <b>TOÀN BỘ</b> nhật ký gọi Service Layer đã ghi nhận. Hành động không thể hoàn tác.
             </p>

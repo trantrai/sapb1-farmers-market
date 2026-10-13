@@ -163,7 +163,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       </div>
 
       <div className="fm-card">
-        <div className="fm-table-wrap">
+        <div className="fm-table-wrap fm-scroll fm-only-desktop" style={{ overflowX: 'auto' }}>
           <table className="fm-table">
             <thead>
               <tr>
@@ -184,7 +184,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                 <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24 }}>Chưa có phiếu giao hàng nào</td></tr>
               ) : rows.map((d) => (
                 <tr key={d.id}>
-                  <td><b>#{d.docNum}</b></td>
+                  <th scope="row"><b>#{d.docNum}</b></th>
                   <td>{formatDateVN(d.docDate)}</td>
                   <td>
                     <div><b>{d.cardCode}</b></div>
@@ -226,7 +226,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       >
                         <Eye size={15} />
                       </button>
-                      {d.sapSyncStatus !== 'synced' && (
+                      {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                         <button
                           type="button"
                           className="fm-btn fm-btn--ghost fm-btn--sm"
@@ -255,6 +255,81 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
             </tbody>
           </table>
         </div>
+
+        {/* Danh sách card (mobile) — thay bảng 8 cột cuộn ngang */}
+        <div className="fm-only-mobile">
+          {loading ? (
+            <p className="fm-hint" style={{ padding: '16px 4px' }}>Đang tải…</p>
+          ) : rows.length === 0 ? (
+            <p className="fm-hint" style={{ padding: '16px 4px' }}>Chưa có phiếu giao hàng nào</p>
+          ) : rows.map((d) => (
+            <div
+              key={d.id}
+              className="fm-ocard"
+              role="button"
+              tabIndex={0}
+              aria-label={`Xem chi tiết phiếu giao hàng #${d.docNum} — ${d.cardName}`}
+              onClick={() => onGoDetail(d.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onGoDetail(d.id)
+                }
+              }}
+            >
+              <div className="fm-ocard__top">
+                <span className="fm-ocard__num">#{d.docNum}</span>
+                <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>
+                {d.sapSyncStatus === 'synced' ? (
+                  <span className="fm-chip fm-chip--synced" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
+                ) : d.sapSyncStatus === 'pending' ? (
+                  <span className="fm-chip fm-chip--pending">Lỗi đẩy</span>
+                ) : (
+                  <span className="fm-hint">Chưa đẩy</span>
+                )}
+              </div>
+              <div>
+                <div className="fm-ocard__name">{d.cardName}</div>
+                <div className="fm-ocard__meta">{d.cardCode}</div>
+              </div>
+              <div className="fm-ocard__meta">
+                Ngày {formatDateVN(d.docDate)}
+                {d.sourceOrder ? ` · Đơn nguồn SO #${d.sourceOrder.docNum}` : ''}
+              </div>
+              <div className="fm-ocard__bottom">
+                <span className="fm-ocard__total">{formatVND(d.grandTotal)}</span>
+                <span style={{ display: 'flex', gap: 4 }}>
+                  {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
+                    <button
+                      type="button"
+                      className="fm-ocard__del"
+                      title="Đẩy sang SAP B1"
+                      aria-label={`Đẩy phiếu ${d.docNum} sang SAP`}
+                      onClick={(e) => { e.stopPropagation(); void doPush(d) }}
+                      // Chặn keydown bubble lên card cha (tránh mở chi tiết khi nhấn Enter trên nút)
+                      onKeyDown={(e) => e.stopPropagation()}
+                      disabled={busyId === d.id}
+                    >
+                      <CloudUpload size={16} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="fm-ocard__del"
+                    title="Xóa"
+                    aria-label={`Xóa phiếu ${d.docNum}`}
+                    onClick={(e) => { e.stopPropagation(); void doDelete(d) }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    disabled={busyId === d.id}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
         <FmPagination page={page} totalPages={totalPages} onPage={setPage} />
       </div>
     </div>

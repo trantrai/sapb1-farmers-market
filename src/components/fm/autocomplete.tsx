@@ -40,6 +40,8 @@ interface Props {
   minCharsHint?: string
   /** Ẩn label khỏi giao diện nhưng vẫn giữ cho screen reader (WCAG 4.1.2) */
   hideLabel?: boolean
+  /** Khóa ô nhập (vd form đang lưu) — không mở dropdown, không gõ được */
+  disabled?: boolean
 }
 
 // ============================================================
@@ -125,7 +127,7 @@ function fetchErrorDetail(e: unknown): string {
 }
 
 /** Autocomplete chọn CardCode / ItemCode (Bước 1 & 2 của form SO) */
-export default function Autocomplete({ label, required, placeholder, fetchUrl, value, onChange, error, minChars, minCharsHint, hideLabel }: Props) {
+export default function Autocomplete({ label, required, placeholder, fetchUrl, value, onChange, error, minChars, minCharsHint, hideLabel, disabled }: Props) {
   const [query, setQuery] = useState('')
   const [all, setAll] = useState<ACOption[] | null>(null) // toàn bộ danh sách đã tải (hoặc kết quả tìm trực tiếp)
   const [meta, setMeta] = useState<{ source: string; error: string }>({ source: '', error: '' })
@@ -339,6 +341,9 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           aria-controls={open ? listId : undefined}
           aria-activedescendant={open && shown[hlSafe] ? `${listId}-opt-${hlSafe}` : undefined}
           aria-autocomplete="list"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${inputId}-err` : undefined}
+          disabled={disabled}
           value={value ? `${value.code} — ${value.name}` : query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -347,6 +352,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
             setHl(0)
           }}
           onFocus={() => {
+            if (disabled) return
             setQuery('')
             setOpen(true)
           }}
@@ -356,6 +362,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           }}
           // input đã có focus thì onFocus không fire lại — mở dropdown khi click vào ô đã chọn
           onMouseDown={() => {
+            if (disabled) return
             if (!open) {
               setQuery('')
               setOpen(true)
@@ -428,7 +435,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           </div>
         )}
       </div>
-      {error ? <div className="fm-error-text" role="alert">{error}</div> : null}
+      {error ? <div id={`${inputId}-err`} className="fm-error-text" role="alert">{error}</div> : null}
     </div>
   )
 }

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
-import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { loadSapSettings, isSapConfigured, SyncCancelled } from '@/lib/sap-service-layer'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadVatGroups, loadVatGroupsDelta, clearVatGroupsCache } from '@/lib/fm-master'
-import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
+import { startSync, updateSync, endSync, getProgress, requestSyncCancel, isSyncCancelRequested } from '@/lib/fm-sync-progress'
 import {
   getWatermark, setWatermark, clearWatermark, watermarkInfo, advanceWatermark,
   type DeltaWatermark,
@@ -169,6 +169,12 @@ export async function POST(req: NextRequest) {
         await syncFull(s, syncDbId)
       }
     } catch (e) {
+      // DỪNG THEO YÊU CẦU (nút "Dừng" trên UI) → kết thúc nhẹ nhàng, không báo lỗi
+      if (e instanceof SyncCancelled || isSyncCancelRequested('vatgroups')) {
+        console.log('POST /api/vatgroups/sync (nền): đã dừng theo yêu cầu người dùng')
+        endSync('vatgroups', { message: 'Đã dừng đồng bộ nhóm thuế theo yêu cầu người dùng.' })
+        return
+      }
       console.error('POST /api/vatgroups/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ nhóm thuế'
       endSync('vatgroups', { message: '', error: msg })
@@ -192,7 +198,8 @@ type SapCfg = NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>
 
 /** Đồng bộ toàn phần: tải hết nhóm thuế, thay mới mirror, đặt lại mốc watermark */
 async function syncFull(s: SapCfg, syncDbId: string) {
-  const { rows, error } = await loadVatGroups(s, (p) => updateSync('vatgroups', p))
+  const shouldCancel = () => isSyncCancelRequested('vatgroups')
+  const { rows, error } = await loadVatGroups(s, (p) => updateSync('vatgroups', p), { shouldCancel })
   if ((error && rows.length === 0) || rows.length === 0) {
     throw new Error(`Không tải được nhóm thuế từ SAP B1: ${error ?? '/VatGroups trả danh sách rỗng'}`)
   }
@@ -211,6 +218,7 @@ async function syncFull(s: SapCfg, syncDbId: string) {
   // B5: không ôm transaction dài (xem items/sync)
   await prisma.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
   for (let i = 0; i < payload.length; i += 500) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.vatGroup.createMany({ data: payload.slice(i, i + 500) })
     updateSync('vatgroups', { processed: Math.min(i + 500, payload.length) })
   }
@@ -228,7 +236,8 @@ async function syncFull(s: SapCfg, syncDbId: string) {
 
 /** Đồng bộ gia tăng: chỉ tải nhóm thuế đổi kể từ mốc, upsert vào mirror, nâng mốc */
 async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) {
-  const { rows, changedRaw, error } = await loadVatGroupsDelta(s, wm, (p) => updateSync('vatgroups', p))
+  const shouldCancel = () => isSyncCancelRequested('vatgroups')
+  const { rows, changedRaw, error } = await loadVatGroupsDelta(s, wm, (p) => updateSync('vatgroups', p), { shouldCancel })
   if (error) {
     throw new Error(`Không tải được nhóm thuế thay đổi từ SAP B1: ${error}`)
   }
@@ -260,6 +269,7 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
   })
   const CHUNK = 100
   for (let i = 0; i < ops.length; i += CHUNK) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.$transaction(ops.slice(i, i + CHUNK))
     updateSync('vatgroups', { processed: Math.min(i + CHUNK, ops.length) })
   }
@@ -282,6 +292,23 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
 async function rawGroupsForWatermark(s: SapCfg) {
   const { loadVatGroupsRaw } = await import('@/lib/fm-master')
   return loadVatGroupsRaw(s)
+}
+
+// ---------- PATCH: YÊU CẦU DỪNG lượt đồng bộ đang chạy (cần quyền settings.edit)
+// Nút "Dừng" trên UI gọi vào đây; tác vụ nền tự dừng ở checkpoint tiếp theo.
+export async function PATCH(req: NextRequest) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+  if (!user.permissions.settings?.edit) {
+    return NextResponse.json({ error: 'Bạn không có quyền dừng đồng bộ nhóm thuế' }, { status: 403 })
+  }
+  const ok = requestSyncCancel('vatgroups')
+  return NextResponse.json(
+    ok
+      ? { ok: true, message: 'Đã gửi yêu cầu dừng — lượt đồng bộ sẽ kết thúc ở checkpoint tiếp theo.' }
+      : { ok: false, error: 'Không có lượt đồng bộ nhóm thuế nào đang chạy.' },
+    { status: ok ? 200 : 409 },
+  )
 }
 
 // ---------- DELETE: xóa toàn bộ dữ liệu đã đồng bộ ----------

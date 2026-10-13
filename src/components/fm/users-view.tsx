@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound } from 'lucide-react'
+import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound, X } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -209,10 +209,10 @@ actions={<>
                     const isMe = u.username === user.username
                     return (
                       <tr key={u.id} className={u.active ? '' : 'is-inactive'}>
-                        <td>
+                        <th scope="row">
                           <b>@{u.username}</b>{' '}
                           {isMe && <span className="fm-chip fm-chip--perm-c" title="Tài khoản đang đăng nhập">bạn</span>}
-                        </td>
+                        </th>
                         <td>{u.fullName}</td>
                         <td><span className="fm-chip fm-chip--role">{roleLabel(u.role)}</span></td>
                         <td>
@@ -397,10 +397,10 @@ function UserModal({  mode,
     <div className="fm-backdrop" onClick={onClose}>
       <div ref={modalRef} tabIndex={-1} className="fm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, color: 'var(--fm-text)', fontSize: 19 }}>
+          <h3 className="fm-modal__title">
             {mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}
           </h3>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng" onClick={onClose}>✕</button>
+          <button className="fm-icon-btn" aria-label="Đóng" onClick={onClose}><X size={16} /></button>
         </div>
 
         {err && (

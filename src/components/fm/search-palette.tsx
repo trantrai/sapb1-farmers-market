@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Search, ClipboardList, Boxes, Contact, CornerDownLeft, Loader2 } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import { useFocusTrap } from './use-focus-trap'
 
 // ---------- Kiểu dữ liệu kết quả tìm kiếm ----------
 export interface SearchOrderHit {
@@ -62,6 +63,9 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
   const [activeIdx, setActiveIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  /** Giữ Tab/Shift+Tab trong palette, Escape đóng; đóng thì trả focus về ô search đã mở */
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose)
+  const listId = 'fm-sp-list'
 
   // Reset trạng thái mỗi khi mở palette — là EVENT khởi tạo, bọc bằng
   // useEffectEvent để tách khỏi logic effect (focus + cleanup timer)
@@ -159,6 +163,7 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
   return (
     <div className="fm-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={trapRef}
         className="fm-modal fm-search-palette"
         role="dialog"
         aria-modal="true"
@@ -173,6 +178,11 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
             className="fm-sp__input"
             placeholder="Tìm đơn hàng, mặt hàng, khách hàng…"
             aria-label="Từ khóa tìm kiếm"
+            role="combobox"
+            aria-expanded={hasResults}
+            aria-controls={listId}
+            aria-activedescendant={hasResults ? `${listId}-opt-${activeIdx}` : undefined}
+            aria-autocomplete="list"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -180,7 +190,7 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
           <kbd className="fm-search__kbd">ESC</kbd>
         </div>
 
-        <div ref={listRef} className="fm-sp__list" role="listbox" aria-label="Kết quả tìm kiếm">
+        <div ref={listRef} id={listId} className="fm-sp__list" role="listbox" aria-label="Kết quả tìm kiếm">
           {q.length < 2 && (
             <div className="fm-sp__empty">
               Nhập tối thiểu <b>2 ký tự</b> để tìm kiếm đơn hàng, mặt hàng, khách hàng.
@@ -208,6 +218,7 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
                   </div>
                 )}
                 <div
+                  id={`${listId}-opt-${idx}`}
                   role="option"
                   aria-selected={isActive}
                   data-entry-idx={idx}

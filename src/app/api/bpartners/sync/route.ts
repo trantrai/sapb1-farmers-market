@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
-import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { loadSapSettings, isSapConfigured, SyncCancelled } from '@/lib/sap-service-layer'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadCustomers, loadCustomersDelta, mergeCustomersCache, clearCustomersCache } from '@/lib/fm-master'
-import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
+import { startSync, updateSync, endSync, getProgress, requestSyncCancel, isSyncCancelRequested } from '@/lib/fm-sync-progress'
 import {
   getWatermark, setWatermark, clearWatermark, watermarkInfo, advanceWatermark,
   type DeltaWatermark,
@@ -183,6 +183,12 @@ export async function POST(req: NextRequest) {
         await syncFull(s, syncDbId)
       }
     } catch (e) {
+      // DỪNG THEO YÊU CẦU (nút "Dừng" trên UI) → kết thúc nhẹ nhàng, không báo lỗi
+      if (e instanceof SyncCancelled || isSyncCancelRequested('partners')) {
+        console.log('POST /api/bpartners/sync (nền): đã dừng theo yêu cầu người dùng')
+        endSync('partners', { message: 'Đã dừng đồng bộ khách hàng theo yêu cầu người dùng.' })
+        return
+      }
       console.error('POST /api/bpartners/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ khách hàng'
       endSync('partners', { message: '', error: msg })
@@ -230,7 +236,8 @@ function toPayload(p: {
 
 /** Đồng bộ toàn phần: tải hết khách hàng, thay mới mirror, đặt lại mốc watermark */
 async function syncFull(s: SapCfg, syncDbId: string) {
-  const { rows, error } = await loadCustomers(s, (p) => updateSync('partners', p))
+  const shouldCancel = () => isSyncCancelRequested('partners')
+  const { rows, error } = await loadCustomers(s, (p) => updateSync('partners', p), { shouldCancel })
   if ((error && rows.length === 0) || rows.length === 0) {
     throw new Error(`Không tải được khách hàng từ SAP B1: ${error ?? '/BusinessPartners trả danh sách rỗng'}`)
   }
@@ -242,6 +249,7 @@ async function syncFull(s: SapCfg, syncDbId: string) {
   // B5: không ôm transaction dài (xem items/sync)
   await prisma.businessPartner.deleteMany({ where: { sapDatabaseId: syncDbId } })
   for (let i = 0; i < payload.length; i += 500) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.businessPartner.createMany({ data: payload.slice(i, i + 500) })
     updateSync('partners', { processed: Math.min(i + 500, payload.length) })
   }
@@ -256,7 +264,8 @@ async function syncFull(s: SapCfg, syncDbId: string) {
 
 /** Đồng bộ gia tăng: chỉ tải khách hàng đổi kể từ mốc, upsert vào mirror, nâng mốc */
 async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) {
-  const { rows, error } = await loadCustomersDelta(s, wm, (p) => updateSync('partners', p))
+  const shouldCancel = () => isSyncCancelRequested('partners')
+  const { rows, error } = await loadCustomersDelta(s, wm, (p) => updateSync('partners', p), { shouldCancel })
   if (error) {
     throw new Error(`Không tải được khách hàng thay đổi từ SAP B1: ${error}`)
   }
@@ -284,6 +293,7 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
   })
   const CHUNK = 100
   for (let i = 0; i < ops.length; i += CHUNK) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.$transaction(ops.slice(i, i + CHUNK))
     updateSync('partners', { processed: Math.min(i + CHUNK, ops.length) })
   }
@@ -297,6 +307,23 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
     message: `Đã đồng bộ GIA TĂNG ${rows.length.toLocaleString('vi-VN')} khách hàng thay đổi từ SAP B1 (mốc ${wm.date} → ${newWm.date}).`,
     processed: rows.length,
   })
+}
+
+// ---------- PATCH: YÊU CẦU DỪNG lượt đồng bộ đang chạy (cần quyền settings.edit)
+// Nút "Dừng" trên UI gọi vào đây; tác vụ nền tự dừng ở checkpoint tiếp theo.
+export async function PATCH(req: NextRequest) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+  if (!user.permissions.settings?.edit) {
+    return NextResponse.json({ error: 'Bạn không có quyền dừng đồng bộ khách hàng' }, { status: 403 })
+  }
+  const ok = requestSyncCancel('partners')
+  return NextResponse.json(
+    ok
+      ? { ok: true, message: 'Đã gửi yêu cầu dừng — lượt đồng bộ sẽ kết thúc ở checkpoint tiếp theo.' }
+      : { ok: false, error: 'Không có lượt đồng bộ khách hàng nào đang chạy.' },
+    { status: ok ? 200 : 409 },
+  )
 }
 
 // ---------- DELETE: xóa toàn bộ dữ liệu đã đồng bộ ----------

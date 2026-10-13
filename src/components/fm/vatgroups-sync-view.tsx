@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Percent, RefreshCw, Trash2, Search, DatabaseZap } from 'lucide-react'
+import { Percent, RefreshCw, Trash2, Search, DatabaseZap, Square } from 'lucide-react'
 import { api, safeJson } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
@@ -47,6 +47,8 @@ export default function VatGroupsSyncView() {
   const [cat, setCat] = useState<'' | 'S' | 'P'>('')
   const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState<'sync' | 'clear' | null>(null)
+  /** Đang gửi yêu cầu dừng lượt sync nền (PATCH) — nút "Dừng" bị khóa tạm */
+  const [cancelling, setCancelling] = useState(false)
   const [mode, setMode] = useState<SyncMode>('auto')
   const loadRef = useRef<() => void>(() => {})
 
@@ -54,7 +56,9 @@ export default function VatGroupsSyncView() {
   // (hook nằm TRƯỚC load; gọi load muộn qua loadRef để tránh dùng biến trước khai báo)
   const { progress, setProgress, startPolling } = useSyncProgress('/api/vatgroups/sync', (p: SyncProgress) => {
     setBusy(null)
+    setCancelling(false)
     if (p.error) setMsg({ type: 'error', text: p.error })
+    else if (p.message.includes('Đã dừng')) setMsg({ type: 'info', text: p.message })
     else setMsg({ type: 'success', text: p.message || 'Đồng bộ hoàn tất.' })
     loadRef.current()
   })
@@ -120,6 +124,26 @@ export default function VatGroupsSyncView() {
     }
   }
 
+  /** Dừng lượt đồng bộ nền đang chạy — gửi cờ cancel, server tự dừng ở checkpoint tiếp theo */
+  const doCancel = async () => {
+    if (cancelling) return
+    setCancelling(true)
+    try {
+      const res = await api('/api/vatgroups/sync', { method: 'PATCH' })
+      const json: any = await safeJson(res)
+      if (res.ok) {
+        setMsg({ type: 'info', text: json?.message ?? 'Đã gửi yêu cầu dừng đồng bộ.' })
+        // Giữ polling cho tới khi server kết thúc lượt (onDone báo "Đã dừng…")
+      } else {
+        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status})` : 'Không dừng được đồng bộ') })
+        setCancelling(false)
+      }
+    } catch {
+      setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+      setCancelling(false)
+    }
+  }
+
   const doClear = async () => {
     if (!window.confirm('Xóa TOÀN BỘ dữ liệu nhóm thuế đã đồng bộ trong CSDL local? Danh mục trên SAP B1 không bị ảnh hưởng.')) return
     setBusy('clear')
@@ -148,6 +172,11 @@ export default function VatGroupsSyncView() {
             <RefreshCw size={14} className={busy === 'sync' ? 'fm-spin' : ''} />
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
+          {progress?.running && (
+            <button className="fm-btn fm-btn--secondary" disabled={cancelling} onClick={doCancel} title="Dừng lượt đồng bộ đang chạy — tác vụ nền sẽ kết thúc ở checkpoint tiếp theo">
+              <Square size={14} /> {cancelling ? 'Đang dừng…' : 'Dừng'}
+            </button>
+          )}
           <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={doClear} title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local">
             <Trash2 size={14} /> Xóa dữ liệu
           </button>
@@ -252,7 +281,7 @@ export default function VatGroupsSyncView() {
               )}
               {rows?.map((r) => (
                 <tr key={r.id}>
-                  <td data-label="Mã"><b>{r.code}</b></td>
+                  <th scope="row" data-label="Mã"><b>{r.code}</b></th>
                   <td data-label="Loại">
                     <span className={`fm-chip ${r.category === 'S' ? 'fm-chip--sap' : 'fm-chip--closed'}`}>
                       {r.category === 'S' ? 'Bán (S)' : 'Mua (P)'}

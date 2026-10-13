@@ -199,6 +199,7 @@ export default function AppShell({ user, onLogout }: Props) {
       role="button"
       tabIndex={0}
       aria-label={m.label}
+      title={m.label} /* tablet rail ≤900px chỉ hiện icon — title làm tooltip */
       aria-current={view === m.key ? 'page' : undefined}
       onClick={() => go(m.key)}
       onKeyDown={(e) => {
@@ -283,6 +284,7 @@ export default function AppShell({ user, onLogout }: Props) {
             role="button"
             tabIndex={0}
             aria-label="Đăng xuất"
+            title="Đăng xuất" /* tooltip khi sidebar thu gọn thành icon-rail */
             onClick={onLogout}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -349,7 +351,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
         </header>
 
-        <main className="fm-page" id="fm-main">
+        <main className="fm-page" id="fm-main" tabIndex={-1}>
           <div className="fm-view" key={view}>
             {view === 'dashboard' && (
               <DashboardView onGoOrders={() => go('orders')} onGoCreate={() => { setEditOrder(null); go('ordersNew') }} onGoOrderDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }} />

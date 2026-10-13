@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
-import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { loadSapSettings, isSapConfigured, SyncCancelled } from '@/lib/sap-service-layer'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadSalesItems, loadSalesItemsDelta, mergeItemsCache, clearItemsCache, numv } from '@/lib/fm-items'
 import { loadProductTrees, indexTrees } from '@/lib/fm-bom'
-import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
+import { startSync, updateSync, endSync, getProgress, requestSyncCancel, isSyncCancelRequested } from '@/lib/fm-sync-progress'
 import {
   getWatermark, setWatermark, clearWatermark, watermarkInfo, advanceWatermark,
   type DeltaWatermark,
@@ -166,6 +166,12 @@ export async function POST(req: NextRequest) {
         await syncFull(s, syncDbId)
       }
     } catch (e) {
+      // DỪNG THEO YÊU CẦU (nút "Dừng" trên UI) → kết thúc nhẹ nhàng, không báo lỗi
+      if (e instanceof SyncCancelled || isSyncCancelRequested('items')) {
+        console.log('POST /api/items/sync (nền): đã dừng theo yêu cầu người dùng')
+        endSync('items', { message: 'Đã dừng đồng bộ mặt hàng theo yêu cầu người dùng.' })
+        return
+      }
       console.error('POST /api/items/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ mặt hàng'
       endSync('items', { message: '', error: msg })
@@ -187,7 +193,8 @@ export async function POST(req: NextRequest) {
 
 /** Đồng bộ toàn phần: tải hết danh mục, thay mới mirror, đặt lại mốc watermark */
 async function syncFull(s: NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>, syncDbId: string) {
-  const { rows, error } = await loadSalesItems(s, (p) => updateSync('items', p))
+  const shouldCancel = () => isSyncCancelRequested('items')
+  const { rows, error } = await loadSalesItems(s, (p) => updateSync('items', p), { shouldCancel })
   // Guard kép: lỗi HOẶC danh sách rỗng đều không được xóa mirror local
   // (SL có thể trả 200 rỗng do sai filter/quyền → xóa sạch là mất dữ liệu)
   if (error || rows.length === 0) {
@@ -195,7 +202,7 @@ async function syncFull(s: NonNullable<Awaited<ReturnType<typeof loadSapSettings
       error ? `Không tải được danh mục từ SAP B1: ${error}` : 'SAP B1 trả về danh sách mặt hàng rỗng — không xóa dữ liệu local để an toàn',
     )
   }
-  const bomIndex = await syncBomMirror(s, syncDbId)
+  const bomIndex = await syncBomMirror(s, syncDbId, shouldCancel)
   const now = new Date()
 
   const payload = rows.map((it) => {
@@ -223,6 +230,7 @@ async function syncFull(s: NonNullable<Awaited<ReturnType<typeof loadSapSettings
   await prisma.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
   // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
   for (let i = 0; i < payload.length; i += 500) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.item.createMany({ data: payload.slice(i, i + 500) })
     updateSync('items', { processed: Math.min(i + 500, payload.length) })
   }
@@ -245,11 +253,12 @@ async function syncIncremental(
   syncDbId: string,
   wm: DeltaWatermark,
 ) {
-  const { rows, error } = await loadSalesItemsDelta(s, wm, (p) => updateSync('items', p))
+  const shouldCancel = () => isSyncCancelRequested('items')
+  const { rows, error } = await loadSalesItemsDelta(s, wm, (p) => updateSync('items', p), { shouldCancel })
   if (error) {
     throw new Error(`Không tải được mặt hàng thay đổi từ SAP B1: ${error}`)
   }
-  const bomIndex = await syncBomMirror(s, syncDbId)
+  const bomIndex = await syncBomMirror(s, syncDbId, shouldCancel)
   const now = new Date()
 
   if (rows.length === 0) {
@@ -287,6 +296,7 @@ async function syncIncremental(
   })
   const CHUNK = 100
   for (let i = 0; i < ops.length; i += CHUNK) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.$transaction(ops.slice(i, i + CHUNK))
     updateSync('items', { processed: Math.min(i + CHUNK, ops.length) })
   }
@@ -310,14 +320,17 @@ async function syncIncremental(
 async function syncBomMirror(
   s: NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>,
   syncDbId: string,
+  shouldCancel: () => boolean,
 ) {
   updateSync('items', { phase: 'fetch', message: 'Đang tải công thức BOM (ProductTrees) từ SAP B1…' })
-  const { trees, error: bomError } = await loadProductTrees(s)
+  const { trees, error: bomError } = await loadProductTrees(s, undefined, { shouldCancel })
   if (bomError) {
     // BOM sync thất bại: KHÔNG xóa mirror cũ, KHÔNG gán bomType='none' —
     // ném lỗi để người dùng thấy rõ thay vì lặng lẽ mất dữ liệu BOM.
     throw new Error(`Không tải được công thức BOM từ SAP B1 (ProductTrees): ${bomError}`)
   }
+  // Dừng theo yêu cầu GIỮA lượt BOM: không xóa mirror cũ, thoát trước khi ghi mới
+  if (shouldCancel()) throw new SyncCancelled()
   const bomIndex = indexTrees(trees)
   const now = new Date()
   // B5: không ôm transaction dài
@@ -355,9 +368,27 @@ async function syncBomMirror(
       return true
     })
   for (let i = 0; i < uniqRows.length; i += 500) {
+    if (shouldCancel()) throw new SyncCancelled()
     await prisma.bomComponent.createMany({ data: uniqRows.slice(i, i + 500) })
   }
   return bomIndex
+}
+
+// ---------- PATCH: YÊU CẦU DỪNG lượt đồng bộ đang chạy (cần quyền settings.edit)
+// Nút "Dừng" trên UI gọi vào đây; tác vụ nền tự dừng ở checkpoint tiếp theo.
+export async function PATCH(req: NextRequest) {
+  const user = await getSessionUser(req)
+  if (!user) return unauthorized()
+  if (!user.permissions.settings?.edit) {
+    return NextResponse.json({ error: 'Bạn không có quyền dừng đồng bộ mặt hàng' }, { status: 403 })
+  }
+  const ok = requestSyncCancel('items')
+  return NextResponse.json(
+    ok
+      ? { ok: true, message: 'Đã gửi yêu cầu dừng — lượt đồng bộ sẽ kết thúc ở checkpoint tiếp theo.' }
+      : { ok: false, error: 'Không có lượt đồng bộ mặt hàng nào đang chạy.' },
+    { status: ok ? 200 : 409 },
+  )
 }
 
 // ---------- DELETE: xóa toàn bộ dữ liệu đã đồng bộ ----------

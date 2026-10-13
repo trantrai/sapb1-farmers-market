@@ -291,8 +291,8 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         <div className="fm-backdrop" onClick={() => setForm(null)}>
           <div ref={formTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label={form.id ? 'Sửa database' : 'Thêm database'} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <b style={{ fontSize: 16 }}>{form.id ? 'Sửa database' : 'Thêm database SAP B1'}</b>
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng" onClick={() => setForm(null)}><X size={15} /></button>
+              <h3 className="fm-modal__title">{form.id ? 'Sửa database' : 'Thêm database SAP B1'}</h3>
+              <button className="fm-icon-btn" aria-label="Đóng" onClick={() => setForm(null)}><X size={16} /></button>
             </div>
             <div className="fm-form-grid" style={{ padding: '4px 0 12px' }}>
               <div className="fm-field">

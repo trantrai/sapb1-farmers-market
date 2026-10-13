@@ -960,7 +960,7 @@ export default function OrderFormView({
       {/* Bước 1 — Khách hàng & thông tin chung */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ShoppingCart size={18} /> {isEdit ? `Cập nhật đơn hàng #${editOrder?.docNum}` : 'Bước 1 — Thông tin chung'}
+          <ShoppingCart size={18} /> Bước 1 — Thông tin chung
         </h2>
 
         {!isEdit && (
@@ -973,6 +973,7 @@ export default function OrderFormView({
               className="fm-select"
               style={{ minWidth: 220, flex: '1 1 220px', maxWidth: 360 }}
               defaultValue=""
+              disabled={saving}
               onChange={(e) => {
                 const tpl = templates.find((t) => t.id === e.target.value)
                 if (tpl) applyTemplate(tpl)
@@ -1005,6 +1006,7 @@ export default function OrderFormView({
             placeholder="Gõ mã KH hoặc tên KH…"
             fetchUrl="/api/partners"
             value={partner}
+            disabled={saving}
             onChange={(v) => {
               setPartner(v)
               setPartnerErr('')
@@ -1029,11 +1031,11 @@ export default function OrderFormView({
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-date">Ngày chứng từ <span className="fm-label__req">*</span></label>
-            <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
+            <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} disabled={saving} />
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-due-date">Ngày giao hàng <span className="fm-label__req">*</span></label>
-            <input id="fm-doc-due-date" type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} />
+            <input id="fm-doc-due-date" type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} disabled={saving} />
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-header-wh" title="Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng ở Bước 2">Kho hàng xuất bán</label>
@@ -1042,7 +1044,7 @@ export default function OrderFormView({
               className="fm-input"
               value={headerWh}
               onChange={(e) => applyHeaderWarehouse(e.target.value)}
-              disabled={warehouses.length === 0}
+              disabled={saving || warehouses.length === 0}
             >
               {warehouses.length === 0 && <option value="">— (chưa có danh sách kho)</option>}
               <option value="">— Theo mặc định SAP —</option>
@@ -1068,13 +1070,14 @@ export default function OrderFormView({
               placeholder="0"
               value={headerDiscPct || ''}
               onChange={(e) => setHeaderDiscPct(clampPct(Number(e.target.value)))}
+              disabled={saving}
             />
           </div>
         </div>
 
         <div className="fm-field">
           <label className="fm-label" htmlFor="fm-remarks">Ghi chú</label>
-          <textarea id="fm-remarks" className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          <textarea id="fm-remarks" className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={saving} />
         </div>
       </div>
 
@@ -1090,6 +1093,7 @@ export default function OrderFormView({
             <button
               type="button"
               onClick={() => setSuggestOpen((v) => !v)}
+              disabled={saving}
               style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--fm-text)', padding: 0, width: '100%', textAlign: 'left' }}
             >
               <Sparkles size={15} style={{ color: 'var(--fm-primary)' }} />
@@ -1120,6 +1124,7 @@ export default function OrderFormView({
                       type="button"
                       className="fm-btn fm-btn--secondary fm-btn--sm"
                       onClick={() => addSuggested(s)}
+                      disabled={saving}
                       title={`Thêm ${s.itemName} vào đơn`}
                     >
                       <Plus size={12} /> Thêm
@@ -1132,7 +1137,7 @@ export default function OrderFormView({
         )}
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
-          <table className="fm-table fm-stack-table">
+          <table className="fm-table fm-stack-table fm-stack-table--form">
             <thead>
               <tr>
                 <th style={{ width: 34 }}>#</th>
@@ -1167,6 +1172,10 @@ export default function OrderFormView({
                 let stt = 0
                 return vis.map((l) => {
                 const invalid = Boolean(fieldErr[l.key])
+                /** Số lượng: dòng đã chọn hàng mà SL ≤ 0 thì không lưu được → coi là lỗi validate */
+                const qtyInvalid = Boolean(l.item) && l.quantity <= 0
+                /** Đơn giá âm: không cho lưu */
+                const priceInvalid = !l.isBomChild && l.unitPrice < 0
                 const lineTotal = l.quantity * l.unitPrice
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
@@ -1189,6 +1198,7 @@ export default function OrderFormView({
                         hideLabel
                         placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
                         fetchUrl="/api/items"
+                        disabled={saving}
                         minChars={2}
                         minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
                         value={l.item}
@@ -1228,12 +1238,19 @@ export default function OrderFormView({
                         step="0.5"
                         inputMode="decimal"
                         aria-label={`Số lượng dòng ${l.key}`}
+                        aria-invalid={qtyInvalid || undefined}
+                        aria-describedby={qtyInvalid ? `fm-line-${l.key}-qty-err` : undefined}
                         className="fm-line-input"
                         value={l.quantity || ''}
-                        disabled={l.isBomChild && l.bomEditable === false}
+                        disabled={saving || (l.isBomChild && l.bomEditable === false)}
                         title={l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
+                      {qtyInvalid && (
+                        <span id={`fm-line-${l.key}-qty-err`} className="fm-sr-only">
+                          Số lượng dòng {l.key} phải lớn hơn 0 thì dòng mới được lưu
+                        </span>
+                      )}
                     </td>
                     <td data-label="Đơn vị tính">
                       {l.item ? (
@@ -1247,7 +1264,7 @@ export default function OrderFormView({
                         className="fm-line-select"
                         value={l.warehouseCode ?? headerWh ?? ''}
                         title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
-                        disabled={warehouses.length === 0}
+                        disabled={saving || warehouses.length === 0}
                         onChange={(e) => {
                           updateLine(l.key, { warehouseCode: e.target.value || undefined })
                           if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
@@ -1287,6 +1304,7 @@ export default function OrderFormView({
                             className="fm-atp-recheck"
                             title="Kiểm tra lại tồn kho khả dụng (ATP)"
                             aria-label={`Kiểm tra lại tồn kho cho ${l.item?.name ?? 'mặt hàng'}`}
+                            disabled={saving}
                             onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
                           >
                             <RefreshCw size={12} />
@@ -1305,13 +1323,20 @@ export default function OrderFormView({
                           step="1000"
                           inputMode="decimal"
                           aria-label={`Đơn giá dòng ${l.key}`}
-                          aria-invalid={l.unitPrice < 0}
+                          aria-invalid={priceInvalid || undefined}
+                          aria-describedby={priceInvalid ? `fm-line-${l.key}-price-err` : undefined}
                           className="fm-line-input"
-                          style={{ flex: 1, minWidth: 0, ...(l.unitPrice < 0 ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : {}) }}
+                          style={{ flex: 1, minWidth: 0, ...(priceInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : {}) }}
                           value={l.unitPrice || ''}
-                          title={l.unitPrice < 0 ? 'Đơn giá không được âm' : l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
+                          title={priceInvalid ? 'Đơn giá không được âm' : l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
+                          disabled={saving}
                           onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value) || 0, priceSource: l.item ? 'manual' : undefined })}
                         />
+                        {priceInvalid && (
+                          <span id={`fm-line-${l.key}-price-err`} className="fm-sr-only">
+                            Đơn giá dòng {l.key} không được âm
+                          </span>
+                        )}
                         {l.priceSource === 'special' && (
                           <span className="fm-price-star" title="Giá đặc biệt theo khách hàng (SAP OSPP)">★</span>
                         )}
@@ -1324,6 +1349,7 @@ export default function OrderFormView({
                               style={{ width: 26, height: 26, minWidth: 26, minHeight: 26 }}
                               title="Lịch sử giá đã bán cho khách hàng này"
                               aria-label={`Lịch sử giá ${it.code}`}
+                              disabled={saving}
                               onClick={() => openPriceHist(l.key, it.code, it.name)}
                             >
                               <History size={13} />
@@ -1343,7 +1369,7 @@ export default function OrderFormView({
                         aria-label={`Chiết khấu % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
                         value={l.discPct || ''}
-                        disabled={Boolean(l.isBomChild)}
+                        disabled={saving || Boolean(l.isBomChild)}
                         title={l.isBomChild ? 'Thành phần BOM: không chiết khấu (giá = 0)' : undefined}
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
                       />
@@ -1374,7 +1400,7 @@ export default function OrderFormView({
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
                       ) : (
-                      <button className="fm-row-del" title="Xóa dòng" aria-label={`Xóa dòng ${l.key}`} onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
+                      <button className="fm-row-del" title="Xóa dòng" aria-label={`Xóa dòng ${l.key}`} onClick={() => removeLine(l.key)} disabled={saving || lines.length <= 1}>
                         <Trash2 size={14} />
                       </button>
                       )}
@@ -1388,10 +1414,10 @@ export default function OrderFormView({
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="fm-btn fm-btn--dashed fm-btn--sm" onClick={addLine}>
+          <button className="fm-btn fm-btn--dashed fm-btn--sm" onClick={addLine} disabled={saving}>
             <Plus size={14} /> Thêm dòng hàng
           </button>
-          <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()}>
+          <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()} disabled={saving}>
             <Upload size={14} /> Nhập từ Excel
           </button>
           <input
@@ -1481,7 +1507,7 @@ export default function OrderFormView({
       {tplModal && (
         <div className="fm-backdrop" onClick={() => setTplModal(false)}>
           <div ref={tplTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label="Lưu thành mẫu đơn hàng" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
-            <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <BookmarkPlus size={17} /> Lưu thành mẫu đơn hàng
             </h3>
             <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 14px' }}>
@@ -1563,7 +1589,7 @@ export default function OrderFormView({
       {priceHistFor && (
         <div className="fm-backdrop" onClick={() => setPriceHistFor(null)}>
           <div ref={priceHistTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label="Lịch sử giá" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
-            <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <History size={17} /> Lịch sử giá
             </h3>
             <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 14px' }}>
@@ -1577,7 +1603,7 @@ export default function OrderFormView({
               </div>
             ) : (
               <div className="fm-table-wrap" style={{ overflowX: 'auto' }}>
-                <table className="fm-table">
+                <table className="fm-table fm-stack-table">
                   <thead>
                     <tr>
                       <th>Ngày</th>
@@ -1591,12 +1617,12 @@ export default function OrderFormView({
                   <tbody>
                     {priceHist.map((h, i) => (
                       <tr key={`${h.docNum}-${i}`}>
-                        <td>{new Date(h.docDate).toLocaleDateString('vi-VN')}</td>
-                        <td>#{h.docNum}</td>
-                        <td style={{ textAlign: 'right' }}>{formatNum(h.quantity)} {h.uom}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatVND(h.unitPrice)}</td>
-                        <td style={{ textAlign: 'right' }}>{h.discPct}%</td>
-                        <td>
+                        <td data-label="Ngày">{new Date(h.docDate).toLocaleDateString('vi-VN')}</td>
+                        <th scope="row" data-label="Số CT">#{h.docNum}</th>
+                        <td data-label="SL" style={{ textAlign: 'right' }}>{formatNum(h.quantity)} {h.uom}</td>
+                        <td data-label="Đơn giá (₫)" style={{ textAlign: 'right', fontWeight: 600 }}>{formatVND(h.unitPrice)}</td>
+                        <td data-label="CK%" style={{ textAlign: 'right' }}>{h.discPct}%</td>
+                        <td data-label="">
                           <button
                             type="button"
                             className="fm-btn fm-btn--secondary fm-btn--sm"

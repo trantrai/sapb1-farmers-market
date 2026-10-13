@@ -48,7 +48,8 @@ interface ChartStats {
   topItems: { itemCode: string; itemName: string; quantity: number; total: number }[]
 }
 
-const CHART_COLORS = ['#fea619', '#0e1c2f', '#2e7d32', '#c62828', '#1565c0', '#6a1b9a']
+// Palette biểu đồ map về token theme (globals.css): gold / navy / green / red / coral / navy-deep
+const CHART_COLORS = ['var(--fm-yellow)', 'var(--fm-navy)', 'var(--fm-green)', 'var(--fm-red)', 'var(--fm-coral)', 'var(--fm-navy-deep)']
 
 export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail }: { onGoOrders: () => void; onGoCreate: () => void; onGoOrderDetail: (id: string) => void }) {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -202,7 +203,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                 <tbody>
                   {stats.attention.map((o) => (
                     <tr key={o.id}>
-                      <td><b>#{o.docNum}</b></td>
+                      <th scope="row"><b>#{o.docNum}</b></th>
                       <td>{o.cardName}</td>
                       <td>{formatDateVN(o.docDueDate)}</td>
                       <td>
@@ -393,7 +394,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <tbody>
                 {stats.recent.map((o) => (
                   <tr key={o.id}>
-                    <td><b>#{o.docNum}</b></td>
+                    <th scope="row"><b>#{o.docNum}</b></th>
                     <td>{o.cardName}</td>
                     <td>{formatDateVN(o.docDate)}</td>
                     <td>{formatDateVN(o.docDueDate)}</td>

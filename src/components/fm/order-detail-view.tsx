@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useFocusTrap } from './use-focus-trap'
 import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail, Truck } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
@@ -10,6 +10,7 @@ import OrderPrintView from './order-print-view'
 import RelationshipMap, { type RelNode } from './relationship-map'
 
 interface OrderLine {
+  id: string
   itemCode: string
   itemName: string
   quantity: number
@@ -23,6 +24,11 @@ interface OrderLine {
   bomGroupKey?: string | null
   bomEditable?: boolean
   bomType?: string
+}
+
+interface OrderDeliveryLine {
+  sourceOrderLineId: string | null
+  quantity: number
 }
 
 interface Order {
@@ -46,7 +52,7 @@ interface Order {
   sapSyncStatus?: string
   sapSyncedAt?: string | null
   lines: OrderLine[]
-  deliveries?: Array<{ id: string; docNum: number; docDate: string; status: string; grandTotal: number; sapSyncStatus: string }>
+  deliveries?: Array<{ id: string; docNum: number; docDate: string; status: string; grandTotal: number; sapSyncStatus: string; lines?: OrderDeliveryLine[] }>
 }
 
 interface Props {
@@ -75,35 +81,145 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   const [emailMessage, setEmailMessage] = useState('')
   const [emailBusy, setEmailBusy] = useState(false)
   const [emailResult, setEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: ReactNode } | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
+
+  // Modal "Copy sang Delivery": liệt kê SL đặt / đã giao / còn mở, cho phép
+  // chỉnh SL giao đợt này (≤ OpenQty)
+  const [showCopyModal, setShowCopyModal] = useState(false)
+  const [copyRows, setCopyRows] = useState<Array<{
+    orderLineId: string
+    itemCode: string
+    itemName: string
+    ordered: number
+    delivered: number
+    openQty: number
+    qty: number
+  }>>([])
+  const [copyBusy, setCopyBusy] = useState(false)
+  const [copyError, setCopyError] = useState<string | null>(null)
+  const copyTrapRef = useFocusTrap<HTMLDivElement>(showCopyModal, () => {
+    if (!copyBusy) setShowCopyModal(false)
+  })
 
   const doPrint = () => window.print()
 
-  const doCopyDelivery = async () => {
+  /** SL đã giao từng dòng đơn (trừ phiếu đã hủy) */
+  const buildDeliveredByLine = useCallback((o: Order) => {
+    const m = new Map<string, number>()
+    for (const d of o.deliveries ?? []) {
+      if (d.status === 'Cancelled') continue
+      for (const dl of d.lines ?? []) {
+        if (!dl.sourceOrderLineId) continue
+        m.set(dl.sourceOrderLineId, (m.get(dl.sourceOrderLineId) ?? 0) + dl.quantity)
+      }
+    }
+    return m
+  }, [])
+
+  /** Các dòng có thể giao (bỏ dòng con BOM) kèm SL còn mở */
+  const buildOpenLines = useCallback((o: Order) => {
+    const deliveredByLine = buildDeliveredByLine(o)
+    return o.lines
+      .filter((l) => !l.isBomChild)
+      .map((l) => {
+        const delivered = deliveredByLine.get(l.id) ?? 0
+        const openQty = Math.max(0, Math.round((l.quantity - delivered) * 1000) / 1000)
+        return { line: l, delivered: Math.round(delivered * 1000) / 1000, openQty }
+      })
+  }, [buildDeliveredByLine])
+
+  const openCopyModal = () => {
     if (!order) return
-    if (!window.confirm(`Tạo phiếu giao hàng từ Sale Order #${order.docNum}?\nChỉ copy các dòng còn số lượng mở (OpenQty > 0).`)) return
-    setActionBusy(true)
-    setActionMsg(null)
+    const rows = buildOpenLines(order)
+      .filter((x) => x.openQty > 0)
+      .map((x) => ({
+        orderLineId: x.line.id,
+        itemCode: x.line.itemCode,
+        itemName: x.line.itemName,
+        ordered: x.line.quantity,
+        delivered: x.delivered,
+        openQty: x.openQty,
+        qty: x.openQty,
+      }))
+    setCopyRows(rows)
+    setCopyError(null)
+    setShowCopyModal(true)
+  }
+
+  const setCopyRowQty = (orderLineId: string, raw: string) => {
+    setCopyRows((rows) => rows.map((r) => {
+      if (r.orderLineId !== orderLineId) return r
+      const v = parseFloat(raw)
+      if (raw.trim() === '' || Number.isNaN(v)) return { ...r, qty: 0 }
+      return { ...r, qty: Math.min(r.openQty, Math.max(0, v)) }
+    }))
+  }
+
+  const doConfirmCopy = async () => {
+    if (!order) return
+    const chosen = copyRows.filter((r) => r.qty > 0)
+    if (chosen.length === 0) {
+      setCopyError('Chưa có dòng nào có SL giao > 0')
+      return
+    }
+    setCopyBusy(true)
+    setCopyError(null)
+    // Timeout + AbortController rõ ràng: nút đã disable khi copyBusy=true,
+    // nếu mất mạng giữa chừng response không rõ → KHÔNG báo lỗi khô mà tự
+    // tải lại đơn (phiếu có thể đã được tạo) để người dùng kiểm chứng.
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 60_000)
     try {
       const r = await api('/api/deliveries/from-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: order.id }),
+        body: JSON.stringify({
+          orderId: order.id,
+          lines: chosen.map((x) => ({ sourceOrderLineId: x.orderLineId, quantity: x.qty })),
+        }),
+        signal: ctrl.signal,
+        timeoutMs: 60_000,
       })
       const j = await r.json().catch(() => ({}))
       if (r.ok && j.ok) {
-        setActionMsg({ type: 'success', text: `Đã tạo phiếu giao hàng #${j.delivery.docNum} từ đơn này.` })
+        setShowCopyModal(false)
+        const docNum = j.delivery?.docNum
+        const deliveryId = j.delivery?.id
+        setActionMsg({
+          type: 'success',
+          text: (
+            <>
+              Đã tạo phiếu giao hàng #{docNum} từ đơn này.
+              {' '}
+              {onGoDelivery && deliveryId && (
+                <button
+                  type="button"
+                  className="fm-link"
+                  onClick={() => onGoDelivery(deliveryId)}
+                  style={{ fontWeight: 700 }}
+                >
+                  Xem phiếu #{docNum}
+                </button>
+              )}
+            </>
+          ),
+        })
         // Tải lại để cập nhật Relationship Map
         const sig = { cancelled: false }
         await loadOrder(sig)
       } else {
-        setActionMsg({ type: 'error', text: j.error ?? 'Tạo phiếu giao hàng thất bại' })
+        setCopyError(j.error ?? 'Tạo phiếu giao hàng thất bại')
       }
     } catch {
-      setActionMsg({ type: 'error', text: 'Không kết nối được máy chủ' })
+      // Network error / timeout: kết quả không rõ (phiếu CÓ THỂ đã được tạo
+      // trên server) → tự tải lại đơn để Relationship Map hiện phiếu nếu có,
+      // thay vì báo "không kết nối" khô khiến người dùng bấm tạo trùng.
+      await loadOrder({ cancelled: false })
+      setCopyError('Mất kết nối khi tạo phiếu — đã tự tải lại đơn hàng. Hãy kiểm tra Relationship Map / danh sách Giao hàng xem phiếu đã được tạo chưa, tránh tạo trùng.')
     } finally {
-      setActionBusy(false)
+      clearTimeout(timer)
+      setCopyBusy(false)
     }
   }
 
@@ -181,6 +297,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   // Đẩy đơn sang SAP B1 ngay
   const syncNow = async () => {
     if (!order || actionBusy) return
+    // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
+    if (!window.confirm(`Đẩy Sale Order #${order.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`)) return
     setActionBusy(true)
     try {
       const res = await api(`/api/orders/${order.id}/sync`, { method: 'POST' })
@@ -253,6 +371,10 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
 
   const overdue = isOverdue(order.docDueDate, order.status)
 
+  // Tổng SL còn mở toàn đơn — để disable nút Copy khi đã giao hết
+  const totalOpenQty = buildOpenLines(order).reduce((s, x) => s + x.openQty, 0)
+  const copyDisabled = actionBusy || totalOpenQty <= 0
+
   return (
     <div>
       <PageHeader
@@ -269,10 +391,17 @@ actions={
             <button className="fm-btn fm-btn--secondary" onClick={openEmail}>
               <Mail size={15} /> Gửi email
             </button>
-            <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
-              <Pencil size={15} /> Sửa đơn hàng
-            </button>
-            <button className="fm-btn fm-btn--secondary" onClick={() => void doCopyDelivery()} disabled={actionBusy}>
+            {order.status === 'Open' && (
+              <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
+                <Pencil size={15} /> Sửa đơn hàng
+              </button>
+            )}
+            <button
+              className="fm-btn fm-btn--secondary"
+              onClick={openCopyModal}
+              disabled={copyDisabled}
+              title={totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở'}
+            >
               <Truck size={15} /> Copy sang Delivery
             </button>
           </>
@@ -315,7 +444,7 @@ actions={
 
       {/* Thông tin chung */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
-        <h2 className="fm-card__title">Thông Tin Chung</h2>
+        <h2 className="fm-card__title">Thông tin chung</h2>
         <dl className="fm-view-detail">
           <div><dt>Mã khách hàng</dt><dd>{order.cardCode}</dd></div>
           <div><dt>Tên khách hàng</dt><dd>{order.cardName}</dd></div>
@@ -391,13 +520,13 @@ actions={
                 return (
                   <tr key={i} className={isChild ? 'is-bom-child' : isBomParent ? 'is-bom-parent' : ''}>
                     <td>{isChild ? '' : stt}</td>
-                    <td>
+                    <th scope="row">
                       {isChild && <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>}
                       <b>{line.itemCode}</b>
                       {isBomParent && (
                         <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>
                       )}
-                    </td>
+                    </th>
                     <td>{line.itemName}</td>
                     <td className="fm-num">{line.quantity}</td>
                     <td>{line.uom}</td>
@@ -527,8 +656,8 @@ actions={
             style={{ maxWidth: 960 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }} className="fm-print-hide">
-              <h3 style={{ margin: 0, fontSize: 18 }}>Xem trước bản in</h3>
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setShowPrint(false)} aria-label="Đóng">
+              <h3 className="fm-modal__title">Xem trước bản in</h3>
+              <button className="fm-icon-btn" onClick={() => setShowPrint(false)} aria-label="Đóng">
                 <X size={16} />
               </button>
             </div>
@@ -561,10 +690,10 @@ actions={
             style={{ maxWidth: 560 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Mail size={18} /> Gửi email đơn hàng SO-{order.docNum}
               </h3>
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => { if (!emailBusy) setShowEmail(false) }} aria-label="Đóng" disabled={emailBusy}>
+              <button className="fm-icon-btn" onClick={() => { if (!emailBusy) setShowEmail(false) }} aria-label="Đóng" disabled={emailBusy}>
                 <X size={16} />
               </button>
             </div>
@@ -616,6 +745,94 @@ actions={
               </button>
               <button className="fm-btn fm-btn--primary" onClick={doSendEmail} disabled={emailBusy || !emailTo.trim()}>
                 <Mail size={15} /> {emailBusy ? 'Đang gửi…' : 'Gửi email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Dialog xác nhận Copy sang Delivery */}
+      {showCopyModal && order && (
+        <div className="fm-backdrop" onClick={() => { if (!copyBusy) setShowCopyModal(false) }}>
+          <div
+            ref={copyTrapRef}
+            className="fm-modal fm-modal--wide"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Copy sang Delivery từ đơn ${order.docNum}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 760 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Truck size={18} /> Copy sang Delivery — Sale Order #{order.docNum}
+              </h3>
+              <button className="fm-icon-btn" onClick={() => setShowCopyModal(false)} aria-label="Đóng" disabled={copyBusy}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {order.sapSyncStatus !== 'synced' && (
+              <div className="fm-alert fm-alert--warning" role="alert" style={{ marginBottom: 12 }}>
+                Đơn chưa đẩy SAP — liên kết SO→Delivery trên SAP sẽ mất.
+              </div>
+            )}
+
+            <p className="fm-hint" style={{ margin: '0 0 10px' }}>
+              Chỉ liệt kê các dòng còn SL mở (OpenQty &gt; 0). Điều chỉnh SL giao đợt này nếu không giao hết.
+            </p>
+
+            <div className="fm-table-wrap" style={{ marginBottom: 12 }}>
+              <table className="fm-table">
+                <thead>
+                  <tr>
+                    <th>Mã hàng</th>
+                    <th>Tên hàng</th>
+                    <th className="fm-num">SL đặt</th>
+                    <th className="fm-num">Đã giao</th>
+                    <th className="fm-num">Còn mở</th>
+                    <th className="fm-num">SL giao đợt này</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {copyRows.map((r) => (
+                    <tr key={r.orderLineId}>
+                      <td><b>{r.itemCode}</b></td>
+                      <td>{r.itemName}</td>
+                      <td className="fm-num">{r.ordered}</td>
+                      <td className="fm-num">{r.delivered}</td>
+                      <td className="fm-num"><b>{r.openQty}</b></td>
+                      <td className="fm-num">
+                        <input
+                          type="number"
+                          className="fm-input"
+                          style={{ width: 96, textAlign: 'right' }}
+                          min={0}
+                          max={r.openQty}
+                          step="any"
+                          value={r.qty}
+                          onChange={(e) => setCopyRowQty(r.orderLineId, e.target.value)}
+                          aria-label={`SL giao đợt này cho ${r.itemCode} (tối đa ${r.openQty})`}
+                          disabled={copyBusy}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {copyError && (
+              <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
+                {copyError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="fm-btn fm-btn--secondary" onClick={() => setShowCopyModal(false)} disabled={copyBusy}>
+                Hủy
+              </button>
+              <button className="fm-btn fm-btn--primary" onClick={() => void doConfirmCopy()} disabled={copyBusy}>
+                <Truck size={15} /> {copyBusy ? 'Đang tạo…' : 'Xác nhận tạo phiếu'}
               </button>
             </div>
           </div>

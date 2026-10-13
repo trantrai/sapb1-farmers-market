@@ -45,7 +45,16 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     include: {
       lines: { orderBy: { lineNum: 'asc' } },
       deliveries: {
-        select: { id: true, docNum: true, docDate: true, status: true, grandTotal: true, sapSyncStatus: true },
+        select: {
+          id: true,
+          docNum: true,
+          docDate: true,
+          status: true,
+          grandTotal: true,
+          sapSyncStatus: true,
+          // Dòng phiếu (kèm liên kết dòng đơn nguồn) — để tính OpenQty từng dòng đơn
+          lines: { select: { sourceOrderLineId: true, quantity: true } },
+        },
         orderBy: { docNum: 'asc' },
       },
     },

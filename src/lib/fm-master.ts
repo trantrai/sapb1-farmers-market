@@ -6,7 +6,7 @@
 // Kiến trúc mirror giống fm-items.ts của màn Đồng bộ Mặt hàng.
 // ============================================================
 
-import { sapGet, sapGetAll } from './sap-service-layer'
+import { sapGet, sapGetAll, SyncCancelled, type SapGetAllOpts } from './sap-service-layer'
 import { numv, type SapSessConfig, cacheKey } from './fm-items'
 import { pickEffectiveVatRate, type B1VatLineRow } from './fm-shared'
 import type { ProgressCb } from './fm-sync-progress'
@@ -52,7 +52,7 @@ export function clearVatGroupsCache(dbId?: string | null) {
   else vatCache.clear()
 }
 
-export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): Promise<{ rows: VatGroupRowData[]; error?: string }> {
+export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb, opts?: SapGetAllOpts): Promise<{ rows: VatGroupRowData[]; error?: string }> {
   const vgKey = cacheKey(s)
   const vgHit = vatCache.get(vgKey)
   if (vgHit && Date.now() - vgHit.ts < MASTER_TTL) return { rows: vgHit.rows }
@@ -60,7 +60,7 @@ export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): 
   // ---------- ① Danh mục OVTG (2 tầng: phân trang nguyên văn → gọi thuần) ----------
   let groups: B1VatGroupRow[] | null = null
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục nhóm thuế (/VatGroups) từ SAP B1…' })
-  const g1 = await sapGetAll<B1VatGroupRow>(s, '/VatGroups', {})
+  const g1 = await sapGetAll<B1VatGroupRow>(s, '/VatGroups', {}, opts)
   if (g1.ok && g1.data) groups = g1.data
   if (!groups) {
     const g2 = await sapGet<{ value?: B1VatGroupRow[] }>(s, '/VatGroups', {})
@@ -71,7 +71,7 @@ export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): 
   }
   onProgress?.({ phase: 'fetch', message: `Đã nhận ${groups.length} mã nhóm thuế — đang lấy lịch sử suất thuế…`, fetched: groups.length })
 
-  const rows = await resolveVatGroupRows(s, groups)
+  const rows = await resolveVatGroupRows(s, groups, opts)
   rows.sort((a, b) => (a.code === b.code ? (a.category < b.category ? -1 : 1) : a.code < b.code ? -1 : 1))
   vatCache.set(vgKey, { ts: Date.now(), rows })
   return { rows }
@@ -80,7 +80,7 @@ export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): 
 // ---------- Giải thuế suất hiệu lực cho các dòng OVTG thô ----------
 // Gom dòng suất VTG1 (mảng con inline + 2 tầng dự phòng) rồi chọn suất hiệu
 // lực hôm nay cho từng (Category, Code). Dùng chung cho toàn phần và delta.
-async function resolveVatGroupRows(s: SapSessConfig, groups: B1VatGroupRow[]): Promise<VatGroupRowData[]> {
+async function resolveVatGroupRows(s: SapSessConfig, groups: B1VatGroupRow[], opts?: SapGetAllOpts): Promise<VatGroupRowData[]> {
   // Gom dòng suất theo khóa "Category|Code" (dòng có Category) hoặc "|Code" (không có)
   const byKey = new Map<string, B1VatLineRow[]>()
   const pushLine = (l: B1VatLineRow, codeOverride?: string) => {
@@ -111,7 +111,7 @@ async function resolveVatGroupRows(s: SapSessConfig, groups: B1VatGroupRow[]): P
     byKey.has(`S|${code}`) || byKey.has(`P|${code}`) || byKey.has(`|${code}`)
   if (groupCodes.some((code) => !hasAnyLine(code))) {
     let lines: B1VatLineRow[] | null = null
-    const l1 = await sapGetAll<B1VatLineRow>(s, '/VatGroups_Lines', {})
+    const l1 = await sapGetAll<B1VatLineRow>(s, '/VatGroups_Lines', {}, opts)
     if (l1.ok && l1.data) lines = l1.data
     if (!lines) {
       const l2 = await sapGet<{ value?: B1VatLineRow[] }>(s, '/VatGroups_Lines', {})
@@ -127,6 +127,7 @@ async function resolveVatGroupRows(s: SapSessConfig, groups: B1VatGroupRow[]): P
   if (groupCodes.some((code) => !hasAnyLine(code))) {
     for (const code of groupCodes) {
       if (hasAnyLine(code)) continue
+      if (opts?.shouldCancel?.()) throw new SyncCancelled()
       const r = await sapGet<B1VatLineRow[] | { value?: B1VatLineRow[] }>(
         s,
         `/VatGroups('${encodeURIComponent(code)}')/VatGroups_Lines`,
@@ -205,7 +206,7 @@ export function clearCustomersCache(dbId?: string | null) {
   else bpCache.clear()
 }
 
-export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): Promise<{ rows: B1Partner[]; error?: string }> {
+export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb, opts?: SapGetAllOpts): Promise<{ rows: B1Partner[]; error?: string }> {
   const key = cacheKey(s)
   const hit = bpCache.get(key)
   if (hit && Date.now() - hit.ts < MASTER_TTL) return { rows: hit.rows }
@@ -215,7 +216,7 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
     $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses,UpdateDate,UpdateTime',
     $filter: `CardType eq 'C'`,
     $orderby: 'CardCode',
-  })
+  }, opts)
   if (r1.ok && r1.data) {
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${r1.data.length.toLocaleString('vi-VN')} khách hàng từ SAP B1…`, fetched: r1.data.length })
     bpCache.set(key, { ts: Date.now(), rows: r1.data })
@@ -223,7 +224,7 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
   }
   // ② Dự phòng: lấy nguyên văn không $select/$filter, tự lọc khách hàng tại chỗ.
   //    Bản SL không trả CardType → coi như khách hàng (loại trừ 'S'/'L' rõ ràng).
-  const r2 = await sapGetAll<B1Partner>(s, '/BusinessPartners', { $orderby: 'CardCode' })
+  const r2 = await sapGetAll<B1Partner>(s, '/BusinessPartners', { $orderby: 'CardCode' }, opts)
   if (r2.ok && r2.data) {
     const rows = r2.data.filter((p) => p.CardType !== 'S' && p.CardType !== 'L')
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${rows.length.toLocaleString('vi-VN')} khách hàng từ SAP B1…`, fetched: rows.length })
@@ -243,6 +244,7 @@ export async function loadCustomersDelta(
   s: SapSessConfig,
   wm: DeltaWatermark,
   onProgress?: ProgressCb,
+  opts?: SapGetAllOpts,
 ): Promise<{ rows: B1Partner[]; error?: string }> {
   const [f1, f2] = deltaFilters(`CardType eq 'C'`, wm)
   const select = 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses,UpdateDate,UpdateTime'
@@ -251,8 +253,8 @@ export async function loadCustomersDelta(
     message: `Đang lấy khách hàng thay đổi từ ${wm.date} (giờ SAP)…`,
   })
   const [r1, r2] = await Promise.all([
-    sapGetAll<B1Partner>(s, '/BusinessPartners', { $select: select, $filter: f1, $orderby: 'CardCode' }),
-    sapGetAll<B1Partner>(s, '/BusinessPartners', { $select: select, $filter: f2, $orderby: 'CardCode' }),
+    sapGetAll<B1Partner>(s, '/BusinessPartners', { $select: select, $filter: f1, $orderby: 'CardCode' }, opts),
+    sapGetAll<B1Partner>(s, '/BusinessPartners', { $select: select, $filter: f2, $orderby: 'CardCode' }, opts),
   ])
   if (!r1.ok || !r1.data) return { rows: [], error: r1.error ?? 'Lỗi Service Layer' }
   if (!r2.ok || !r2.data) return { rows: [], error: r2.error ?? 'Lỗi Service Layer' }
@@ -294,12 +296,13 @@ export async function loadVatGroupsDelta(
   s: SapSessConfig,
   wm: DeltaWatermark,
   onProgress?: ProgressCb,
+  opts?: SapGetAllOpts,
 ): Promise<{ rows: VatGroupRowData[]; changedRaw: B1VatGroupRow[]; error?: string }> {
   onProgress?.({
     phase: 'fetch',
     message: `Đang lấy nhóm thuế thay đổi từ ${wm.date} (giờ SAP)…`,
   })
-  const r = await sapGetAll<B1VatGroupRow>(s, '/VatGroups', { $orderby: 'Code' })
+  const r = await sapGetAll<B1VatGroupRow>(s, '/VatGroups', { $orderby: 'Code' }, opts)
   if (!r.ok || !r.data) return { rows: [], changedRaw: [], error: r.error ?? 'Lỗi Service Layer' }
   const changedRaw = r.data.filter((v) => {
     const d = updateDateStr(v.UpdateDate)
@@ -307,7 +310,7 @@ export async function loadVatGroupsDelta(
     if (d > wm.date) return true
     return d === wm.date && updateTimeNum(v.UpdateTime) > wm.time
   })
-  const rows = changedRaw.length > 0 ? await resolveVatGroupRows(s, changedRaw) : []
+  const rows = changedRaw.length > 0 ? await resolveVatGroupRows(s, changedRaw, opts) : []
   rows.sort((a, b) => (a.code === b.code ? (a.category < b.category ? -1 : 1) : a.code < b.code ? -1 : 1))
   onProgress?.({
     phase: 'fetch',

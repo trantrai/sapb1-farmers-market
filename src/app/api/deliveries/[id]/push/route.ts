@@ -33,6 +33,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (delivery.sapSyncStatus === 'synced') {
     return NextResponse.json({ ok: true, message: 'Phiếu đã được đẩy trước đó', delivery })
   }
+  if (delivery.status === 'Cancelled') {
+    return NextResponse.json({ error: 'Phiếu đã hủy — không thể đẩy sang SAP' }, { status: 400 })
+  }
 
   const result = await pushDeliveryToSap({
     databaseId: delivery.sapDatabaseId ?? user.databaseId,

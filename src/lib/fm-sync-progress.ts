@@ -39,8 +39,13 @@ const EMPTY: SyncProgress = {
 // Tên thực thể dùng chung routes + views
 export type SyncEntity = 'items' | 'vatgroups' | 'partners'
 
-const g = globalThis as unknown as { __fmSyncProgress?: Partial<Record<SyncEntity, SyncProgress>> }
-const store: Partial<Record<SyncEntity, SyncProgress>> = (g.__fmSyncProgress ??= {})
+/** Trạng thái nội bộ: thêm cờ cancel so với dữ liệu trả cho client */
+interface SyncState extends SyncProgress {
+  cancelRequested?: boolean
+}
+
+const g = globalThis as unknown as { __fmSyncProgress?: Partial<Record<SyncEntity, SyncState>> }
+const store: Partial<Record<SyncEntity, SyncState>> = (g.__fmSyncProgress ??= {})
 
 export function getProgress(entity: SyncEntity): SyncProgress {
   return store[entity] ?? EMPTY
@@ -73,5 +78,24 @@ export function endSync(entity: SyncEntity, opts: { message: string; error?: str
     error: opts.error ?? '',
     processed: opts.processed ?? cur?.processed ?? 0,
     finishedAt: new Date().toISOString(),
+    cancelRequested: false,
   }
+}
+
+/**
+ * Yêu cầu DỪNG lượt đồng bộ đang chạy của thực thể (hợp tác — cooperative).
+ * Trả true khi đã đặt cờ (lượt chạy nền tự dừng ở checkpoint tiếp theo),
+ * false khi không có lượt nào đang chạy. Dùng cho nút "Dừng" trên UI.
+ */
+export function requestSyncCancel(entity: SyncEntity): boolean {
+  const cur = store[entity]
+  if (!cur?.running) return false
+  cur.cancelRequested = true
+  updateSync(entity, { message: 'Đang dừng đồng bộ theo yêu cầu người dùng…' })
+  return true
+}
+
+/** Lượt chạy nền kiểm tra ở các checkpoint (sau mỗi trang fetch, mỗi lô lưu). */
+export function isSyncCancelRequested(entity: SyncEntity): boolean {
+  return store[entity]?.running === true && store[entity]?.cancelRequested === true
 }

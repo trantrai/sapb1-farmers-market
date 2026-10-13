@@ -6,7 +6,7 @@
 // - mapItem: chuẩn hóa 1 dòng B1Item → shape UI.
 // ============================================================
 
-import { sapGet, sapGetAll } from './sap-service-layer'
+import { sapGet, sapGetAll, type SapGetAllOpts } from './sap-service-layer'
 import { pickEffectiveVatRate, type B1VatLineRow } from './fm-shared'
 import type { ProgressCb } from './fm-sync-progress'
 import { deltaFilters, type DeltaWatermark } from './fm-sync-delta'
@@ -64,7 +64,7 @@ export function clearItemsCache(dbId?: string | null) {
   else itemsCache.clear()
 }
 
-export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb): Promise<{ rows: B1Item[]; error?: string }> {
+export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb, opts?: SapGetAllOpts): Promise<{ rows: B1Item[]; error?: string }> {
   const key = cacheKey(s)
   const hit = itemsCache.get(key)
   if (hit && Date.now() - hit.ts < ITEMS_TTL) return { rows: hit.rows }
@@ -75,7 +75,7 @@ export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb):
     $select: 'ItemCode,ItemName,InventoryUOM,SalesUnit,BarCode,SalesVATGroup,ItemPrices,UpdateDate,UpdateTime',
     $filter: `SalesItem eq 'tYES'`,
     $orderby: 'ItemCode',
-  })
+  }, opts)
   if (r1.ok && r1.data) {
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${r1.data.length.toLocaleString('vi-VN')} mặt hàng từ SAP B1…`, fetched: r1.data.length })
     itemsCache.set(key, { ts: Date.now(), rows: r1.data })
@@ -83,7 +83,7 @@ export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb):
   }
   // ② Dự phòng: lấy nguyên văn không $select/$filter, tự lọc SalesItem tại chỗ
   //    (phòng bản SL không nhận $select trên /Items hoặc chặn $filter SalesItem)
-  const r2 = await sapGetAll<B1Item>(s, '/Items', { $orderby: 'ItemCode' })
+  const r2 = await sapGetAll<B1Item>(s, '/Items', { $orderby: 'ItemCode' }, opts)
   if (r2.ok && r2.data) {
     const rows = r2.data.filter((i) => (i as B1Item).SalesItem !== 'tNO')
     onProgress?.({ phase: 'fetch', message: `Đã nhận ${rows.length.toLocaleString('vi-VN')} mặt hàng từ SAP B1…`, fetched: rows.length })
@@ -101,6 +101,7 @@ export async function loadSalesItemsDelta(
   s: SapSessConfig,
   wm: DeltaWatermark,
   onProgress?: ProgressCb,
+  opts?: SapGetAllOpts,
 ): Promise<{ rows: B1Item[]; error?: string }> {
   const [f1, f2] = deltaFilters(`SalesItem eq 'tYES'`, wm)
   const select = 'ItemCode,ItemName,InventoryUOM,SalesUnit,BarCode,SalesVATGroup,ItemPrices,UpdateDate,UpdateTime'
@@ -109,8 +110,8 @@ export async function loadSalesItemsDelta(
     message: `Đang lấy mặt hàng thay đổi từ ${wm.date} (giờ SAP)…`,
   })
   const [r1, r2] = await Promise.all([
-    sapGetAll<B1Item>(s, '/Items', { $select: select, $filter: f1, $orderby: 'ItemCode' }),
-    sapGetAll<B1Item>(s, '/Items', { $select: select, $filter: f2, $orderby: 'ItemCode' }),
+    sapGetAll<B1Item>(s, '/Items', { $select: select, $filter: f1, $orderby: 'ItemCode' }, opts),
+    sapGetAll<B1Item>(s, '/Items', { $select: select, $filter: f2, $orderby: 'ItemCode' }, opts),
   ])
   if (!r1.ok || !r1.data) return { rows: [], error: r1.error ?? 'Lỗi Service Layer' }
   if (!r2.ok || !r2.data) return { rows: [], error: r2.error ?? 'Lỗi Service Layer' }

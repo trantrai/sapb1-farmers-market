@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy, Printer, Mail, BookmarkPlus } from 'lucide-react'
+import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy, Printer, Mail, BookmarkPlus, MoreVertical, X } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -10,6 +10,7 @@ import type { EditOrderData } from './order-form-view'
 import PageHeader from './page-header'
 import { Network } from 'lucide-react'
 import RelMapModal from './relmap-modal'
+import { useFocusTrap } from './use-focus-trap'
 
 interface Line {
   id: string
@@ -106,7 +107,7 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
         onKeyDown={(e) => e.stopPropagation()}
       >
         <RefreshCw size={11} style={{ flex: 'none' }} />
-        {syncing ? 'Đang đẩy…' : 'Chưa đẩy'}
+        {syncing ? 'Đang đẩy…' : 'Đẩy lại'}
       </button>
     )
   }
@@ -114,6 +115,47 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
     <span className="fm-chip fm-chip--closed" title="Chưa cấu hình SAP B1 — đơn chỉ lưu local">
       —
     </span>
+  )
+}
+
+/** Bottom-sheet thao tác trên card mobile: dùng pattern fm-backdrop + fm-modal
+ *  (tự thành bottom-sheet ở ≤640px), focus trap + trả focus về nút ⋯ khi đóng */
+function OrderSheet({ order, onClose, onOpenRelMap }: {
+  order: Order
+  onClose: () => void
+  onOpenRelMap: (o: Order) => void
+}) {
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
+  return (
+    <div className="fm-backdrop" onClick={onClose}>
+      <div
+        ref={trapRef}
+        className="fm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Thao tác đơn hàng #${order.docNum}`}
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 420 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Đơn hàng #{order.docNum}</h3>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={onClose} aria-label="Đóng">
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--fm-text-2)', marginBottom: 10 }}>{order.cardName}</div>
+        <div role="menu" aria-label={`Thao tác đơn hàng #${order.docNum}`}>
+          <button
+            type="button"
+            role="menuitem"
+            className="fm-sheet__item"
+            onClick={() => onOpenRelMap(order)}
+          >
+            <Network size={17} /> Sơ đồ liên kết
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -263,6 +305,31 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; order: Order } | null>(null)
   const [relMapOrder, setRelMapOrder] = useState<{ id: string; docNum: number } | null>(null)
+  /** Bottom-sheet thao tác trên card mobile (#8) */
+  const [sheetOrder, setSheetOrder] = useState<Order | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  /** Phần tử đã mở context menu (dòng) — trả focus về khi đóng bằng Escape */
+  const openerRef = useRef<HTMLElement | null>(null)
+
+  /** Mở context menu tại tọa độ cho trước (kẹp trong viewport) */
+  const openCtxMenu = (order: Order, x: number, y: number) => {
+    setCtxMenu({
+      x: Math.min(Math.max(x, 8), window.innerWidth - 220),
+      y: Math.min(Math.max(y, 8), window.innerHeight - 80),
+      order,
+    })
+  }
+
+  const closeCtxMenu = (restoreFocus: boolean) => {
+    setCtxMenu(null)
+    if (restoreFocus) openerRef.current?.focus({ preventScroll: true })
+  }
+
+  // Mở menu → focus vào menuitem đầu tiên (#7)
+  useEffect(() => {
+    if (!ctxMenu) return
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [ctxMenu])
 
   // Đóng context menu khi bấm ra ngoài hoặc cuộn
   useEffect(() => {
@@ -313,6 +380,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
   // Đẩy lại đơn sang SAP B1 (đơn đang 'pending' sau khi lưu)
   const syncOrder = async (o: Order) => {
+    // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
+    if (!window.confirm(`Đẩy lại Sale Order #${o.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`)) return
     setSyncingId(o.id)
     try {
       const res = await api(`/api/orders/${o.id}/sync`, { method: 'POST' })
@@ -448,16 +517,26 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       onClick={() => openDetail(o)}
                       onContextMenu={(e) => {
                         e.preventDefault()
-                        setCtxMenu({ x: e.clientX, y: e.clientY, order: o })
+                        openerRef.current = e.currentTarget
+                        openCtxMenu(o, e.clientX, e.clientY)
                       }}
                       onKeyDown={(e) => {
+                        // Shift+F10: mở context menu tại dòng đang focus (tương đương right-click)
+                        if (e.shiftKey && e.key === 'F10') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          openerRef.current = e.currentTarget
+                          const r = e.currentTarget.getBoundingClientRect()
+                          openCtxMenu(o, r.left + 80, r.bottom - 20)
+                          return
+                        }
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
                           openDetail(o)
                         }
                       }}
                     >
-                      <td><b>#{o.docNum}</b></td>
+                      <th scope="row"><b>#{o.docNum}</b></th>
                       <td>{o.cardCode}</td>
                       <td>{o.cardName}</td>
                       <td>{formatDateVN(o.docDate)}</td>
@@ -521,6 +600,18 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <span className="fm-chip fm-chip--closed">Closed</span>
                     )}
                     {sapChip(o, canCreate, syncingId === o.id, () => syncOrder(o))}
+                    {/* Nút thao tác thêm (mobile không có right-click) → mở bottom-sheet */}
+                    <button
+                      type="button"
+                      className="fm-ocard__more"
+                      aria-label={`Thao tác thêm cho đơn hàng #${o.docNum}`}
+                      aria-haspopup="dialog"
+                      onClick={(e) => { e.stopPropagation(); setSheetOrder(o) }}
+                      // Chặn keydown bubble lên card cha (tránh mở chi tiết khi nhấn Enter trên nút)
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
                   </div>
                   <div>
                     <div className="fm-ocard__name">{o.cardName}</div>
@@ -554,21 +645,52 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         )}
       </div>
 
-      {/* Context menu khi right-click dòng đơn */}
+      {/* Context menu khi right-click / Shift+F10 dòng đơn */}
       {ctxMenu && (
         <div
+          ref={menuRef}
           className="fm-ctxmenu"
-          style={{ left: Math.min(ctxMenu.x, window.innerWidth - 220), top: Math.min(ctxMenu.y, window.innerHeight - 80) }}
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
           role="menu"
+          aria-label={`Thao tác đơn hàng #${ctxMenu.order.docNum}`}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            // Điều hướng bàn phím trong menu: ↑↓ di chuyển giữa các item, Escape đóng
+            const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              closeCtxMenu(true)
+            } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length > 0) {
+              e.preventDefault()
+              const idx = items.indexOf(document.activeElement as HTMLElement)
+              const next = e.key === 'ArrowDown'
+                ? (idx + 1) % items.length
+                : (idx - 1 + items.length) % items.length
+              items[next].focus()
+            }
+          }}
+          onBlur={(e) => {
+            // Tab ra khỏi menu → đóng
+            if (!menuRef.current?.contains(e.relatedTarget as Node | null)) setCtxMenu(null)
+          }}
         >
           <button
+            type="button"
             role="menuitem"
             onClick={() => { setRelMapOrder({ id: ctxMenu.order.id, docNum: ctxMenu.order.docNum }); setCtxMenu(null) }}
           >
             <Network size={15} /> Sơ đồ liên kết
           </button>
         </div>
+      )}
+
+      {/* Bottom-sheet thao tác trên card mobile */}
+      {sheetOrder && (
+        <OrderSheet
+          order={sheetOrder}
+          onClose={() => setSheetOrder(null)}
+          onOpenRelMap={(o) => { setSheetOrder(null); setRelMapOrder({ id: o.id, docNum: o.docNum }) }}
+        />
       )}
 
       {/* Modal Relationship Map */}

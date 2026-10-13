@@ -6,7 +6,7 @@
 // - recalcChildQty: quy đổi số lượng con theo công thức khi đổi SL cha
 // ============================================================
 
-import { sapGetAll, type SapConfig } from './sap-service-layer'
+import { sapGetAll, type SapConfig, type SapGetAllOpts } from './sap-service-layer'
 import { db as prisma } from './db'
 import { numv } from './fm-items'
 
@@ -70,14 +70,15 @@ export interface BomDefinition {
 export async function loadProductTrees(
   s: SapConfig,
   onProgress?: (fetched: number) => void,
+  opts?: SapGetAllOpts,
 ): Promise<{ trees: B1ProductTree[]; error?: string }> {
   const r = await sapGetAll<B1ProductTree>(s, '/ProductTrees', {
     $select: 'TreeCode,TreeType,Quantity,ProductTreeLines',
     $orderby: 'TreeCode',
-  })
+  }, opts)
   if (!r.ok || !r.data) {
     // Dự phòng: thử không $select (bản SL cũ)
-    const r2 = await sapGetAll<B1ProductTree>(s, '/ProductTrees', { $orderby: 'TreeCode' })
+    const r2 = await sapGetAll<B1ProductTree>(s, '/ProductTrees', { $orderby: 'TreeCode' }, opts)
     if (!r2.ok || !r2.data) return { trees: [], error: r.error ?? r2.error ?? 'Lỗi Service Layer' }
     onProgress?.(r2.data.length)
     return { trees: r2.data }

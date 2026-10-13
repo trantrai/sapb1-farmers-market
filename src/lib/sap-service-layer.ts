@@ -368,10 +368,29 @@ export async function sapGet<T = unknown>(
  * $top mỗi lần gọi mặc định 500 (đổi bằng biến môi trường SAP_BATCH_SIZE),
  * giới hạn an toàn 50.000 bản ghi.
  */
+/**
+ * Đánh dấu lượt đồng bộ nền bị HỦY theo yêu cầu người dùng (cooperative cancel).
+ * Ném ra từ sapGetAll khi opts.shouldCancel() trả true; route chạy nền bắt
+ * lỗi này để kết thúc lượt sync với thông báo "Đã dừng" thay vì báo lỗi.
+ */
+export class SyncCancelled extends Error {
+  constructor() {
+    super('SyncCancelled')
+    this.name = 'SyncCancelled'
+  }
+}
+
+/** Tùy chọn cho sapGetAll: cho phép caller yêu cầu dừng giữa chừng */
+export interface SapGetAllOpts {
+  /** Trả true khi lượt chạy cần dừng → sapGetAll ném SyncCancelled */
+  shouldCancel?: () => boolean
+}
+
 export async function sapGetAll<T = unknown>(
   c: SapConfig,
   path: string,
   query: Record<string, string | undefined> = {},
+  opts?: SapGetAllOpts,
 ): Promise<{ ok: boolean; data?: T[]; total: number; error?: string }> {
   const startedAt = Date.now()
   const batch = Math.max(1, Number(process.env.SAP_BATCH_SIZE) || 500)
@@ -381,6 +400,8 @@ export async function sapGetAll<T = unknown>(
   let skip = 0
   let prevFirst = '' // JSON của dòng đầu trang trước — để phát hiện server không hỗ trợ $skip
   while (all.length < MAX_RECORDS) {
+    // Checkpoint hợp tác: dừng đồng bộ khi người dùng bấm "Dừng"
+    if (opts?.shouldCancel?.()) throw new SyncCancelled()
     const page = await sapGet<{ value?: T[] }>(c, path, { ...base, $top: String(batch), $skip: String(skip) }, { audit: 'off' })
     if (!page.ok || !page.data) {
       // AUDIT: 1 dòng tổng kết cho cả lần lấy-all (không spam từng trang)
