@@ -1142,15 +1142,31 @@ export default function OrderFormView({
               </tr>
             </thead>
             <tbody>
-              {lines.map((l, idx) => {
+              {(() => {
+                // Chỉ vẽ dòng con của BOM Template; Production/Assembly ẩn
+                // (vẫn giữ trong data để submit và validate theo công thức).
+                const pType = new Map(
+                  lines.filter((x) => !x.isBomChild && x.bomGroupKey)
+                    .map((x) => [x.bomGroupKey as string, x.bomType ?? 'none']),
+                )
+                const vis = lines.filter((x) => {
+                  if (!x.isBomChild) return true
+                  const pt = pType.get(x.bomGroupKey as string)
+                  if (pt === 'production' || pt === 'assembly') return false
+                  if (pt === 'template') return true
+                  return x.bomEditable !== false
+                })
+                let stt = 0
+                return vis.map((l) => {
                 const invalid = Boolean(fieldErr[l.key])
                 const lineTotal = l.quantity * l.unitPrice
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
                 const isChild = Boolean(l.isBomChild)
+                if (!isChild) stt += 1
                 return (
                   <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}`}>
-                    <td data-label="Dòng">{isChild ? '' : idx + 1}</td>
+                    <td data-label="Dòng">{isChild ? '' : stt}</td>
                     <td data-label="Hàng hóa (ItemCode)" data-full>
                       {isChild ? (
                         <div style={{ paddingLeft: 18 }}>
@@ -1357,7 +1373,8 @@ export default function OrderFormView({
                     </td>
                   </tr>
                 )
-              })}
+                })
+              })()}
             </tbody>
           </table>
         </div>
