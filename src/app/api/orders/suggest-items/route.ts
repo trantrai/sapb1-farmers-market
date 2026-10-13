@@ -28,8 +28,10 @@ export async function GET(req: NextRequest) {
   fromDate.setDate(fromDate.getDate() - historyDays)
 
   // Lấy các đơn của khách hàng trong khoảng thời gian (kèm dòng hàng)
+  // B1: cách ly DB
+  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
   const orders = await prisma.salesOrder.findMany({
-    where: { cardCode, docDate: { gte: fromDate } },
+    where: { ...dbScope, cardCode, docDate: { gte: fromDate } },
     select: {
       id: true,
       docDate: true,

@@ -80,6 +80,16 @@ function dataKey(): Buffer {
   if (raw.length >= 16) {
     return createHash('sha256').update('fm-data-key-v1:' + raw).digest()
   }
+  // B2: production KHÔNG được dùng khóa fallback suy ra được từ source.
+  // Nếu dữ liệu cũ mã hóa bằng fallback, hãy đặt FM_DATA_KEY rồi nhập lại
+  // mật khẩu SAP/SMTP ở trang Cài đặt (dữ liệu cũ không giải mã được nữa).
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[fm-crypto] FM_DATA_KEY chưa đặt — từ chối khởi động ở production vì ' +
+        'khóa mã hóa fallback không an toàn. Hãy đặt FM_DATA_KEY (≥16 ký tự) trong .env ' +
+        'rồi nhập lại mật khẩu SAP/SMTP ở trang Cài đặt.',
+    )
+  }
   if (!dataKeyWarned) {
     dataKeyWarned = true
     console.warn(

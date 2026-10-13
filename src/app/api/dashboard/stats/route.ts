@@ -7,6 +7,8 @@ export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
 
+  // B1: cách ly DB
+  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
   const sp = req.nextUrl.searchParams
   const range = sp.get('range') === '30' ? 30 : 7
 
@@ -18,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   // Doanh số theo ngày (dựa trên grandTotal của đơn trong khoảng)
   const orders = await prisma.salesOrder.findMany({
-    where: { docDate: { gte: start, lte: end } },
+    where: { ...dbScope, docDate: { gte: start, lte: end } },
     select: { docDate: true, grandTotal: true },
   })
 
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
   // Top 5 khách hàng theo doanh số
   const topCustomersRaw = await prisma.salesOrder.groupBy({
     by: ['cardCode', 'cardName'],
-    where: { docDate: { gte: start, lte: end } },
+    where: { ...dbScope, docDate: { gte: start, lte: end } },
     _sum: { grandTotal: true },
     _count: { _all: true },
     orderBy: { _sum: { grandTotal: 'desc' } },
@@ -55,7 +57,7 @@ export async function GET(req: NextRequest) {
   // Top 5 mặt hàng bán chạy theo số lượng
   const topItemsRaw = await prisma.salesOrderLine.groupBy({
     by: ['itemCode', 'itemName'],
-    where: { order: { docDate: { gte: start, lte: end } } },
+    where: { order: { ...dbScope, docDate: { gte: start, lte: end } } },
     _sum: { quantity: true, grandTotal: true },
     orderBy: { _sum: { quantity: 'desc' } },
     take: 5,

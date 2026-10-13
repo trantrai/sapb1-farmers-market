@@ -7,12 +7,14 @@ export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
 
+  // B1: cách ly DB
+  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
   const [totalOrders, openOrders, closedOrders, overdueOrders, revenueAgg] = await Promise.all([
-    prisma.salesOrder.count(),
-    prisma.salesOrder.count({ where: { status: 'Open' } }),
-    prisma.salesOrder.count({ where: { status: 'Closed' } }),
-    prisma.salesOrder.findMany({ where: { status: 'Open' }, select: { docDueDate: true } }),
-    prisma.salesOrder.aggregate({ _sum: { grandTotal: true }, where: { status: 'Closed' } }),
+    prisma.salesOrder.count({ where: dbScope }),
+    prisma.salesOrder.count({ where: { ...dbScope, status: 'Open' } }),
+    prisma.salesOrder.count({ where: { ...dbScope, status: 'Closed' } }),
+    prisma.salesOrder.findMany({ where: { ...dbScope, status: 'Open' }, select: { docDueDate: true } }),
+    prisma.salesOrder.aggregate({ _sum: { grandTotal: true }, where: { ...dbScope, status: 'Closed' } }),
   ])
 
   const today = new Date()

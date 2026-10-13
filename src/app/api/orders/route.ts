@@ -46,6 +46,11 @@ export async function GET(req: NextRequest) {
   const to = sp.get('to') ?? ''
 
   const where: Record<string, unknown> = {}
+  // B1: cách ly theo database — user chỉ thấy đơn của DB mình đăng nhập
+  {
+    const sDb = await loadSapSettings(user.databaseId)
+    if (sDb?.dbId) where.sapDatabaseId = sDb.dbId
+  }
   if (q) {
     where.OR = [
       { docNum: isNaN(Number(q)) ? undefined : Number(q) },
