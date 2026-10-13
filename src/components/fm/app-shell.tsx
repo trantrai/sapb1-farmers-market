@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
-  Percent, Contact, Bell, Search, Home, FileSpreadsheet,
+  Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -21,6 +21,8 @@ const DashboardView = dynamic(() => import('./dashboard-view'), { ssr: false, lo
 const OrdersListView = dynamic(() => import('./orders-list-view'), { ssr: false, loading: ViewLoading })
 const OrderDetailView = dynamic(() => import('./order-detail-view'), { ssr: false, loading: ViewLoading })
 const OrderFormView = dynamic(() => import('./order-form-view'), { ssr: false, loading: ViewLoading })
+const DeliveriesListView = dynamic(() => import('./deliveries-list-view'), { ssr: false, loading: ViewLoading })
+const DeliveryDetailView = dynamic(() => import('./delivery-detail-view'), { ssr: false, loading: ViewLoading })
 const UsersView = dynamic(() => import('./users-view'), { ssr: false, loading: ViewLoading })
 const SettingsView = dynamic(() => import('./settings-view'), { ssr: false, loading: ViewLoading })
 const RolesView = dynamic(() => import('./roles-view'), { ssr: false, loading: ViewLoading })
@@ -32,7 +34,7 @@ const ExcelTemplatesView = dynamic(() => import('./excel-templates-view'), { ssr
 const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
 import type { EditOrderData } from './order-form-view'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates'
 
 interface MenuItem {
   key: ViewKey
@@ -48,6 +50,7 @@ const MENU: MenuItem[] = [
   { key: 'dashboard', module: 'orders', label: 'Tổng quan hệ thống', short: 'Tổng quan', icon: <LayoutDashboard size={16} />, group: 'main' },
   { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng', short: 'Đơn hàng', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
   { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng mới', short: 'Tạo đơn', icon: <PlusCircle size={16} />, group: 'main' },
+  { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main', badge: 'DL' },
   { key: 'excelTemplates', module: 'excelTemplates', label: 'Mẫu Excel', short: 'Mẫu Excel', icon: <FileSpreadsheet size={16} />, group: 'main' },
   { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
   { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
@@ -63,6 +66,8 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   orders: 'Danh sách Sale Order',
   ordersNew: 'Tạo / Cập nhật Sale Order',
   orderDetail: 'Chi tiết Sale Order',
+  deliveries: 'Quản lý giao hàng',
+  deliveryDetail: 'Chi tiết phiếu giao hàng',
   users: 'Quản lý người dùng',
   settings: 'Cài đặt kết nối SAP B1',
   sapAudit: 'Service Layer Audit — nhật ký & Retry',
@@ -86,6 +91,7 @@ export default function AppShell({ user, onLogout }: Props) {
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
+  const [detailDeliveryId, setDetailDeliveryId] = useState<string | null>(null)
   /** Số đơn quá hạn giao — hiển thị badge đỏ trên menu Đơn hàng */
   const [overdueCount, setOverdueCount] = useState(0)
   /** Command palette tìm kiếm toàn văn (Ctrl+K) */
@@ -362,6 +368,7 @@ export default function AppShell({ user, onLogout }: Props) {
               <OrderDetailView
                 orderId={detailOrderId}
                 onBack={() => go('orders')}
+                onGoDelivery={(deliveryId) => { setDetailDeliveryId(deliveryId); go('deliveryDetail') }}
                 onEdit={(orderId) => {
                   // Lấy dữ liệu đơn để sửa — API trả { order } nên phải bóc lớp vỏ
                   api(`/api/orders/${orderId}`).then(async (r) => {
@@ -385,6 +392,20 @@ export default function AppShell({ user, onLogout }: Props) {
                     }
                   })
                 }}
+              />
+            )}
+            {view === 'deliveries' && (
+              <DeliveriesListView
+                onGoDetail={(id) => { setDetailDeliveryId(id); go('deliveryDetail') }}
+                onGoOrderDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
+                refreshKey={refreshKey}
+              />
+            )}
+            {view === 'deliveryDetail' && detailDeliveryId && (
+              <DeliveryDetailView
+                deliveryId={detailDeliveryId}
+                onBack={() => go('deliveries')}
+                onGoOrder={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
               />
             )}
             {view === 'ordersNew' && (

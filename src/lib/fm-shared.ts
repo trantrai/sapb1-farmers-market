@@ -2,7 +2,7 @@
 // FARMERS MARKET — Shared types & helpers (client + server safe)
 // ============================================================
 
-export type ModuleKey = 'orders' | 'ordersNew' | 'users' | 'settings' | 'roles' | 'excelTemplates' | 'orderTemplates'
+export type ModuleKey = 'orders' | 'ordersNew' | 'deliveries' | 'users' | 'settings' | 'roles' | 'excelTemplates' | 'orderTemplates'
 export type ActionKey = 'view' | 'create' | 'edit' | 'delete'
 
 export type PermMap = Record<ModuleKey, Record<ActionKey, boolean>>
@@ -22,6 +22,7 @@ export interface SessionUser {
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   orders: 'Danh sách đơn hàng',
   ordersNew: 'Tạo đơn hàng (SO)',
+  deliveries: 'Quản lý giao hàng',
   users: 'Người dùng hệ thống',
   settings: 'Cài đặt kết nối SAP B1',
   roles: 'Phân quyền (RBAC)',
@@ -38,7 +39,7 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
 
 export function emptyPerm(): PermMap {
   const mk = (): Record<ActionKey, boolean> => ({ view: false, create: false, edit: false, delete: false })
-  return { orders: mk(), ordersNew: mk(), users: mk(), settings: mk(), roles: mk(), excelTemplates: mk(), orderTemplates: mk() }
+  return { orders: mk(), ordersNew: mk(), deliveries: mk(), users: mk(), settings: mk(), roles: mk(), excelTemplates: mk(), orderTemplates: mk() }
 }
 
 export function parsePerm(json: string | null | undefined): PermMap {

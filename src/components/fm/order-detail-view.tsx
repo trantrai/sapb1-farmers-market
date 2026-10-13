@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail, Truck } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import OrderPrintView from './order-print-view'
+import RelationshipMap, { type RelNode } from './relationship-map'
 
 interface OrderLine {
   itemCode: string
@@ -45,18 +46,20 @@ interface Order {
   sapSyncStatus?: string
   sapSyncedAt?: string | null
   lines: OrderLine[]
+  deliveries?: Array<{ id: string; docNum: number; docDate: string; status: string; grandTotal: number; sapSyncStatus: string }>
 }
 
 interface Props {
   orderId: string
   onBack: () => void
   onEdit: (orderId: string) => void
+  onGoDelivery?: (deliveryId: string) => void
 }
 
 /**
  * Chi tiết đơn hàng dạng full-page (theo thiết kế Stitch màn 04)
  */
-export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
+export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery }: Props) {
   const [order, setOrder] = useState<Order | null>(null)
   const [partner, setPartner] = useState<{ address?: string; contactPerson?: string; contactPhone?: string; email?: string } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -76,6 +79,33 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [actionBusy, setActionBusy] = useState(false)
 
   const doPrint = () => window.print()
+
+  const doCopyDelivery = async () => {
+    if (!order) return
+    if (!window.confirm(`Tạo phiếu giao hàng từ Sale Order #${order.docNum}?`)) return
+    setActionBusy(true)
+    setActionMsg(null)
+    try {
+      const r = await api('/api/deliveries/from-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (r.ok && j.ok) {
+        setActionMsg({ type: 'success', text: `Đã tạo phiếu giao hàng #${j.delivery.docNum} từ đơn này.` })
+        // Tải lại để cập nhật Relationship Map
+        const sig = { cancelled: false }
+        await loadOrder(sig)
+      } else {
+        setActionMsg({ type: 'error', text: j.error ?? 'Tạo phiếu giao hàng thất bại' })
+      }
+    } catch {
+      setActionMsg({ type: 'error', text: 'Không kết nối được máy chủ' })
+    } finally {
+      setActionBusy(false)
+    }
+  }
 
   const loadOrder = useCallback(async (signal: { cancelled: boolean }) => {
     setLoading(true)
@@ -242,9 +272,40 @@ actions={
             <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
               <Pencil size={15} /> Sửa đơn hàng
             </button>
+            <button className="fm-btn fm-btn--secondary" onClick={() => void doCopyDelivery()} disabled={actionBusy}>
+              <Truck size={15} /> Copy sang Delivery
+            </button>
           </>
         }
       />
+
+      {/* Sơ đồ liên kết chứng từ */}
+      {(() => {
+        const nodes: RelNode[] = [
+          {
+            kind: 'order',
+            id: order.id,
+            docNum: order.docNum,
+            docDate: order.docDate,
+            status: order.sapSyncStatus === 'synced' ? 'synced' : order.status,
+            current: true,
+          },
+          ...(order.deliveries ?? []).map((d) => ({
+            kind: 'delivery' as const,
+            id: d.id,
+            docNum: d.docNum,
+            docDate: d.docDate,
+            status: d.sapSyncStatus === 'synced' ? 'synced' : d.status,
+          })),
+        ]
+        return (
+          <RelationshipMap
+            nodes={nodes}
+            onGoOrder={() => {}}
+            onGoDelivery={(id) => onGoDelivery?.(id)}
+          />
+        )
+      })()}
 
       {overdue && (
         <div className="fm-alert fm-alert--error" style={{ marginBottom: 16 }}>

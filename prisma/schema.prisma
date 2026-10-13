@@ -116,12 +116,60 @@ model SalesOrder {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   lines           SalesOrderLine[]
+  deliveries      Delivery[]
 
   // M14: index cho query thực tế
   @@index([sapDatabaseId, status])
   @@index([cardCode, docDate])
   @@index([sapSyncStatus, sapDocEntry])
   @@index([docNum])
+}
+
+// ============================================================
+// DELIVERY (phiếu giao hàng) — copy từ Sales Order, đẩy sang SAP B1 (/DeliveryNotes → ODLN)
+// ============================================================
+model Delivery {
+  id            String    @id @default(cuid())
+  docNum        Int       @unique // cấp thủ công: max+1 (SQLite không autoincrement field phụ)
+  docDate       DateTime  @default(now())
+  cardCode      String
+  cardName      String
+  status        String    @default("Open") // Open | Closed | Cancelled
+  remarks       String?
+  // Liên kết đơn hàng nguồn (1 đơn có thể có nhiều delivery)
+  sourceOrderId String?
+  sourceOrder   SalesOrder? @relation(fields: [sourceOrderId], references: [id])
+  // Đồng bộ SAP B1 (POST /DeliveryNotes → ODLN)
+  sapDocEntry   Int?
+  sapDocNum     Int?
+  sapSyncStatus String    @default("none") // none | pending | synced
+  sapSyncError  String?
+  sapSyncedAt   DateTime?
+  sapDatabaseId String?
+  grandTotal    Float     @default(0)
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lines         DeliveryLine[]
+
+  @@index([sapDatabaseId, status])
+  @@index([sourceOrderId])
+  @@index([cardCode, docDate])
+}
+
+model DeliveryLine {
+  id         String   @id @default(cuid())
+  deliveryId String
+  delivery   Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  lineNum    Int
+  itemCode   String
+  itemName   String
+  quantity   Float
+  uom        String   @default("")
+  unitPrice  Float    @default(0)
+  lineTotal  Float    @default(0)
+
+  @@index([deliveryId])
 }
 
 model SalesOrderLine {

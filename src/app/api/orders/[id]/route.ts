@@ -42,7 +42,13 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   const order = await prisma.salesOrder.findUnique({
     where: { id },
-    include: { lines: { orderBy: { lineNum: 'asc' } } },
+    include: {
+      lines: { orderBy: { lineNum: 'asc' } },
+      deliveries: {
+        select: { id: true, docNum: true, docDate: true, status: true, grandTotal: true, sapSyncStatus: true },
+        orderBy: { docNum: 'asc' },
+      },
+    },
   })
   if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   // B1: cách ly DB — không cho xem đơn của database khác
