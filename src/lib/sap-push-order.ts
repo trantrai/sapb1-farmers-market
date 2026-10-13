@@ -107,7 +107,7 @@ interface SapOrderLookup {
 async function findOrderByLocalId(
   settings: SapConfig,
   localId: string,
-): Promise<{ supported: boolean; doc?: { DocEntry: number; DocNum?: number } }> {
+): Promise<{ supported: boolean; doc?: { DocEntry: number; DocNum?: number }; lookupError?: string }> {
   const safe = localId.replace(/'/g, "''")
   const res = await sapGet<SapOrderLookup>(
     settings,
@@ -115,7 +115,14 @@ async function findOrderByLocalId(
     { $filter: `${UDF_LOCAL_ID} eq '${safe}'`, $select: 'DocEntry,DocNum' },
     { audit: 'off' },
   )
-  if (!res.ok || !res.data) return { supported: false }
+  // M1: phân biệt "UDF chưa định nghĩa" (an toàn POST) vs "lookup lỗi thoáng qua"
+  // (KHÔNG an toàn — chứng từ có thể đã tồn tại, POST sẽ gây trùng).
+  if (!res.ok || !res.data) {
+    const msg = res.error ?? 'lỗi không rõ'
+    // UDF chưa định nghĩa → SAP trả 400 với thông báo cụ thể
+    if (/UDF|invalid|not.*defin|unknown/i.test(msg)) return { supported: false }
+    return { supported: false, lookupError: msg }
+  }
   const first = res.data.value?.[0]
   if (typeof first?.DocEntry !== 'number') return { supported: true }
   return { supported: true, doc: { DocEntry: first.DocEntry, DocNum: first.DocNum } }
@@ -143,6 +150,14 @@ export async function pushOrderToSap(input: SapPushInput): Promise<SapPushResult
   let withUdf = false
   if (input.localId) {
     const existing = await findOrderByLocalId(settings, input.localId)
+    if (existing.lookupError) {
+      // M1: lookup lỗi thoáng qua → KHÔNG POST (tránh trùng chứng từ),
+      // trả lỗi để user retry sau.
+      return {
+        status: 'error',
+        error: `Không kiểm tra được trùng chứng từ trên SAP (${existing.lookupError}) — chưa đẩy để tránh tạo trùng. Vui lòng thử lại.`,
+      }
+    }
     if (existing.supported && existing.doc) {
       // Chứng từ đã tồn tại → nhận lại, KHÔNG POST nữa
       const full = await sapGet<SapOrderResponse>(

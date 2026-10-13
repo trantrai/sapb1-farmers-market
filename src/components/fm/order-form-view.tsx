@@ -546,6 +546,8 @@ export default function OrderFormView({
         if (l.item) {
           void resolvePrice(l.key, l.item.code, partner?.code ?? null)
           void checkAtp(l.key, l.item.code, l.warehouseCode)
+          // M2: bung dòng con BOM cho mặt hàng nhập từ Excel
+          void expandBom(l.key, l.item.code)
         }
       })
 

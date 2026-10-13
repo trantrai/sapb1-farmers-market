@@ -114,8 +114,8 @@ export default function OrderPrintView({ order, partner }: Props) {
             const lineTotal = afterDisc * (1 + line.vatPct / 100)
             const isChild = Boolean(line.isBomChild)
             const isBomParent = !isChild && Boolean(line.bomGroupKey)
-            // STT chi dem dong cha/hang thuong (bo qua dong con BOM)
-            const stt = order.lines.slice(0, i + 1).filter((l) => !l.isBomChild).length
+            // STT: đếm trên mảng visible (đã lọc), không dùng slice trên order.lines
+            const stt = visible.slice(0, i + 1).filter((l) => !l.isBomChild).length
             return (
               <tr key={i}>
                 <td>{isChild ? '' : stt}</td>
