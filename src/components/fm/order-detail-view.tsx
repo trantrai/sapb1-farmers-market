@@ -21,6 +21,7 @@ interface OrderLine {
   isBomChild?: boolean
   bomGroupKey?: string | null
   bomEditable?: boolean
+  bomType?: string
 }
 
 interface Order {
@@ -306,10 +307,18 @@ actions={
             <tbody>
               {(() => {
                 let stt = 0
-                // Chỉ hiển thị dòng con của BOM Template (bomEditable=true);
-                // Production/Assembly ẩn dòng con.
+                // Chỉ hiển thị dòng con của BOM Template; Production/Assembly ẩn.
+                // Ưu tiên bomType thật của cha (từ mirror), fallback bomEditable cho đơn cũ.
+                const parentType = new Map(
+                  order.lines
+                    .filter((l) => !l.isBomChild && l.bomGroupKey)
+                    .map((l) => [l.bomGroupKey as string, l.bomType ?? 'none']),
+                )
                 const visibleLines = order.lines.filter((l) => {
                   if (!l.isBomChild) return true
+                  const pt = parentType.get(l.bomGroupKey as string)
+                  if (pt === 'production' || pt === 'assembly') return false
+                  if (pt === 'template') return true
                   return l.bomEditable !== false
                 })
                 return visibleLines.map((line, i) => {
@@ -382,9 +391,11 @@ actions={
               if (isChild) return null // dòng con vẽ lồng trong card của cha (bên dưới)
               stt += 1
               const isBomParent = Boolean(line.bomGroupKey)
-              // Chỉ liệt kê thành phần khi là BOM Template (con sửa được SL)
-              const children = isBomParent
-                ? order.lines.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey && l.bomEditable !== false)
+              // Chỉ liệt kê thành phần khi là BOM Template
+              const isTemplate = (line.bomType ?? 'none') === 'template' ||
+                ((line.bomType ?? 'none') === 'none' && order.lines.some((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey && l.bomEditable !== false))
+              const children = isBomParent && isTemplate
+                ? order.lines.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey)
                 : []
               return (
                 <div key={i} className="fm-lcard">

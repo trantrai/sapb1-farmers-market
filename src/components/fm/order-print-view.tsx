@@ -13,6 +13,7 @@ interface PrintLine {
   isBomChild?: boolean
   bomGroupKey?: string | null
   bomEditable?: boolean
+  bomType?: string
 }
 
 interface PrintOrder {
@@ -95,9 +96,20 @@ export default function OrderPrintView({ order, partner }: Props) {
           </tr>
         </thead>
         <tbody>
-          {order.lines
-            .filter((l) => !l.isBomChild || l.bomEditable !== false)
-            .map((line, i) => {
+          {(() => {
+            const parentType = new Map(
+              order.lines
+                .filter((l) => !l.isBomChild && l.bomGroupKey)
+                .map((l) => [l.bomGroupKey as string, l.bomType ?? 'none']),
+            )
+            const visible = order.lines.filter((l) => {
+              if (!l.isBomChild) return true
+              const pt = parentType.get(l.bomGroupKey as string)
+              if (pt === 'production' || pt === 'assembly') return false
+              if (pt === 'template') return true
+              return l.bomEditable !== false
+            })
+            return visible.map((line, i) => {
             const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
             const lineTotal = afterDisc * (1 + line.vatPct / 100)
             const isChild = Boolean(line.isBomChild)
@@ -117,7 +129,8 @@ export default function OrderPrintView({ order, partner }: Props) {
                 <td className="fm-num"><b>{formatVND(lineTotal)}</b></td>
               </tr>
             )
-          })}
+            })
+          })()}
         </tbody>
         <tfoot>
           <tr>

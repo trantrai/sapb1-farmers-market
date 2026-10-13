@@ -45,7 +45,28 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     include: { lines: { orderBy: { lineNum: 'asc' } } },
   })
   if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
-  return NextResponse.json({ order })
+
+  // Bổ sung bomType thật của dòng cha BOM từ mirror Item (để UI ẩn/hiện
+  // dòng con đúng cả với đơn cũ lưu bomEditable chưa chuẩn).
+  const dbScope = (order as { sapDatabaseId?: string }).sapDatabaseId
+    ? { sapDatabaseId: (order as { sapDatabaseId: string }).sapDatabaseId }
+    : {}
+  const parentCodes = [...new Set(
+    order.lines.filter((l) => l.bomGroupKey && !l.isBomChild).map((l) => l.itemCode),
+  )]
+  let bomTypeMap = new Map<string, string>()
+  if (parentCodes.length > 0) {
+    const items = await prisma.item.findMany({
+      where: { ...dbScope, itemCode: { in: parentCodes } },
+      select: { itemCode: true, bomType: true },
+    })
+    bomTypeMap = new Map(items.map((it) => [it.itemCode, it.bomType]))
+  }
+  const lines = order.lines.map((l) => ({
+    ...l,
+    bomType: !l.isBomChild && l.bomGroupKey ? (bomTypeMap.get(l.itemCode) ?? 'none') : undefined,
+  }))
+  return NextResponse.json({ order: { ...order, lines } })
 }
 
 // ---------- PUT : SỬA đơn hàng đang Open ----------
