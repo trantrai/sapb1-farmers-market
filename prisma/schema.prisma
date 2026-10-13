@@ -168,8 +168,11 @@ model DeliveryLine {
   uom        String   @default("")
   unitPrice  Float    @default(0)
   lineTotal  Float    @default(0)
+  // Liên kết dòng đơn nguồn — để tính OpenQty (đã giao bao nhiêu)
+  sourceOrderLineId String?
 
   @@index([deliveryId])
+  @@index([sourceOrderLineId])
 }
 
 model SalesOrderLine {

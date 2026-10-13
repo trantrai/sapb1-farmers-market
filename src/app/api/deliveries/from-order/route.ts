@@ -34,13 +34,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
 
-  // Copy dòng (bỏ dòng con BOM — delivery chỉ giao mặt hàng cha/hàng thường)
-  const srcLines = order.lines.filter((l) => !l.isBomChild)
-  if (srcLines.length === 0) {
-    return NextResponse.json({ error: 'Đơn hàng không có dòng nào để giao' }, { status: 400 })
+  // Tính OpenQty từng dòng: SL đặt - SL đã giao qua các delivery trước
+  // (chỉ copy dòng còn OpenQty > 0, tương ứng LineStatus = Open trên SAP)
+  const existingDeliveries = await prisma.delivery.findMany({
+    where: { sourceOrderId: order.id, status: { not: 'Cancelled' } },
+    include: { lines: { select: { sourceOrderLineId: true, quantity: true } } },
+  })
+  const deliveredByLine = new Map<string, number>()
+  for (const d of existingDeliveries) {
+    for (const dl of d.lines) {
+      if (!dl.sourceOrderLineId) continue
+      deliveredByLine.set(dl.sourceOrderLineId, (deliveredByLine.get(dl.sourceOrderLineId) ?? 0) + dl.quantity)
+    }
   }
 
-  const grandTotal = srcLines.reduce((s, l) => s + (l.lineTotal ?? l.quantity * l.unitPrice), 0)
+  // Copy dòng (bỏ dòng con BOM — delivery chỉ giao mặt hàng cha/hàng thường)
+  // Chỉ lấy dòng có OpenQty > 0
+  const srcLines = order.lines
+    .filter((l) => !l.isBomChild)
+    .map((l) => {
+      const delivered = deliveredByLine.get(l.id) ?? 0
+      const openQty = Math.round((l.quantity - delivered) * 1000) / 1000
+      return { line: l, openQty }
+    })
+    .filter((x) => x.openQty > 0)
+
+  if (srcLines.length === 0) {
+    return NextResponse.json({ error: 'Đơn hàng không còn dòng nào mở (OpenQty = 0) để giao' }, { status: 400 })
+  }
+
+  const grandTotal = srcLines.reduce((s, x) => s + (x.line.unitPrice * x.openQty), 0)
   // Cấp docNum: max+1 (retry khi trùng)
   let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
   for (let attempt = 0; attempt < 3 && !delivery; attempt++) {
@@ -58,14 +81,15 @@ export async function POST(req: NextRequest) {
       grandTotal: Math.round(grandTotal),
       createdBy: user.id,
       lines: {
-        create: srcLines.map((l, i) => ({
+        create: srcLines.map((x, i) => ({
           lineNum: i + 1,
-          itemCode: l.itemCode,
-          itemName: l.itemName,
-          quantity: l.quantity,
-          uom: l.uom || '',
-          unitPrice: l.unitPrice,
-          lineTotal: Math.round(l.lineTotal ?? l.quantity * l.unitPrice),
+          itemCode: x.line.itemCode,
+          itemName: x.line.itemName,
+          quantity: x.openQty,
+          uom: x.line.uom || '',
+          unitPrice: x.line.unitPrice,
+          lineTotal: Math.round(x.line.unitPrice * x.openQty),
+          sourceOrderLineId: x.line.id,
         })),
       },
       },

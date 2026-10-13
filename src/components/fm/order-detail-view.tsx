@@ -82,7 +82,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
 
   const doCopyDelivery = async () => {
     if (!order) return
-    if (!window.confirm(`Tạo phiếu giao hàng từ Sale Order #${order.docNum}?`)) return
+    if (!window.confirm(`Tạo phiếu giao hàng từ Sale Order #${order.docNum}?\nChỉ copy các dòng còn số lượng mở (OpenQty > 0).`)) return
     setActionBusy(true)
     setActionMsg(null)
     try {
