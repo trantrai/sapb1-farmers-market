@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { UsersRound, RefreshCw, Trash2, Search, DatabaseZap, RotateCcw } from 'lucide-react'
-import { api } from '@/lib/fm-client'
+import { api, safeJson } from '@/lib/fm-client'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
 import SyncModePicker, { fmtWatermark, type SyncMode } from './sync-mode-picker'
 import PageHeader from './page-header'
@@ -68,19 +68,19 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
       const res = await api(`/api/bpartners/sync?${sp.toString()}`)
       if (seq !== loadSeq.current) return
       if (res.status === 401) { window.location.reload(); return }
-      const json = await res.json()
+      const json: any = await safeJson(res)
       if (!res.ok) {
-        setMsg({ type: 'error', text: json.error ?? 'Không tải được danh mục khách hàng' })
+        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Máy chủ lỗi HTTP ${res.status} — kiểm tra server.log` : 'Không tải được danh mục khách hàng') })
         setRows([])
         return
       }
-      setRows(json.data ?? [])
-      setTotal(json.total ?? 0)
-      setTotalPages(json.totalPages ?? 1)
-      setPage(json.page ?? p)
-      setSt(json.status ?? null)
+      setRows(json?.data ?? [])
+      setTotal(json?.total ?? 0)
+      setTotalPages(json?.totalPages ?? 1)
+      setPage(json?.page ?? p)
+      setSt(json?.status ?? null)
       // Vào màn giữa chừng lượt đồng bộ đang chạy → tiếp tục vẽ tiến trình
-      const pr = json.status?.progress
+      const pr = json?.status?.progress
       if (pr?.running) {
         setProgress(pr)
         setBusy('sync')
@@ -103,14 +103,14 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
     try {
       const body = mode === 'auto' ? undefined : { mode }
       const res = await api('/api/bpartners/sync', { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })
-      const json = await res.json()
+      const json: any = await safeJson(res)
       if (!res.ok) {
-        setMsg({ type: 'error', text: json.error ?? 'Đồng bộ thất bại' })
+        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Máy chủ lỗi HTTP ${res.status} — kiểm tra server.log` : 'Đồng bộ thất bại') })
         setBusy(null)
         return
       }
       // 202 — tác vụ chạy nền: hiện thanh tiến trình + poll 2s/lần
-      setProgress({ running: true, phase: 'connect', message: json.message ?? 'Đã bắt đầu đồng bộ…', fetched: 0, processed: 0, total: 0, error: '', startedAt: new Date().toISOString(), finishedAt: '' })
+      setProgress({ running: true, phase: 'connect', message: json?.message ?? 'Đã bắt đầu đồng bộ…', fetched: 0, processed: 0, total: 0, error: '', startedAt: new Date().toISOString(), finishedAt: '' })
       startPolling()
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
@@ -124,9 +124,9 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
     setMsg(null)
     try {
       const res = await api('/api/bpartners/sync', { method: 'DELETE' })
-      const json = await res.json()
-      if (res.ok) setMsg({ type: 'success', text: json.message ?? 'Đã xóa dữ liệu đồng bộ.' })
-      else setMsg({ type: 'error', text: json.error ?? 'Không xóa được dữ liệu' })
+      const json: any = await safeJson(res)
+      if (res.ok) setMsg({ type: 'success', text: json?.message ?? 'Đã xóa dữ liệu đồng bộ.' })
+      else setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Máy chủ lỗi HTTP ${res.status} — kiểm tra server.log` : 'Không xóa được dữ liệu') })
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
     } finally {
