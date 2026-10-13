@@ -8,7 +8,8 @@ import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import type { EditOrderData } from './order-form-view'
 import PageHeader from './page-header'
-import * as XLSX from 'xlsx'
+import { Network } from 'lucide-react'
+import RelMapModal from './relmap-modal'
 
 interface Line {
   id: string
@@ -66,6 +67,8 @@ interface Props {
   onGoDuplicate: (data: EditOrderData) => void
   /** Mở trang chi tiết đơn */
   onGoDetail: (orderId: string) => void
+  /** Mở trang chi tiết delivery (từ Relationship Map) */
+  onGoDelivery?: (deliveryId: string) => void
   refreshKey: number
 }
 
@@ -114,7 +117,7 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
   )
 }
 
-export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplicate, onGoDetail, refreshKey }: Props) {
+export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplicate, onGoDetail, onGoDelivery, refreshKey }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -181,11 +184,13 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   }
 
   /** Xuất Excel danh sách đơn hàng theo bộ lọc hiện tại */
-  const exportExcel = () => {
+  const exportExcel = async () => {
     if (orders.length === 0) {
       setAlert({ type: 'error', msg: 'Không có đơn hàng nào để xuất' })
       return
     }
+    // B4: lazy load xlsx chỉ khi xuất
+    const XLSX = await import('xlsx')
     const statusLabel = (s: string) => (s === 'Open' ? 'Mở' : s === 'Closed' ? 'Đóng' : s === 'Cancelled' ? 'Hủy' : s)
 
     // Sheet 1: Danh sách đơn hàng
@@ -256,6 +261,20 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const canDelete = user.permissions.orders?.delete
   const canCreate = user.permissions.ordersNew?.create
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; order: Order } | null>(null)
+  const [relMapOrder, setRelMapOrder] = useState<{ id: string; docNum: number } | null>(null)
+
+  // Đóng context menu khi bấm ra ngoài hoặc cuộn
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [ctxMenu])
 
   /** Đơn này SỬA được không? — mọi đơn Open:
    *  - đơn local → sửa local (+ PATCH SAP nếu đã synced);
@@ -423,10 +442,14 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                     <tr
                       key={o.id}
                       style={{ cursor: 'pointer' }}
-                      title="Bấm để xem chi tiết"
+                      title="Bấm để xem chi tiết — Chuột phải để xem sơ đồ liên kết"
                       tabIndex={0}
                       aria-label={`Xem chi tiết đơn hàng #${o.docNum} — ${o.cardName}`}
                       onClick={() => openDetail(o)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setCtxMenu({ x: e.clientX, y: e.clientY, order: o })
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
@@ -530,6 +553,32 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
           </>
         )}
       </div>
+
+      {/* Context menu khi right-click dòng đơn */}
+      {ctxMenu && (
+        <div
+          className="fm-ctxmenu"
+          style={{ left: Math.min(ctxMenu.x, window.innerWidth - 220), top: Math.min(ctxMenu.y, window.innerHeight - 80) }}
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            role="menuitem"
+            onClick={() => { setRelMapOrder({ id: ctxMenu.order.id, docNum: ctxMenu.order.docNum }); setCtxMenu(null) }}
+          >
+            <Network size={15} /> Sơ đồ liên kết
+          </button>
+        </div>
+      )}
+
+      {/* Modal Relationship Map */}
+      <RelMapModal
+        orderId={relMapOrder?.id ?? null}
+        orderDocNum={relMapOrder?.docNum ?? null}
+        onClose={() => setRelMapOrder(null)}
+        onGoOrder={(id) => onGoDetail(id)}
+        onGoDelivery={(id) => onGoDelivery?.(id)}
+      />
 
     </div>
   )

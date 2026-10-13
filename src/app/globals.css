@@ -1407,6 +1407,21 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   @page { size: A4; margin: 15mm; }
 }
 
+/* Context menu (right-click) */
+.fm-ctxmenu {
+  position: fixed; z-index: 2000; min-width: 200px;
+  background: #fff; border: 1px solid var(--fm-line-1); border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.16); padding: 6px;
+}
+.fm-ctxmenu button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; border: 0; background: none; border-radius: 7px;
+  font-size: 14px; color: var(--fm-text-1); cursor: pointer; text-align: left;
+}
+.fm-ctxmenu button:hover { background: var(--fm-navy-soft); }
+.fm-spin { animation: fm-spin 1s linear infinite; }
+@keyframes fm-spin { to { transform: rotate(360deg); } }
+
 /* Screen-reader only: ẩn visually nhưng vẫn đọc được bằng screen reader (WCAG 4.1.2) */
 .fm-sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

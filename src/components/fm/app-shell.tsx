@@ -361,6 +361,7 @@ export default function AppShell({ user, onLogout }: Props) {
                 onGoEdit={(data) => { setEditOrder(data); go('ordersNew') }}
                 onGoDuplicate={(data) => { setEditOrder({ ...data, id: undefined }); go('ordersNew') }}
                 onGoDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
+                onGoDelivery={(id) => { setDetailDeliveryId(id); go('deliveryDetail') }}
                 refreshKey={refreshKey}
               />
             )}
