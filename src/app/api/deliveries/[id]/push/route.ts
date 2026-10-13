@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
+import { acquirePushLock, releasePushLock } from '@/lib/order-push-lock'
 import { pushDeliveryToSap } from '@/lib/sap-push-delivery'
 
 interface Ctx {
@@ -37,36 +38,48 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: 'Phiếu đã hủy — không thể đẩy sang SAP' }, { status: 400 })
   }
 
-  const result = await pushDeliveryToSap({
-    databaseId: delivery.sapDatabaseId ?? user.databaseId,
-    cardCode: delivery.cardCode,
-    docDate: delivery.docDate.toISOString(),
-    comments: delivery.remarks,
-    localId: delivery.id,
-    lines: delivery.lines.map((l) => ({
-      itemCode: l.itemCode,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-    })),
-  })
-
-  const updated = await prisma.delivery.update({
-    where: { id },
-    data: {
-      sapSyncStatus: result.status,
-      sapSyncError: result.error ?? null,
-      ...(result.status === 'synced'
-        ? { sapDocEntry: result.docEntry ?? null, sapDocNum: result.docNum ?? null, sapSyncedAt: new Date() }
-        : {}),
-    },
-    include: { lines: { orderBy: { lineNum: 'asc' } } },
-  })
-
-  if (result.status === 'synced') {
-    return NextResponse.json({ ok: true, message: `Đã đẩy sang SAP B1 — DocNum ${result.docNum ?? ''}`, delivery: updated })
+  // Khóa chống 2 lượt đẩy đồng thời tạo trùng chứng từ trên SAP
+  // (cả 2 cùng qua check sapSyncStatus + UDF lookup trước khi POST).
+  if (!acquirePushLock('delivery', id)) {
+    return NextResponse.json(
+      { error: 'Phiếu đang được đẩy sang SAP — vui lòng đợi lượt hiện tại xong rồi thử lại.' },
+      { status: 409 },
+    )
   }
-  return NextResponse.json(
-    { ok: false, error: result.error ?? 'Đẩy thất bại', delivery: updated },
-    { status: result.status === 'none' ? 400 : 502 },
-  )
+  try {
+    const result = await pushDeliveryToSap({
+      databaseId: delivery.sapDatabaseId ?? user.databaseId,
+      cardCode: delivery.cardCode,
+      docDate: delivery.docDate.toISOString(),
+      comments: delivery.remarks,
+      localId: delivery.id,
+      lines: delivery.lines.map((l) => ({
+        itemCode: l.itemCode,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+      })),
+    })
+
+    const updated = await prisma.delivery.update({
+      where: { id },
+      data: {
+        sapSyncStatus: result.status,
+        sapSyncError: result.error ?? null,
+        ...(result.status === 'synced'
+          ? { sapDocEntry: result.docEntry ?? null, sapDocNum: result.docNum ?? null, sapSyncedAt: new Date() }
+          : {}),
+      },
+      include: { lines: { orderBy: { lineNum: 'asc' } } },
+    })
+
+    if (result.status === 'synced') {
+      return NextResponse.json({ ok: true, message: `Đã đẩy sang SAP B1 — DocNum ${result.docNum ?? ''}`, delivery: updated })
+    }
+    return NextResponse.json(
+      { ok: false, error: result.error ?? 'Đẩy thất bại', delivery: updated },
+      { status: result.status === 'none' ? 400 : 502 },
+    )
+  } finally {
+    releasePushLock('delivery', id)
+  }
 }

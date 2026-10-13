@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
+import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 
 // POST /api/deliveries/from-order — tạo Delivery từ Sale Order
 export async function POST(req: NextRequest) {
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
     const byId = new Map(order.lines.map((l) => [l.id, l]))
     picked = []
     for (const reqLine of body.lines) {
+      if (!reqLine || typeof reqLine !== 'object') continue
       const lineId = String(reqLine.sourceOrderLineId ?? '').trim()
       const qty = Number(reqLine.quantity)
       if (!lineId || !Number.isFinite(qty) || qty <= 0) continue
@@ -97,42 +99,67 @@ export async function POST(req: NextRequest) {
   }
 
   const grandTotal = picked.reduce((s, x) => s + (x.line.unitPrice * x.qty), 0)
-  // Cấp docNum: max+1 (retry khi trùng)
-  let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
-  for (let attempt = 0; attempt < 3 && !delivery; attempt++) {
-    try {
-      const last = await prisma.delivery.findFirst({ orderBy: { docNum: 'desc' } })
-      const docNum = (last?.docNum ?? 0) + 1
-      delivery = await prisma.delivery.create({
-        data: {
-          docNum,
-          cardCode: order.cardCode,
-      cardName: order.cardName,
-      remarks: `Copy từ Sale Order #${order.docNum}`,
-      sourceOrderId: order.id,
-      sapDatabaseId: order.sapDatabaseId,
-      grandTotal: Math.round(grandTotal),
-      createdBy: user.id,
-      lines: {
-        create: picked.map((x, i) => ({
-          lineNum: i + 1,
-          itemCode: x.line.itemCode,
-          itemName: x.line.itemName,
-          quantity: x.qty,
-          uom: x.line.uom || '',
-          unitPrice: x.line.unitPrice,
-          lineTotal: Math.round(x.line.unitPrice * x.qty),
-          sourceOrderLineId: x.line.id,
-        })),
-      },
-      },
-      include: { lines: true },
-      })
-    } catch (e) {
-      if ((e as { code?: string })?.code !== 'P2002') throw e
-    }
-  }
-  if (!delivery) return NextResponse.json({ error: 'Không thể cấp số phiếu' }, { status: 500 })
 
-  return NextResponse.json({ ok: true, delivery }, { status: 201 })
+  // Chống bấm đúp "Copy sang Delivery": 2 request giống nhau trong 30s
+  // chỉ tạo 1 delivery — lượt trùng nhận lại kết quả của lượt đầu
+  // (kể cả khi lượt đầu chưa xong: đợi chung promise, không tạo trùng).
+  const fpLines = Array.isArray(body.lines)
+    ? body.lines
+        .map((l) => `${String(l.sourceOrderLineId ?? '').trim()}:${Number(l.quantity)}`)
+        .sort()
+        .join(',')
+    : 'auto'
+  const dedupeKey = `delivery:from-order:${user.id}:${orderId}:${fpLines}`
+
+  const run = async (): Promise<{ body: unknown; status: number }> => {
+    // Cấp docNum: max+1 (retry khi trùng)
+    let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
+    for (let attempt = 0; attempt < 3 && !delivery; attempt++) {
+      try {
+        const last = await prisma.delivery.findFirst({ orderBy: { docNum: 'desc' } })
+        const docNum = (last?.docNum ?? 0) + 1
+        delivery = await prisma.delivery.create({
+          data: {
+            docNum,
+            cardCode: order.cardCode,
+        cardName: order.cardName,
+        remarks: `Copy từ Sale Order #${order.docNum}`,
+        sourceOrderId: order.id,
+        sapDatabaseId: order.sapDatabaseId,
+        grandTotal: Math.round(grandTotal),
+        createdBy: user.id,
+        lines: {
+          create: picked.map((x, i) => ({
+            lineNum: i + 1,
+            itemCode: x.line.itemCode,
+            itemName: x.line.itemName,
+            quantity: x.qty,
+            uom: x.line.uom || '',
+            unitPrice: x.line.unitPrice,
+            lineTotal: Math.round(x.line.unitPrice * x.qty),
+            sourceOrderLineId: x.line.id,
+          })),
+        },
+        },
+        include: { lines: true },
+        })
+      } catch (e) {
+        if ((e as { code?: string })?.code !== 'P2002') throw e
+      }
+    }
+    if (!delivery) return { body: { error: 'Không thể cấp số phiếu' }, status: 500 }
+    return { body: { ok: true, delivery }, status: 201 }
+  }
+
+  // Lock per-order: 2 tab/2 request khác fingerprint không chạy song song
+  // (tránh cộng dồn vượt OpenQty). Lượt thứ 2 nhận 409.
+  if (!acquireOrderLock(orderId)) {
+    return NextResponse.json({ error: 'Đơn này đang được tạo phiếu giao hàng ở một phiên khác — vui lòng đợi' }, { status: 409 })
+  }
+  try {
+    const { result, replayed } = await dedupeRequest(dedupeKey, run)
+    return NextResponse.json(result.body, { status: replayed ? 200 : result.status })
+  } finally {
+    releaseOrderLock(orderId)
+  }
 }

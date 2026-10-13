@@ -10,6 +10,11 @@ export function useFocusTrap<T extends HTMLElement>(
   onEscape?: () => void,
 ) {
   const ref = useRef<T | null>(null)
+  // Lưu onEscape vào ref để effect không re-run khi parent truyền inline function
+  const onEscapeRef = useRef(onEscape)
+  useEffect(() => {
+    onEscapeRef.current = onEscape
+  }, [onEscape])
 
   useEffect(() => {
     if (!active) return
@@ -32,7 +37,7 @@ export function useFocusTrap<T extends HTMLElement>(
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onEscape?.()
+        onEscapeRef.current?.()
         return
       }
       if (e.key !== 'Tab') return
@@ -57,7 +62,7 @@ export function useFocusTrap<T extends HTMLElement>(
         prevFocused.focus({ preventScroll: true })
       }
     }
-  }, [active, onEscape])
+  }, [active])
 
   return ref
 }

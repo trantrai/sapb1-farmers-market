@@ -37,6 +37,10 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
   if (!user.permissions.deliveries?.delete) {
     return NextResponse.json({ error: 'Bạn không có quyền xóa phiếu giao hàng' }, { status: 403 })
   }
+  const rl = rateLimit(`delivery:delete:${user.id}`, 30, 5 * 60 * 1000)
+  if (!rl.ok) {
+    return NextResponse.json({ error: 'Thao tác quá nhanh — vui lòng thử lại sau' }, { status: 429 })
+  }
   const { id } = await ctx.params
   const delivery = await prisma.delivery.findUnique({ where: { id } })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
@@ -134,6 +138,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   const byId = new Map(delivery.lines.map((l) => [l.id, l]))
   const updates: Array<{ id: string; quantity: number; lineTotal: number }> = []
   for (const rl2 of reqLines) {
+    if (!rl2 || typeof rl2 !== 'object') {
+      return NextResponse.json({ error: 'Dòng phiếu không hợp lệ' }, { status: 400 })
+    }
     const lineId = String(rl2.id ?? '').trim()
     const qty = Number(rl2.quantity)
     const line = byId.get(lineId)

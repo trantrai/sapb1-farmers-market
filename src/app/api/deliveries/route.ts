@@ -77,9 +77,32 @@ export async function POST(req: NextRequest) {
   if (!cardCode || !cardName) {
     return NextResponse.json({ error: 'Vui lòng nhập mã và tên khách hàng' }, { status: 400 })
   }
-  const lines = (body.lines ?? []).filter((l) => l.itemCode && l.quantity > 0)
+  // Ép kiểu + validate từng dòng: quantity phải là số hữu hạn > 0,
+  // unitPrice phải là số hữu hạn (tránh string lọt vào Prisma gây 500).
+  const lines = (Array.isArray(body.lines) ? body.lines : [])
+    .map((l) => ({
+      itemCode: String(l?.itemCode ?? '').trim(),
+      itemName: String(l?.itemName ?? l?.itemCode ?? '').trim(),
+      quantity: Number(l?.quantity),
+      uom: String(l?.uom ?? ''),
+      unitPrice: Number(l?.unitPrice ?? 0),
+    }))
+    .filter(
+      (l) =>
+        l.itemCode.length > 0 &&
+        Number.isFinite(l.quantity) && l.quantity > 0 &&
+        Number.isFinite(l.unitPrice),
+    )
   if (lines.length === 0) {
     return NextResponse.json({ error: 'Phiếu giao hàng cần ít nhất 1 dòng' }, { status: 400 })
+  }
+  // docDate sai định dạng → từ chối 400 thay vì để Prisma ném 500 (Invalid Date)
+  let docDate = new Date()
+  if (body.docDate !== undefined && body.docDate !== null && String(body.docDate).trim() !== '') {
+    docDate = new Date(String(body.docDate))
+    if (isNaN(docDate.getTime())) {
+      return NextResponse.json({ error: 'Ngày chứng từ không hợp lệ' }, { status: 400 })
+    }
   }
 
   const grandTotal = lines.reduce((s, l) => s + l.quantity * (l.unitPrice ?? 0), 0)
@@ -93,7 +116,7 @@ export async function POST(req: NextRequest) {
           docNum,
           cardCode,
           cardName,
-      docDate: body.docDate ? new Date(body.docDate) : new Date(),
+      docDate,
       remarks: body.remarks?.trim() || null,
       sourceOrderId: body.sourceOrderId || null,
       sapDatabaseId: user.databaseId,

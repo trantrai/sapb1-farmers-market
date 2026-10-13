@@ -227,6 +227,8 @@ async function syncFull(s: NonNullable<Awaited<ReturnType<typeof loadSapSettings
   // B5: không ôm toàn bộ trong 1 transaction (giữ write-lock SQLite quá lâu,
   // chặn tạo đơn/login). Xóa rồi nạp từng lô 500; nếu lỗi giữa chừng,
   // lần sync sau sẽ thay mới toàn bộ lại (idempotent).
+  // Kiểm tra cancel TRƯỚC khi xóa — tránh bảng rỗng nếu user dừng giữa chừng
+  if (shouldCancel()) throw new SyncCancelled()
   await prisma.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
   // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
   for (let i = 0; i < payload.length; i += 500) {

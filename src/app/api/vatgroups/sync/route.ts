@@ -216,6 +216,8 @@ async function syncFull(s: SapCfg, syncDbId: string) {
   updateSync('vatgroups', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} nhóm thuế vào CSDL…`, total: payload.length, processed: 0 })
   // Mirror trọn vẹn: bảng local phản ánh đúng danh mục OVTG hiện tại trên SAP
   // B5: không ôm transaction dài (xem items/sync)
+  // Kiểm tra cancel TRƯỚC khi xóa — tránh bảng rỗng nếu user dừng giữa chừng
+  if (shouldCancel()) throw new SyncCancelled()
   await prisma.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
   for (let i = 0; i < payload.length; i += 500) {
     if (shouldCancel()) throw new SyncCancelled()

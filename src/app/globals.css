@@ -279,7 +279,7 @@
 .fm-logo__name { font-weight: 700; font-size: 13px; line-height: 1.25; letter-spacing: .4px; color: #fff; }
 .fm-logo__name small { display: block; font-weight: 400; font-size: 11px; color: rgba(255,255,255,.7); }
 
-.fm-menu-group { font-size: 11px; font-weight: 600; letter-spacing: .8px; color: rgba(255,255,255,.5); padding: 14px 12px 6px; }
+.fm-menu-group { font-size: 11px; font-weight: 600; letter-spacing: .8px; color: rgba(255,255,255,.65); padding: 14px 12px 6px; } /* .5 chỉ 4.1:1 → .65 đạt 5.9:1 (WCAG AA) */
 .fm-menu-item {
   padding: 9px 12px; border-radius: var(--fm-r-md);
   color: rgba(255,255,255,.85); font-size: 13.5px; cursor: pointer;
@@ -517,7 +517,7 @@
   box-shadow: 0 2px 6px rgba(254, 166, 25, .25);
   transition: background .15s, transform .15s, box-shadow .15s;
 }
-.fm-btn--primary:hover:not(:disabled) { background: var(--fm-primary-hover); color: #5C4300; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(242, 183, 5, .35); }
+.fm-btn--primary:hover:not(:disabled) { background: var(--fm-primary-hover); color: #4A3600; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(242, 183, 5, .35); } /* #5C4300 trên #D9A406 chỉ 4.1:1 → #4A3600 đạt 5.1:1 */
 .fm-btn--primary:active:not(:disabled) { transform: translateY(0); box-shadow: inset 0 2px 4px rgba(0,0,0,.15); }
 
 /* Secondary: nền var(--fm-navy-soft), chữ on-surface — theo spec Stitch */
@@ -881,7 +881,7 @@
 .fm-atp--low  { background: var(--fm-red-soft);   color: var(--fm-red-text); }
 .fm-atp--warn { background: var(--fm-yellow-soft); color: var(--fm-primary-text); }
 .fm-atp-recheck { border: none; background: transparent; cursor: pointer; color: var(--fm-text-3); padding: 3px; border-radius: var(--fm-r-sm); display: inline-flex; align-items: center; }
-.fm-atp-recheck:hover { color: var(--fm-primary); background: #F5F5F5; }
+.fm-atp-recheck:hover { color: var(--fm-primary-text); background: #F5F5F5; } /* gold #F2B705 trên nền sáng chỉ 1.7:1 → dùng vàng đậm #7A5C00 đạt 5.7:1 */
 .fm-atp-recheck:disabled { opacity: .5; cursor: wait; }
 
 /* ===== Màn hình Service Layer Audit ===== */

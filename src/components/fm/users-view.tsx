@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRound, X } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import { useFocusTrap } from './use-focus-trap'
 
 interface UserRow {
   id: string
@@ -349,17 +350,8 @@ function UserModal({  mode,
   const [role, setRole] = useState(initial?.role ?? (roles[0]?.name ?? 'NhanVien'))
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
-  const modalRef = useRef<HTMLDivElement>(null)
-
-  // Đóng modal bằng Escape + đưa focus vào modal khi mở
-  useEffect(() => {
-    modalRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Focus trap + Escape đóng + trả focus về nút đã mở (chuẩn chung, thay handler Escape tự viết)
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
 
   const submit = async () => {
     setErr('')
@@ -395,7 +387,7 @@ function UserModal({  mode,
 
   return (
     <div className="fm-backdrop" onClick={onClose}>
-      <div ref={modalRef} tabIndex={-1} className="fm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}>
+      <div ref={trapRef} className="fm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <h3 className="fm-modal__title">
             {mode === 'create' ? 'Thêm người dùng mới' : `Sửa người dùng @${initial?.username}`}
