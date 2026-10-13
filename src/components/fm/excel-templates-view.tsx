@@ -41,6 +41,19 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   const [showForm, setShowForm] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<ExcelTemplate | null>(null)
 
+  // Đóng dialog bằng Escape
+  useEffect(() => {
+    if (!showForm && !confirmDelete) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowForm(false)
+        setConfirmDelete(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showForm, confirmDelete])
+
   // Form state
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
@@ -277,13 +290,13 @@ export default function ExcelTemplatesView({ onBack }: Props) {
 
       {/* Form thêm/sửa */}
       {showForm && (
-        <div className="fm-modal" role="dialog" aria-modal="true" aria-label={editing ? 'Sửa template' : 'Thêm template'}>
-          <div className="fm-modal__box" style={{ maxWidth: 640 }}>
-            <div className="fm-modal__head">
-              <b>{editing ? 'Sửa template' : 'Thêm template mới'}</b>
+        <div className="fm-backdrop" onClick={() => setShowForm(false)}>
+          <div className="fm-modal fm-modal--wide" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editing ? 'Sửa template' : 'Thêm template'}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <b style={{ fontSize: 17 }}>{editing ? 'Sửa template' : 'Thêm template mới'}</b>
               <button className="fm-icon-btn" onClick={() => setShowForm(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
-            <div className="fm-modal__body">
+            <div>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="et-name">Tên template *</label>
                 <input id="et-name" className="fm-input" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="VD: Template nhập hàng" />
@@ -342,7 +355,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
                 <Plus size={13} /> Thêm cột
               </button>
             </div>
-            <div className="fm-modal__foot">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="fm-btn fm-btn--secondary" onClick={() => setShowForm(false)}>Hủy</button>
               <button className="fm-btn fm-btn--primary" onClick={saveTemplate}>
                 <Save size={14} /> Lưu template
@@ -354,16 +367,16 @@ export default function ExcelTemplatesView({ onBack }: Props) {
 
       {/* Xác nhận xóa */}
       {confirmDelete && (
-        <div className="fm-modal" role="dialog" aria-modal="true" aria-label="Xác nhận xóa">
-          <div className="fm-modal__box" style={{ maxWidth: 420 }}>
-            <div className="fm-modal__head">
-              <b>Xác nhận xóa</b>
+        <div className="fm-backdrop" onClick={() => setConfirmDelete(null)}>
+          <div className="fm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Xác nhận xóa">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <b style={{ fontSize: 16 }}>Xác nhận xóa</b>
               <button className="fm-icon-btn" onClick={() => setConfirmDelete(null)} aria-label="Đóng"><X size={16} /></button>
             </div>
-            <div className="fm-modal__body">
+            <div>
               <p>Bạn có chắc muốn xóa template <b>"{confirmDelete.name}"</b>?</p>
             </div>
-            <div className="fm-modal__foot">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="fm-btn fm-btn--secondary" onClick={() => setConfirmDelete(null)}>Hủy</button>
               <button className="fm-btn fm-btn--danger" onClick={deleteTemplate}>
                 <Trash2 size={14} /> Xóa

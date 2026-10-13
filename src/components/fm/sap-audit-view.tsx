@@ -270,12 +270,12 @@ export default function SapAuditView() {
 
       {/* Xác nhận Retry — z-index 75: trên bottom tab bar (65), ngang hàng modal thường */}
       {confirmRetry && (
-        <div className="fm-drawer-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmRetry(null)}>
+        <div className="fm-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmRetry(null)}>
           <div
             ref={retryModalRef}
             tabIndex={-1}
-            className="fm-card"
-            style={{ maxWidth: 460, margin: '10vh auto 0', position: 'relative', zIndex: 76, cursor: 'default' }}
+            className="fm-modal"
+            style={{ maxWidth: 460 }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -312,12 +312,12 @@ export default function SapAuditView() {
 
       {/* Xác nhận Xóa log — dùng cùng pattern modal như Retry (không dùng window.confirm) */}
       {confirmClear && (
-        <div className="fm-drawer-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmClear(false)}>
+        <div className="fm-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmClear(false)}>
           <div
             ref={clearModalRef}
             tabIndex={-1}
-            className="fm-card"
-            style={{ maxWidth: 460, margin: '10vh auto 0', position: 'relative', zIndex: 76, cursor: 'default' }}
+            className="fm-modal"
+            style={{ maxWidth: 460 }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
