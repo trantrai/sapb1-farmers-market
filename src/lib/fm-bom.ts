@@ -1,6 +1,6 @@
 // ============================================================
 // BOM — ĐỊNH MỨC NGUYÊN VẬT LIỆU (SAP B1 ProductTrees / OITT)
-// - loadProductTrees: tải BOM Template + Production từ Service Layer
+// - loadProductTrees: tải BOM Template + Production + Assembly từ Service Layer
 // - normalizeTree: chuẩn hóa số lượng con cho 1 ĐƠN VỊ cha
 // - getBomDefinition: đọc công thức BOM từ mirror local (theo database)
 // - recalcChildQty: quy đổi số lượng con theo công thức khi đổi SL cha
@@ -11,14 +11,15 @@ import { db as prisma } from './db'
 import { numv } from './fm-items'
 
 /** Loại BOM mà app hỗ trợ (ánh xạ từ ProductTrees.TreeType của SAP B1) */
-export type BomType = 'none' | 'template' | 'production'
-export const BOM_TYPES: BomType[] = ['template', 'production']
+export type BomType = 'none' | 'template' | 'production' | 'assembly'
+export const BOM_TYPES: BomType[] = ['template', 'production', 'assembly']
 
 /** Nhãn tiếng Việt cho từng loại BOM */
 export const BOM_LABEL: Record<BomType, string> = {
   none: 'Hàng thường',
   template: 'BOM Template',
   production: 'BOM Production',
+  assembly: 'BOM Assembly',
 }
 
 interface B1ProductTreeLine {
@@ -37,11 +38,12 @@ interface B1ProductTree {
   ProductTreeLines?: B1ProductTreeLine[] | { results?: B1ProductTreeLine[] }
 }
 
-/** Ánh xạ TreeType SAP → BomType của app (chỉ Template + Production) */
+/** Ánh xạ TreeType SAP → BomType của app (Template + Production + Assembly) */
 export function mapTreeType(t: unknown): BomType {
   const v = String(t ?? '').trim()
   if (v === 'iTemplateTree') return 'template'
   if (v === 'iProductionTree') return 'production'
+  if (v === 'iAssemblyTree') return 'assembly'
   return 'none'
 }
 
@@ -61,7 +63,7 @@ export interface BomDefinition {
 }
 
 /**
- * Tải toàn bộ BOM Template + Production từ Service Layer.
+ * Tải toàn bộ BOM Template + Production + Assembly từ Service Layer.
  * Lấy nguyên văn /ProductTrees (bảng OITT thường nhỏ) rồi lọc TreeType tại chỗ
  * — tránh $filter phức tạp mà nhiều bản SL từ chối.
  */
@@ -92,7 +94,7 @@ const asLineArray = (v: B1ProductTree['ProductTreeLines']): B1ProductTreeLine[] 
 
 /**
  * Chuẩn hóa 1 cây BOM → định mức cho 1 đơn vị cha.
- * Trả null khi không phải Template/Production hoặc không có thành phần hợp lệ.
+ * Trả null khi không phải Template/Production/Assembly hoặc không có thành phần hợp lệ.
  */
 export function normalizeTree(t: B1ProductTree): BomDefinition | null {
   const bomType = mapTreeType(t.TreeType)
@@ -132,7 +134,7 @@ export async function getBomDefinition(
     where: { ...dbScope, itemCode: parentItemCode },
     select: { bomType: true },
   })
-  const bomType = (item?.bomType === 'template' || item?.bomType === 'production' ? item.bomType : 'none') as BomType
+  const bomType = (item?.bomType === 'template' || item?.bomType === 'production' || item?.bomType === 'assembly' ? item.bomType : 'none') as BomType
   if (bomType === 'none') return null
   const rows = await prisma.bomComponent.findMany({
     where: { ...dbScope, parentItemCode },

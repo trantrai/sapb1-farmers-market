@@ -52,13 +52,13 @@ export async function normalizeBomLines<T extends BomLineInput>(
           error: `Thành phần ${child.itemCode} không thuộc công thức BOM của ${g.parent.itemCode}`,
         }
       }
-      if (def.bomType === 'production') {
-        // Production: số lượng con khóa theo công thức — không cho sửa
+      if (def.bomType === 'production' || def.bomType === 'assembly') {
+        // Production/Assembly: số lượng con khóa theo công thức — không cho sửa
         const expected = recalcChildQty(g.parent.quantity, comp.qtyPerParent)
         if (Math.abs(Number(child.quantity) - expected) > 0.001) {
           return {
             lines: [],
-            error: `Số lượng ${child.itemCode} phải theo công thức BOM Production (${expected}) — không được sửa tay`,
+            error: `Số lượng ${child.itemCode} phải theo công thức BOM ${def.bomType === 'assembly' ? 'Assembly' : 'Production'} (${expected}) — không được sửa tay`,
           }
         }
         child.bomEditable = false

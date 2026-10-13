@@ -287,7 +287,7 @@ async function syncIncremental(
 }
 
 /**
- * Mirror BOM: tải ProductTrees (Template + Production) từ SAP B1 và thay mới
+ * Mirror BOM: tải ProductTrees (Template + Production + Assembly) từ SAP B1 và thay mới
  * toàn bộ công thức của DB. Chạy trong cả 2 chế độ (toàn phần + gia tăng) vì
  * thêm/sửa công thức trên SAP có thể không làm đổi UpdateDate của mặt hàng cha.
  */

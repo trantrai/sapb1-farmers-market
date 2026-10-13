@@ -6,7 +6,7 @@ import { getBomDefinition } from '@/lib/fm-bom'
 // ============================================================
 // GET /api/bom?parentItemCode=XXX — công thức BOM của 1 mặt hàng cha
 // (đọc từ mirror local, đúng database của phiên đăng nhập).
-// Trả { bomType: 'none' } khi mặt hàng không phải BOM Template/Production.
+// Trả { bomType: 'none' } khi mặt hàng không phải BOM Template/Production/Assembly.
 // Form tạo đơn dùng để tự bung thành phần con khi chọn mặt hàng BOM.
 // ============================================================
 export async function GET(req: NextRequest) {

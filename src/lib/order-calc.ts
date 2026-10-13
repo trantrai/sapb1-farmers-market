@@ -19,7 +19,7 @@ export interface OrderLineInput {
   isBomChild?: boolean
   /** Khóa nhóm BOM: dòng cha và các dòng con cùng nhóm */
   bomGroupKey?: string | null
-  /** Cho phép sửa số lượng con (BOM Template) hay không (BOM Production) */
+  /** Cho phép sửa số lượng con (BOM Template) hay không (BOM Production/Assembly) */
   bomEditable?: boolean
   /** Định mức: số lượng con cho 1 đơn vị cha (dòng con BOM) */
   bomQtyPerParent?: number | null

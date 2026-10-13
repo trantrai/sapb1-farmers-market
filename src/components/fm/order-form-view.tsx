@@ -28,13 +28,13 @@ interface DraftLine {
   dbId?: string
   sapLineNum?: number
   // ---------- BOM ----------
-  /** Loại BOM của dòng cha: 'template' | 'production' (undefined = hàng thường) */
-  bomType?: 'template' | 'production'
+  /** Loại BOM của dòng cha: 'template' | 'production' | 'assembly' (undefined = hàng thường) */
+  bomType?: 'template' | 'production' | 'assembly'
   /** true = dòng thành phần con của mặt hàng BOM */
   isBomChild?: boolean
   /** Khóa nhóm BOM: dòng cha và các dòng con cùng nhóm */
   bomGroupKey?: string
-  /** Dòng con có được sửa số lượng không (template: có, production: không) */
+  /** Dòng con có được sửa số lượng không (template: có, production/assembly: không) */
   bomEditable?: boolean
   /** Định mức: số lượng con cho 1 đơn vị cha (dòng con) */
   bomQtyPerParent?: number
@@ -612,7 +612,7 @@ export default function OrderFormView({
       bomEditable: l.bomEditable ?? true,
       bomQtyPerParent: l.bomQtyPerParent ?? undefined,
     }))
-    // Suy loại BOM của dòng cha từ dòng con (production → con khóa SL)
+    // Suy loại BOM của dòng cha từ dòng con (production/assembly → con khóa SL)
     for (const pl of prefilled) {
       if (pl.isBomChild || !pl.bomGroupKey) continue
       const kids = prefilled.filter((k) => k.isBomChild && k.bomGroupKey === pl.bomGroupKey)
@@ -727,7 +727,7 @@ export default function OrderFormView({
       const withoutOld = parent.bomGroupKey
         ? ls.filter((l) => l.key === parentKey || l.bomGroupKey !== parent.bomGroupKey)
         : ls
-      const isBom = def?.bomType === 'template' || def?.bomType === 'production'
+      const isBom = def?.bomType === 'template' || def?.bomType === 'production' || def?.bomType === 'assembly'
       const groupKey = `bom_${parentKey}`
       const parentQty = Number(parent.quantity) || 0
       const children: DraftLine[] = isBom
@@ -751,7 +751,7 @@ export default function OrderFormView({
       next.splice(idx + 1, 0, ...children)
       next[idx] = {
         ...next[idx],
-        bomType: isBom ? (def!.bomType as 'template' | 'production') : undefined,
+        bomType: isBom ? (def!.bomType as 'template' | 'production' | 'assembly') : undefined,
         bomGroupKey: isBom ? groupKey : undefined,
       }
       newChildren = children.map((ch) => ({ key: ch.key, code: ch.item!.code, wh: ch.warehouseCode }))
@@ -1207,7 +1207,7 @@ export default function OrderFormView({
                         className="fm-line-input"
                         value={l.quantity || ''}
                         disabled={l.isBomChild && l.bomEditable === false}
-                        title={l.isBomChild && l.bomEditable === false ? 'BOM Production: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
+                        title={l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
                     </td>
