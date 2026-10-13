@@ -37,7 +37,7 @@ interface Delivery {
   sapDocNum?: number | null
   sapSyncStatus?: string
   sapSyncError?: string | null
-  sourceOrder?: { id: string; docNum: number; cardCode: string; cardName: string; status: string } | null
+  sourceOrder?: { id: string; docNum: number; docDate: string; cardCode: string; cardName: string; status: string } | null
   lines: DeliveryLine[]
 }
 
@@ -272,7 +272,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
       kind: 'order',
       id: delivery.sourceOrder.id,
       docNum: delivery.sourceOrder.docNum,
-      docDate: delivery.docDate,
+      docDate: delivery.sourceOrder.docDate,
       // Trạng thái thật của đơn nguồn (API include sourceOrder.status), không hardcode 'Open'
       status: delivery.sourceOrder.status ?? 'Open',
     })

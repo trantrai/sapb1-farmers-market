@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     where: { id },
     include: {
       lines: { orderBy: { lineNum: 'asc' } },
-      sourceOrder: { select: { id: true, docNum: true, cardCode: true, cardName: true, status: true } },
+      sourceOrder: { select: { id: true, docNum: true, docDate: true, cardCode: true, cardName: true, status: true } },
     },
   })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
