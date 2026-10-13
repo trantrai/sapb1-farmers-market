@@ -44,15 +44,12 @@ export const updateDateStr = (v: unknown): string => {
 export const dtLit = (date: string): string => `datetime'${date}T00:00:00'`
 
 /**
- * Literal Edm.Time cho $filter: số nguyên HHMMSS (vd 143025) → 'PT14H30M25S'.
- * SAP B1 từ chối dạng số thô (vd '0') với lỗi "invalid time format".
+ * Literal Edm.TimeOfDay cho $filter: số nguyên HHMMSS (vd 143025) → '14:30:25'.
+ * (Không dùng format PT... vì đó là Edm.Duration — SAP báo "Property invalid".)
  */
 export const timeLit = (hhmmss: number): string => {
   const t = String(Math.max(0, Math.trunc(hhmmss) || 0)).padStart(6, '0')
-  const h = t.slice(0, 2)
-  const m = t.slice(2, 4)
-  const s = t.slice(4, 6)
-  return `PT${h}H${m}M${s}S`
+  return `'${t.slice(0, 2)}:${t.slice(2, 4)}:${t.slice(4, 6)}'`
 }
 
 /**
