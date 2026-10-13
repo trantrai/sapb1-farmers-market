@@ -10,6 +10,7 @@ import { sapGet, sapGetAll } from './sap-service-layer'
 import { numv, type SapSessConfig, cacheKey } from './fm-items'
 import { pickEffectiveVatRate, type B1VatLineRow } from './fm-shared'
 import type { ProgressCb } from './fm-sync-progress'
+import { deltaFilters, updateDateStr, updateTimeNum, type DeltaWatermark } from './fm-sync-delta'
 
 export type { B1VatLineRow }
 
@@ -29,6 +30,10 @@ export interface B1VatGroupRow {
   Name?: string
   Rate?: number | string // chỉ có ở bản SL cũ/mock — SL thật không trả
   VatGroups_Lines?: B1VatLineRow[] | null // mảng con VTG1 KÈM SẴN trong response (SL thật)
+  /** Mốc thay đổi của SAP B1 — dùng cho đồng bộ gia tăng (delta sync) */
+  UpdateDate?: string
+  /** Số nguyên HHMMSS, vd 143025 = 14:30:25 */
+  UpdateTime?: number | string
 }
 
 export interface VatGroupRowData {
@@ -66,6 +71,16 @@ export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): 
   }
   onProgress?.({ phase: 'fetch', message: `Đã nhận ${groups.length} mã nhóm thuế — đang lấy lịch sử suất thuế…`, fetched: groups.length })
 
+  const rows = await resolveVatGroupRows(s, groups)
+  rows.sort((a, b) => (a.code === b.code ? (a.category < b.category ? -1 : 1) : a.code < b.code ? -1 : 1))
+  vatCache.set(vgKey, { ts: Date.now(), rows })
+  return { rows }
+}
+
+// ---------- Giải thuế suất hiệu lực cho các dòng OVTG thô ----------
+// Gom dòng suất VTG1 (mảng con inline + 2 tầng dự phòng) rồi chọn suất hiệu
+// lực hôm nay cho từng (Category, Code). Dùng chung cho toàn phần và delta.
+async function resolveVatGroupRows(s: SapSessConfig, groups: B1VatGroupRow[]): Promise<VatGroupRowData[]> {
   // Gom dòng suất theo khóa "Category|Code" (dòng có Category) hoặc "|Code" (không có)
   const byKey = new Map<string, B1VatLineRow[]>()
   const pushLine = (l: B1VatLineRow, codeOverride?: string) => {
@@ -134,9 +149,17 @@ export async function loadVatGroups(s: SapSessConfig, onProgress?: ProgressCb): 
       ?? (v.Rate != null ? numv(v.Rate) : null)
     rows.push({ code: v.Code, category: normCat, name: (v.Name ?? '').toString(), rate })
   }
-  rows.sort((a, b) => (a.code === b.code ? (a.category < b.category ? -1 : 1) : a.code < b.code ? -1 : 1))
-  vatCache.set(vgKey, { ts: Date.now(), rows })
-  return { rows }
+  return rows
+}
+
+/** Lấy các dòng OVTG THÔ (kèm UpdateDate/UpdateTime) — dùng để tính mốc
+ *  watermark sau lượt đồng bộ toàn phần (loadVatGroups chỉ trả dữ liệu đã giải). */
+export async function loadVatGroupsRaw(s: SapSessConfig): Promise<B1VatGroupRow[]> {
+  const r = await sapGetAll<B1VatGroupRow>(s, '/VatGroups', { $orderby: 'Code' })
+  if (r.ok && r.data) return r.data
+  const g2 = await sapGet<{ value?: B1VatGroupRow[] }>(s, '/VatGroups', {})
+  if (g2.ok && g2.data) return g2.data.value ?? []
+  return []
 }
 
 // ---------- ② KHÁCH HÀNG (/BusinessPartners, CardType 'C' = Customer) ----------
@@ -168,6 +191,10 @@ export interface B1Partner {
     ZipCode?: string
     Country?: string
   }>
+  /** Mốc thay đổi của SAP B1 — dùng cho đồng bộ gia tăng (delta sync) */
+  UpdateDate?: string
+  /** Số nguyên HHMMSS, vd 143025 = 14:30:25 */
+  UpdateTime?: number | string
 }
 
 const bpCache = new Map<string, { ts: number; rows: B1Partner[] }>()
@@ -185,7 +212,7 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
   // ① Lọc ngay trên SL: CardType eq 'C' (điều kiện and-only, an toàn mọi bản SL)
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục khách hàng (/BusinessPartners) từ SAP B1…' })
   const r1 = await sapGetAll<B1Partner>(s, '/BusinessPartners', {
-    $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses',
+    $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses,UpdateDate,UpdateTime',
     $filter: `CardType eq 'C'`,
     $orderby: 'CardCode',
   })
@@ -206,4 +233,86 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb): 
   // Cache cũ vẫn dùng được → dùng tạm thay vì báo lỗi (SL có thể đang gián đoạn)
   if (hit) return { rows: hit.rows }
   return { rows: [], error: r1.error ?? r2.error ?? 'Lỗi Service Layer' }
+}
+
+// ---------- ĐỒNG BỘ GIA TĂNG: chỉ tải khách hàng thay đổi kể từ mốc (D, T) ----------
+// Chạy 2 query and-only (tránh `or`/ngoặc trong $filter — an toàn mọi bản SL),
+// gộp rồi khử trùng theo CardCode tại chỗ. Chỉ nên gọi khi đã có watermark;
+// lần đầu (chưa có mốc) hãy dùng loadCustomers (toàn phần).
+export async function loadCustomersDelta(
+  s: SapSessConfig,
+  wm: DeltaWatermark,
+  onProgress?: ProgressCb,
+): Promise<{ rows: B1Partner[]; error?: string }> {
+  const [f1, f2] = deltaFilters(`CardType eq 'C'`, wm)
+  const select = 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses,UpdateDate,UpdateTime'
+  onProgress?.({
+    phase: 'fetch',
+    message: `Đang lấy khách hàng thay đổi từ ${wm.date} (giờ SAP)…`,
+  })
+  const [r1, r2] = await Promise.all([
+    sapGetAll<B1Partner>(s, '/BusinessPartners', { $select: select, $filter: f1, $orderby: 'CardCode' }),
+    sapGetAll<B1Partner>(s, '/BusinessPartners', { $select: select, $filter: f2, $orderby: 'CardCode' }),
+  ])
+  if (!r1.ok || !r1.data) return { rows: [], error: r1.error ?? 'Lỗi Service Layer' }
+  if (!r2.ok || !r2.data) return { rows: [], error: r2.error ?? 'Lỗi Service Layer' }
+  // Khử trùng theo CardCode (2 query có thể giao nhau ở biên)
+  const byCode = new Map<string, B1Partner>()
+  for (const p of [...r1.data, ...r2.data]) {
+    if (p?.CardCode) byCode.set(p.CardCode, p)
+  }
+  const rows = [...byCode.values()]
+  onProgress?.({
+    phase: 'fetch',
+    message: `Đã nhận ${rows.length.toLocaleString('vi-VN')} khách hàng thay đổi từ SAP B1…`,
+    fetched: rows.length,
+  })
+  return { rows }
+}
+
+/**
+ * Trộn các dòng delta vào cache khách hàng hiện có (upsert theo CardCode) —
+ * giữ cache ấm sau lượt sync gia tăng mà không phải tải lại toàn bộ.
+ * Không có cache thì thôi (lần đọc sau sẽ tải đầy + cache).
+ */
+export function mergeCustomersCache(s: SapSessConfig, delta: B1Partner[]): void {
+  const key = cacheKey(s)
+  const hit = bpCache.get(key)
+  if (!hit) return
+  const byCode = new Map(hit.rows.map((r) => [r.CardCode, r]))
+  for (const d of delta) {
+    if (d?.CardCode) byCode.set(d.CardCode, d)
+  }
+  bpCache.set(key, { ts: Date.now(), rows: [...byCode.values()] })
+}
+
+// ---------- ĐỒNG BỘ GIA TĂNG nhóm thuế: /VatGroups rất ít dòng → ----------
+// tải toàn bộ nhóm, lọc tại chỗ các dòng thay đổi theo mốc (D, T),
+// rồi giải thuế suất hiệu lực cho đúng các dòng đó. Trả về VatGroupRowData
+// (đã có rate) để caller upsert thẳng vào mirror.
+export async function loadVatGroupsDelta(
+  s: SapSessConfig,
+  wm: DeltaWatermark,
+  onProgress?: ProgressCb,
+): Promise<{ rows: VatGroupRowData[]; changedRaw: B1VatGroupRow[]; error?: string }> {
+  onProgress?.({
+    phase: 'fetch',
+    message: `Đang lấy nhóm thuế thay đổi từ ${wm.date} (giờ SAP)…`,
+  })
+  const r = await sapGetAll<B1VatGroupRow>(s, '/VatGroups', { $orderby: 'Code' })
+  if (!r.ok || !r.data) return { rows: [], changedRaw: [], error: r.error ?? 'Lỗi Service Layer' }
+  const changedRaw = r.data.filter((v) => {
+    const d = updateDateStr(v.UpdateDate)
+    if (!d) return false
+    if (d > wm.date) return true
+    return d === wm.date && updateTimeNum(v.UpdateTime) > wm.time
+  })
+  const rows = changedRaw.length > 0 ? await resolveVatGroupRows(s, changedRaw) : []
+  rows.sort((a, b) => (a.code === b.code ? (a.category < b.category ? -1 : 1) : a.code < b.code ? -1 : 1))
+  onProgress?.({
+    phase: 'fetch',
+    message: `Đã nhận ${rows.length} nhóm thuế thay đổi từ SAP B1…`,
+    fetched: rows.length,
+  })
+  return { rows, changedRaw }
 }

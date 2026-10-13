@@ -9,6 +9,7 @@
 import { sapGet, sapGetAll } from './sap-service-layer'
 import { pickEffectiveVatRate, type B1VatLineRow } from './fm-shared'
 import type { ProgressCb } from './fm-sync-progress'
+import { deltaFilters, type DeltaWatermark } from './fm-sync-delta'
 
 export interface B1ItemPrice {
   PriceList: number | string
@@ -26,6 +27,10 @@ export interface B1Item {
   /** 'tYES'/'tNO' — chỉ có ở bản SL trả đủ trường (fallback không $select) */
   SalesItem?: string
   ItemPrices?: B1ItemPrice[]
+  /** Mốc thay đổi của SAP B1 — dùng cho đồng bộ gia tăng (delta sync) */
+  UpdateDate?: string
+  /** Số nguyên HHMMSS, vd 143025 = 14:30:25 */
+  UpdateTime?: number | string
 }
 
 import type { SapConfig } from './sap-service-layer'
@@ -67,7 +72,7 @@ export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb):
   //    + $select gọn (đã chạy tốt trên /Items ở các bản SL thật).
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục mặt hàng (/Items) từ SAP B1…' })
   const r1 = await sapGetAll<B1Item>(s, '/Items', {
-    $select: 'ItemCode,ItemName,InventoryUOM,SalesUnit,BarCode,SalesVATGroup,ItemPrices',
+    $select: 'ItemCode,ItemName,InventoryUOM,SalesUnit,BarCode,SalesVATGroup,ItemPrices,UpdateDate,UpdateTime',
     $filter: `SalesItem eq 'tYES'`,
     $orderby: 'ItemCode',
   })
@@ -86,6 +91,57 @@ export async function loadSalesItems(s: SapSessConfig, onProgress?: ProgressCb):
     return { rows }
   }
   return { rows: [], error: r1.error ?? r2.error ?? 'Lỗi Service Layer' }
+}
+
+// ---------- ĐỒNG BỘ GIA TĂNG: chỉ tải mặt hàng thay đổi kể từ mốc (D, T) ----------
+// Chạy 2 query and-only (tránh `or`/ngoặc trong $filter — an toàn mọi bản SL),
+// gộp rồi khử trùng theo ItemCode tại chỗ. Chỉ nên gọi khi đã có watermark;
+// lần đầu (chưa có mốc) hãy dùng loadSalesItems (toàn phần).
+export async function loadSalesItemsDelta(
+  s: SapSessConfig,
+  wm: DeltaWatermark,
+  onProgress?: ProgressCb,
+): Promise<{ rows: B1Item[]; error?: string }> {
+  const [f1, f2] = deltaFilters(`SalesItem eq 'tYES'`, wm)
+  const select = 'ItemCode,ItemName,InventoryUOM,SalesUnit,BarCode,SalesVATGroup,ItemPrices,UpdateDate,UpdateTime'
+  onProgress?.({
+    phase: 'fetch',
+    message: `Đang lấy mặt hàng thay đổi từ ${wm.date} (giờ SAP)…`,
+  })
+  const [r1, r2] = await Promise.all([
+    sapGetAll<B1Item>(s, '/Items', { $select: select, $filter: f1, $orderby: 'ItemCode' }),
+    sapGetAll<B1Item>(s, '/Items', { $select: select, $filter: f2, $orderby: 'ItemCode' }),
+  ])
+  if (!r1.ok || !r1.data) return { rows: [], error: r1.error ?? 'Lỗi Service Layer' }
+  if (!r2.ok || !r2.data) return { rows: [], error: r2.error ?? 'Lỗi Service Layer' }
+  // Khử trùng theo ItemCode (2 query có thể giao nhau ở biên)
+  const byCode = new Map<string, B1Item>()
+  for (const it of [...r1.data, ...r2.data]) {
+    if (it?.ItemCode) byCode.set(it.ItemCode, it)
+  }
+  const rows = [...byCode.values()]
+  onProgress?.({
+    phase: 'fetch',
+    message: `Đã nhận ${rows.length.toLocaleString('vi-VN')} mặt hàng thay đổi từ SAP B1…`,
+    fetched: rows.length,
+  })
+  return { rows }
+}
+
+/**
+ * Trộn các dòng delta vào cache mặt hàng hiện có (upsert theo ItemCode) —
+ * giữ cache autocomplete ấm sau lượt sync gia tăng mà không phải tải lại
+ * toàn bộ danh mục. Không có cache thì thôi (lần đọc sau sẽ tải đầy + cache).
+ */
+export function mergeItemsCache(s: SapSessConfig, delta: B1Item[]): void {
+  const key = cacheKey(s)
+  const hit = itemsCache.get(key)
+  if (!hit) return
+  const byCode = new Map(hit.rows.map((r) => [r.ItemCode, r]))
+  for (const d of delta) {
+    if (d?.ItemCode) byCode.set(d.ItemCode, d)
+  }
+  itemsCache.set(key, { ts: Date.now(), rows: [...byCode.values()] })
 }
 
 // ---------- Map mã nhóm thuế → thuế suất % (từ /VatGroups, cache 5 phút, theo DB) ----------

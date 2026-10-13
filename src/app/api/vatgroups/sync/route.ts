@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { loadVatGroups, clearVatGroupsCache } from '@/lib/fm-master'
+import { loadVatGroups, loadVatGroupsDelta, clearVatGroupsCache } from '@/lib/fm-master'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
+import {
+  getWatermark, setWatermark, clearWatermark, watermarkInfo, advanceWatermark,
+  type DeltaWatermark,
+} from '@/lib/fm-sync-delta'
 
 // ============================================================
 // ĐỒNG BỘ NHÓM THUẾ (Sale VAT Group) — mirror danh mục /VatGroups
@@ -102,12 +106,19 @@ export async function GET(req: NextRequest) {
       purchaseCount,
       missingRateCount,
       lastSyncAt: await lastSyncAt(dbIdTop),
+      watermark: await watermarkInfo(dbIdTop, 'vatgroups'),
       progress: getProgress('vatgroups'),
     },
   })
 }
 
-// ---------- POST: đồng bộ ngay từ SAP B1 (CHẠY NỀN — trả 202 + progress qua GET) ----------
+// ---------- POST: đồng bộ từ SAP B1 (CHẠY NỀN — trả 202 + progress qua GET) ----------
+// Body JSON: { mode?: 'incremental' | 'full' }
+//  · 'incremental' — chỉ tải nhóm thuế thay đổi kể từ mốc (UpdateDate, UpdateTime)
+//    đã lưu, upsert vào mirror (mặc định khi đã có mốc).
+//  · 'full' — tải toàn bộ nhóm thuế, thay mới mirror (mặc định khi chưa có mốc).
+// LƯU Ý: gia tăng không phát hiện bản ghi BỊ XÓA trên SAP — nên chạy toàn phần
+// định kỳ để mirror khớp hẳn danh mục SAP.
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -128,39 +139,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Một lượt đồng bộ khác đang chạy — hãy đợi xong rồi thử lại.' }, { status: 409 })
   }
 
+  let bodyMode: string | undefined
+  try {
+    bodyMode = (await req.json())?.mode
+  } catch { /* không có body */ }
+  const wm0 = await getWatermark(syncDbId, 'vatgroups')
+  const mode: 'full' | 'incremental' =
+    bodyMode === 'full' ? 'full'
+    : bodyMode === 'incremental' ? (wm0 ? 'incremental' : 'full')
+    : wm0 ? 'incremental' : 'full'
+
   void (async () => {
     try {
-      const { rows, error } = await loadVatGroups(s, (p) => updateSync('vatgroups', p))
-      if ((error && rows.length === 0) || rows.length === 0) {
-        throw new Error(`Không tải được nhóm thuế từ SAP B1: ${error ?? '/VatGroups trả danh sách rỗng'}`)
+      if (mode === 'incremental' && wm0) {
+        await syncIncremental(s, syncDbId, wm0)
+      } else {
+        await syncFull(s, syncDbId)
       }
-      const now = new Date()
-      const payload = rows.map((v) => ({
-        sapDatabaseId: syncDbId,
-        code: v.code,
-        category: v.category,
-        name: v.name,
-        rate: v.rate,
-        syncedAt: now,
-      }))
-
-      updateSync('vatgroups', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} nhóm thuế vào CSDL…`, total: payload.length, processed: 0 })
-      // Mirror trọn vẹn: bảng local phản ánh đúng danh mục OVTG hiện tại trên SAP
-      await prisma.$transaction(async (tx) => {
-        await tx.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
-        for (let i = 0; i < payload.length; i += 500) {
-          await tx.vatGroup.createMany({ data: payload.slice(i, i + 500) })
-          updateSync('vatgroups', { processed: Math.min(i + 500, payload.length) })
-        }
-      })
-
-      clearVatGroupsCache(syncDbId)
-
-      const sales = payload.filter((v) => v.category === 'S').length
-      endSync('vatgroups', {
-        message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} nhóm thuế (${sales} nhóm bán) từ SAP B1.`,
-        processed: payload.length,
-      })
     } catch (e) {
       console.error('POST /api/vatgroups/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ nhóm thuế'
@@ -169,9 +164,109 @@ export async function POST(req: NextRequest) {
   })()
 
   return NextResponse.json(
-    { ok: true, started: true, message: 'Đã bắt đầu đồng bộ từ SAP B1 — tác vụ chạy nền trên máy chủ.' },
+    {
+      ok: true,
+      started: true,
+      mode,
+      message: mode === 'incremental'
+        ? 'Đã bắt đầu đồng bộ GIA TĂNG từ SAP B1 — chỉ tải nhóm thuế thay đổi kể từ mốc đã lưu.'
+        : 'Đã bắt đầu đồng bộ TOÀN PHẦN từ SAP B1 — tác vụ chạy nền trên máy chủ.',
+    },
     { status: 202 },
   )
+}
+
+type SapCfg = NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>
+
+/** Đồng bộ toàn phần: tải hết nhóm thuế, thay mới mirror, đặt lại mốc watermark */
+async function syncFull(s: SapCfg, syncDbId: string) {
+  const { rows, error } = await loadVatGroups(s, (p) => updateSync('vatgroups', p))
+  if ((error && rows.length === 0) || rows.length === 0) {
+    throw new Error(`Không tải được nhóm thuế từ SAP B1: ${error ?? '/VatGroups trả danh sách rỗng'}`)
+  }
+  const now = new Date()
+  const payload = rows.map((v) => ({
+    sapDatabaseId: syncDbId,
+    code: v.code,
+    category: v.category,
+    name: v.name,
+    rate: v.rate,
+    syncedAt: now,
+  }))
+
+  updateSync('vatgroups', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} nhóm thuế vào CSDL…`, total: payload.length, processed: 0 })
+  // Mirror trọn vẹn: bảng local phản ánh đúng danh mục OVTG hiện tại trên SAP
+  await prisma.$transaction(async (tx) => {
+    await tx.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
+    for (let i = 0; i < payload.length; i += 500) {
+      await tx.vatGroup.createMany({ data: payload.slice(i, i + 500) })
+      updateSync('vatgroups', { processed: Math.min(i + 500, payload.length) })
+    }
+  })
+
+  clearVatGroupsCache(syncDbId)
+
+  const sales = payload.filter((v) => v.category === 'S').length
+  const wm = advanceWatermark(null, await rawGroupsForWatermark(s))
+  await setWatermark(syncDbId, 'vatgroups', wm, 'full')
+  endSync('vatgroups', {
+    message: `Đã đồng bộ TOÀN PHẦN ${payload.length.toLocaleString('vi-VN')} nhóm thuế (${sales} nhóm bán) từ SAP B1.`,
+    processed: payload.length,
+  })
+}
+
+/** Đồng bộ gia tăng: chỉ tải nhóm thuế đổi kể từ mốc, upsert vào mirror, nâng mốc */
+async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) {
+  const { rows, changedRaw, error } = await loadVatGroupsDelta(s, wm, (p) => updateSync('vatgroups', p))
+  if (error) {
+    throw new Error(`Không tải được nhóm thuế thay đổi từ SAP B1: ${error}`)
+  }
+  const now = new Date()
+
+  if (rows.length === 0) {
+    await setWatermark(syncDbId, 'vatgroups', wm, 'incremental')
+    endSync('vatgroups', {
+      message: `Không có nhóm thuế nào thay đổi trên SAP B1 kể từ mốc ${wm.date}. Mirror giữ nguyên.`,
+      processed: 0,
+    })
+    return
+  }
+
+  updateSync('vatgroups', { phase: 'save', message: `Đang cập nhật ${rows.length} nhóm thuế thay đổi…`, total: rows.length, processed: 0 })
+  let done = 0
+  for (const v of rows) {
+    const data = {
+      name: v.name,
+      rate: v.rate,
+      syncedAt: now,
+    }
+    await prisma.vatGroup.upsert({
+      where: { sapDatabaseId_code_category: { sapDatabaseId: syncDbId, code: v.code, category: v.category } },
+      create: { sapDatabaseId: syncDbId, code: v.code, category: v.category, ...data },
+      update: data,
+    })
+    done += 1
+    updateSync('vatgroups', { processed: done })
+  }
+
+  clearVatGroupsCache(syncDbId)
+
+  const newWm = advanceWatermark(wm, changedRaw)
+  await setWatermark(syncDbId, 'vatgroups', newWm, 'incremental')
+  endSync('vatgroups', {
+    message: `Đã đồng bộ GIA TĂNG ${rows.length} nhóm thuế thay đổi từ SAP B1 (mốc ${wm.date} → ${newWm.date}).`,
+    processed: rows.length,
+  })
+}
+
+/**
+ * Lấy lại các dòng OVTG thô để tính mốc watermark sau lượt toàn phần —
+ * loadVatGroups chỉ trả VatGroupRowData (không còn UpdateDate/UpdateTime).
+ * /VatGroups rất ít dòng nên gọi thêm một lần không đáng kể.
+ */
+async function rawGroupsForWatermark(s: SapCfg) {
+  const { loadVatGroupsRaw } = await import('@/lib/fm-master')
+  return loadVatGroupsRaw(s)
 }
 
 // ---------- DELETE: xóa toàn bộ dữ liệu đã đồng bộ ----------
@@ -185,6 +280,7 @@ export async function DELETE(req: NextRequest) {
   const s = await loadSapSettings(user.databaseId)
   const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
   await prisma.vatGroup.deleteMany({ where: dbScope })
+  if (s?.dbId) await clearWatermark(s.dbId, 'vatgroups') // xóa mốc → lần sau đồng bộ toàn phần
   clearVatGroupsCache(s?.dbId)
   clearVatGroupsCache()
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ.' })

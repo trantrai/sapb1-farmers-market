@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { loadCustomers, clearCustomersCache } from '@/lib/fm-master'
+import { loadCustomers, loadCustomersDelta, mergeCustomersCache, clearCustomersCache } from '@/lib/fm-master'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
+import {
+  getWatermark, setWatermark, clearWatermark, watermarkInfo, advanceWatermark,
+  type DeltaWatermark,
+} from '@/lib/fm-sync-delta'
 
 // ============================================================
 // ĐỒNG BỘ KHÁCH HÀNG — mirror danh mục /BusinessPartners của
@@ -116,12 +120,19 @@ export async function GET(req: NextRequest) {
       configured: isSapConfigured(s),
       count: await prisma.businessPartner.count({ where: dbScope }),
       lastSyncAt: await lastSyncAt(dbId),
+      watermark: await watermarkInfo(dbId, 'partners'),
       progress: getProgress('partners'),
     },
   })
 }
 
-// ---------- POST: đồng bộ ngay từ SAP B1 (CHẠY NỀN — trả 202 + progress qua GET) ----------
+// ---------- POST: đồng bộ từ SAP B1 (CHẠY NỀN — trả 202 + progress qua GET) ----------
+// Body JSON: { mode?: 'incremental' | 'full' }
+//  · 'incremental' — chỉ tải khách hàng thay đổi kể từ mốc (UpdateDate, UpdateTime)
+//    đã lưu, upsert vào mirror (mặc định khi đã có mốc).
+//  · 'full' — tải toàn bộ khách hàng, thay mới mirror (mặc định khi chưa có mốc).
+// LƯU Ý: gia tăng không phát hiện bản ghi BỊ XÓA trên SAP — nên chạy toàn phần
+// định kỳ để mirror khớp hẳn danh mục SAP.
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -142,44 +153,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Một lượt đồng bộ khác đang chạy — hãy đợi xong rồi thử lại.' }, { status: 409 })
   }
 
+  let bodyMode: string | undefined
+  try {
+    bodyMode = (await req.json())?.mode
+  } catch { /* không có body */ }
+  const wm0 = await getWatermark(syncDbId, 'partners')
+  const mode: 'full' | 'incremental' =
+    bodyMode === 'full' ? 'full'
+    : bodyMode === 'incremental' ? (wm0 ? 'incremental' : 'full')
+    : wm0 ? 'incremental' : 'full'
+
   void (async () => {
     try {
-      const { rows, error } = await loadCustomers(s, (p) => updateSync('partners', p))
-      if ((error && rows.length === 0) || rows.length === 0) {
-        throw new Error(`Không tải được khách hàng từ SAP B1: ${error ?? '/BusinessPartners trả danh sách rỗng'}`)
+      if (mode === 'incremental' && wm0) {
+        await syncIncremental(s, syncDbId, wm0)
+      } else {
+        await syncFull(s, syncDbId)
       }
-      const now = new Date()
-      const payload = rows.map((p) => {
-        const contact = primaryContact(p)
-        return {
-          sapDatabaseId: syncDbId,
-          cardCode: p.CardCode,
-          cardName: p.CardName ?? p.CardCode,
-          address: fullAddress(p),
-          phone: p.Phone1 ?? null,
-          email: p.EmailAddress ?? null,
-          contactPerson: contact.name,
-          contactPhone: contact.phone,
-          groupType: 'Khách hàng',
-          syncedAt: now,
-        }
-      })
-
-      updateSync('partners', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} khách hàng vào CSDL…`, total: payload.length, processed: 0 })
-      // Mirror trọn vẹn: bảng local phản ánh đúng danh mục khách hàng trên SAP
-      await prisma.$transaction(async (tx) => {
-        await tx.businessPartner.deleteMany({ where: { sapDatabaseId: syncDbId } })
-        for (let i = 0; i < payload.length; i += 500) {
-          await tx.businessPartner.createMany({ data: payload.slice(i, i + 500) })
-          updateSync('partners', { processed: Math.min(i + 500, payload.length) })
-        }
-      })
-
-      clearCustomersCache(syncDbId)
-      endSync('partners', {
-        message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} khách hàng từ SAP B1.`,
-        processed: payload.length,
-      })
     } catch (e) {
       console.error('POST /api/bpartners/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ khách hàng'
@@ -188,9 +178,110 @@ export async function POST(req: NextRequest) {
   })()
 
   return NextResponse.json(
-    { ok: true, started: true, message: 'Đã bắt đầu đồng bộ từ SAP B1 — tác vụ chạy nền trên máy chủ.' },
+    {
+      ok: true,
+      started: true,
+      mode,
+      message: mode === 'incremental'
+        ? 'Đã bắt đầu đồng bộ GIA TĂNG từ SAP B1 — chỉ tải khách hàng thay đổi kể từ mốc đã lưu.'
+        : 'Đã bắt đầu đồng bộ TOÀN PHẦN từ SAP B1 — tác vụ chạy nền trên máy chủ.',
+    },
     { status: 202 },
   )
+}
+
+type SapCfg = NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>
+
+function toPayload(p: {
+  CardCode: string
+  CardName?: string
+  Address?: string
+  Phone1?: string
+  EmailAddress?: string
+  ContactEmployees?: Array<{ Name?: string; FirstName?: string; LastName?: string; Phone1?: string; MobilePhone?: string }>
+  BPAddresses?: Array<{ AddressType?: string; Street?: string; City?: string; ZipCode?: string; Country?: string }>
+}, syncDbId: string, now: Date) {
+  const contact = primaryContact(p)
+  return {
+    sapDatabaseId: syncDbId,
+    cardCode: p.CardCode,
+    cardName: p.CardName ?? p.CardCode,
+    address: fullAddress(p),
+    phone: p.Phone1 ?? null,
+    email: p.EmailAddress ?? null,
+    contactPerson: contact.name,
+    contactPhone: contact.phone,
+    groupType: 'Khách hàng',
+    syncedAt: now,
+  }
+}
+
+/** Đồng bộ toàn phần: tải hết khách hàng, thay mới mirror, đặt lại mốc watermark */
+async function syncFull(s: SapCfg, syncDbId: string) {
+  const { rows, error } = await loadCustomers(s, (p) => updateSync('partners', p))
+  if ((error && rows.length === 0) || rows.length === 0) {
+    throw new Error(`Không tải được khách hàng từ SAP B1: ${error ?? '/BusinessPartners trả danh sách rỗng'}`)
+  }
+  const now = new Date()
+  const payload = rows.map((p) => toPayload(p, syncDbId, now))
+
+  updateSync('partners', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} khách hàng vào CSDL…`, total: payload.length, processed: 0 })
+  // Mirror trọn vẹn: bảng local phản ánh đúng danh mục khách hàng trên SAP
+  await prisma.$transaction(async (tx) => {
+    await tx.businessPartner.deleteMany({ where: { sapDatabaseId: syncDbId } })
+    for (let i = 0; i < payload.length; i += 500) {
+      await tx.businessPartner.createMany({ data: payload.slice(i, i + 500) })
+      updateSync('partners', { processed: Math.min(i + 500, payload.length) })
+    }
+  })
+
+  const wm = advanceWatermark(null, rows)
+  await setWatermark(syncDbId, 'partners', wm, 'full')
+  endSync('partners', {
+    message: `Đã đồng bộ TOÀN PHẦN ${payload.length.toLocaleString('vi-VN')} khách hàng từ SAP B1.`,
+    processed: payload.length,
+  })
+}
+
+/** Đồng bộ gia tăng: chỉ tải khách hàng đổi kể từ mốc, upsert vào mirror, nâng mốc */
+async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) {
+  const { rows, error } = await loadCustomersDelta(s, wm, (p) => updateSync('partners', p))
+  if (error) {
+    throw new Error(`Không tải được khách hàng thay đổi từ SAP B1: ${error}`)
+  }
+  const now = new Date()
+
+  if (rows.length === 0) {
+    await setWatermark(syncDbId, 'partners', wm, 'incremental')
+    endSync('partners', {
+      message: `Không có khách hàng nào thay đổi trên SAP B1 kể từ mốc ${wm.date}. Mirror giữ nguyên.`,
+      processed: 0,
+    })
+    return
+  }
+
+  updateSync('partners', { phase: 'save', message: `Đang cập nhật ${rows.length.toLocaleString('vi-VN')} khách hàng thay đổi…`, total: rows.length, processed: 0 })
+  let done = 0
+  for (const p of rows) {
+    const data = toPayload(p, syncDbId, now)
+    await prisma.businessPartner.upsert({
+      where: { sapDatabaseId_cardCode: { sapDatabaseId: syncDbId, cardCode: p.CardCode } },
+      create: data,
+      update: data,
+    })
+    done += 1
+    if (done % 50 === 0 || done === rows.length) updateSync('partners', { processed: done })
+  }
+
+  // Trộn delta vào cache để lần tìm sau dùng ngay dữ liệu mới
+  mergeCustomersCache(s, rows)
+
+  const newWm = advanceWatermark(wm, rows)
+  await setWatermark(syncDbId, 'partners', newWm, 'incremental')
+  endSync('partners', {
+    message: `Đã đồng bộ GIA TĂNG ${rows.length.toLocaleString('vi-VN')} khách hàng thay đổi từ SAP B1 (mốc ${wm.date} → ${newWm.date}).`,
+    processed: rows.length,
+  })
 }
 
 // ---------- DELETE: xóa toàn bộ dữ liệu đã đồng bộ ----------
@@ -204,6 +295,7 @@ export async function DELETE(req: NextRequest) {
   const s = await loadSapSettings(user.databaseId)
   const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
   await prisma.businessPartner.deleteMany({ where: dbScope })
+  if (s?.dbId) await clearWatermark(s.dbId, 'partners') // xóa mốc → lần sau đồng bộ toàn phần
   clearCustomersCache(s?.dbId)
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu khách hàng đã đồng bộ.' })
 }

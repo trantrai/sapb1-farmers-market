@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Boxes, RefreshCw, Trash2, Search, DatabaseZap, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
+import SyncModePicker, { fmtWatermark, type SyncMode } from './sync-mode-picker'
 import PageHeader from './page-header'
 
 // ============================================================
@@ -29,6 +30,7 @@ interface SyncStatus {
   configured: boolean
   count: number
   lastSyncAt: string | null
+  watermark: { date: string | null; time: number | null; lastMode: string | null; lastSyncAt: string | null } | null
 }
 
 const fmtVND = (n: number) => new Intl.NumberFormat('vi-VN').format(n)
@@ -45,6 +47,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
   const [q, setQ] = useState(initialQuery)
   const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState<'sync' | 'clear' | null>(null)
+  const [mode, setMode] = useState<SyncMode>('auto')
   const loadRef = useRef<() => void>(() => {})
 
   // Tiến trình đồng bộ chạy nền — poll GET 2s/lần, xong thì báo + tải lại danh mục.
@@ -99,7 +102,8 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
     setBusy('sync')
     setMsg(null)
     try {
-      const res = await api('/api/items/sync', { method: 'POST' })
+      const body = mode === 'auto' ? undefined : { mode }
+      const res = await api('/api/items/sync', { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })
       const json = await res.json()
       if (!res.ok) {
         setMsg({ type: 'error', text: json.error ?? 'Đồng bộ thất bại' })
@@ -139,7 +143,8 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
         title="Quản Lý Đồng Bộ Mặt Hàng (Items)"
         badge="Cập nhật tức thời"
         actions={<>
-          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ mặt hàng bán được từ SAP B1 về CSDL local (chạy nền, có thanh tiến trình)">
+          <SyncModePicker mode={mode} onChange={setMode} disabled={busy !== null} hasWatermark={!!st?.watermark?.date} />
+          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải mặt hàng từ SAP B1 về CSDL local (chạy nền, có thanh tiến trình)">
             <RefreshCw size={14} className={busy === 'sync' ? 'fm-spin' : ''} />
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
@@ -173,6 +178,9 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
           </span>
           <span className="fm-chip fm-chip--role"><DatabaseZap size={13} />{st?.count ?? 0} mặt hàng local</span>
           <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
+          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt gia tăng chỉ tải bản ghi mới hơn mốc này">
+            Mốc SAP: {fmtWatermark(st?.watermark?.date ?? null, st?.watermark?.time ?? null)}
+          </span>
         </div>
 
         {/* Mobile (≤640px): .fm-filterbar tự chuyển lưới 2 cột — không đặt display:flex inline */}

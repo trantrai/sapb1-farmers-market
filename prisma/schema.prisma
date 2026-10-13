@@ -189,6 +189,29 @@ model SapDatabase {
   @@unique([serviceLayerUrl, companyDb, sapUser]) // tránh khai báo trùng connection
 }
 
+// ==================== ĐỒNG BỘ GIA TĂNG (delta sync) ====================
+
+/// Mốc thay đổi (watermark) cho đồng bộ gia tăng master data từ SAP B1.
+/// Mỗi (database SAP, entity) giữ một mốc (UpdateDate, UpdateTime) lớn nhất
+/// đã đồng bộ — lượt sync gia tăng chỉ tải các bản ghi
+/// UpdateDate > D, hoặc UpdateDate = D và UpdateTime > T.
+model SyncWatermark {
+  id            String    @id @default(cuid())
+  sapDatabaseId String    // DB SAP nguồn
+  entity        String    // 'items' | 'partners' | 'vatgroups'
+  /// UpdateDate (YYYY-MM-DD, theo giờ máy chủ SAP) lớn nhất đã đồng bộ
+  lastUpdateDate String?
+  /// UpdateTime (số nguyên HHMMSS, vd 143025 = 14:30:25) lớn nhất tại lastUpdateDate
+  lastUpdateTime Int?
+  /// Chế độ của lượt sync gần nhất: 'full' | 'incremental'
+  lastMode      String?
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([sapDatabaseId, entity])
+}
+
 model AppSettings {
   id              String    @id @default("main")
   serviceLayerUrl String    @default("")

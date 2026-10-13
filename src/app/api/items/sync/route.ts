@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { loadSalesItems, vatRateMap, numv, clearItemsCache } from '@/lib/fm-items'
+import { loadSalesItems, loadSalesItemsDelta, mergeItemsCache, clearItemsCache, numv } from '@/lib/fm-items'
 import { loadProductTrees, indexTrees } from '@/lib/fm-bom'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
+import {
+  getWatermark, setWatermark, clearWatermark, watermarkInfo, advanceWatermark,
+  type DeltaWatermark,
+} from '@/lib/fm-sync-delta'
 
 // ============================================================
 // ĐỒNG BỘ MẶT HÀNG — mirror danh mục Sales Item của SAP B1 vào
@@ -96,12 +100,19 @@ export async function GET(req: NextRequest) {
       configured: isSapConfigured(s),
       count: await prisma.item.count({ where: dbScope }),
       lastSyncAt: await lastSyncAt(dbId),
+      watermark: await watermarkInfo(dbId, 'items'),
       progress: getProgress('items'),
     },
   })
 }
 
-// ---------- POST: đồng bộ ngay từ SAP B1 (CHẠY NỀN — trả 202 + progress qua GET) ----------
+// ---------- POST: đồng bộ từ SAP B1 (CHẠY NỀN — trả 202 + progress qua GET) ----------
+// Body JSON: { mode?: 'incremental' | 'full' }
+//  · 'incremental' — chỉ tải bản ghi thay đổi kể từ mốc (UpdateDate, UpdateTime)
+//    đã lưu, upsert vào mirror (mặc định khi đã có mốc).
+//  · 'full' — tải toàn bộ danh mục, thay mới mirror (mặc định khi chưa có mốc).
+// LƯU Ý: gia tăng không phát hiện bản ghi BỊ XÓA trên SAP — nên chạy toàn phần
+// định kỳ (vd mỗi tuần) để mirror khớp hẳn danh mục SAP.
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -123,95 +134,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Một lượt đồng bộ khác đang chạy — hãy đợi xong rồi thử lại.' }, { status: 409 })
   }
 
+  // Chế độ sync: body.mode > mặc định (gia tăng nếu đã có mốc, ngược lại toàn phần)
+  let bodyMode: string | undefined
+  try {
+    bodyMode = (await req.json())?.mode
+  } catch { /* không có body */ }
+  const wm0 = await getWatermark(syncDbId, 'items')
+  const mode: 'full' | 'incremental' =
+    bodyMode === 'full' ? 'full'
+    : bodyMode === 'incremental' ? (wm0 ? 'incremental' : 'full')
+    : wm0 ? 'incremental' : 'full'
+
   // Tác vụ chạy nền — client poll GET 2s/lần để vẽ thanh tiến trình
   void (async () => {
     try {
-      const { rows, error } = await loadSalesItems(s, (p) => updateSync('items', p))
-      // Guard kép: lỗi HOẶC danh sách rỗng đều không được xóa mirror local
-      // (SL có thể trả 200 rỗng do sai filter/quyền → xóa sạch là mất dữ liệu)
-      if (error || rows.length === 0) {
-        throw new Error(
-          error ? `Không tải được danh mục từ SAP B1: ${error}` : 'SAP B1 trả về danh sách mặt hàng rỗng — không xóa dữ liệu local để an toàn',
-        )
+      if (mode === 'incremental' && wm0) {
+        await syncIncremental(s, syncDbId, wm0)
+      } else {
+        await syncFull(s, syncDbId)
       }
-      updateSync('items', { phase: 'fetch', message: `Đã nhận ${rows.length} mặt hàng — đang tải bảng thuế suất…` })
-      const vatMap = await vatRateMap(s)
-
-      // ---------- BOM: tải ProductTrees (Template + Production) từ SAP B1 ----------
-      updateSync('items', { phase: 'fetch', message: 'Đang tải công thức BOM (ProductTrees) từ SAP B1…' })
-      const { trees, error: bomError } = await loadProductTrees(s)
-      if (bomError) {
-        // BOM sync thất bại không chặn sync mặt hàng — chỉ ghi log, mirror BOM giữ nguyên
-        console.warn('POST /api/items/sync — không tải được ProductTrees:', bomError)
-      }
-      const bomIndex = indexTrees(trees)
-      const now = new Date()
-
-      const payload = rows.map((it) => {
-        const price = it.ItemPrices?.find((p) => numv(p.PriceList) === 1)?.Price
-        const bomDef = bomIndex.get(it.ItemCode)
-        return {
-          sapDatabaseId: syncDbId,
-          itemCode: it.ItemCode,
-          itemName: it.ItemName ?? it.ItemCode,
-          uom: it.SalesUnit || it.InventoryUOM || '',
-          price: numv(price),
-          stock: numv(it.QuantityOnStock),
-          taxCode: it.SalesVATGroup ?? null,
-          barcode: it.BarCode ?? null,
-          bomType: bomDef?.bomType ?? 'none',
-          syncedAt: now,
-        }
-      })
-
-      updateSync('items', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} mặt hàng vào CSDL…`, total: payload.length, processed: 0 })
-      // Mirror trọn vẹn: bảng local phản ánh đúng danh mục Sales Item hiện tại trên SAP
-      await prisma.$transaction(async (tx) => {
-        await tx.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
-        // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
-        for (let i = 0; i < payload.length; i += 500) {
-          await tx.item.createMany({ data: payload.slice(i, i + 500) })
-          updateSync('items', { processed: Math.min(i + 500, payload.length) })
-        }
-        // ---------- Mirror BOM: thay toàn bộ công thức của DB này ----------
-        await tx.bomComponent.deleteMany({ where: { sapDatabaseId: syncDbId } })
-        const bomRows: {
-          sapDatabaseId: string
-          parentItemCode: string
-          childItemCode: string
-          childItemName: string
-          quantity: number
-          uom: string
-          sortOrder: number
-          syncedAt: Date
-        }[] = []
-        for (const def of bomIndex.values()) {
-          for (const c of def.components) {
-            bomRows.push({
-              sapDatabaseId: syncDbId,
-              parentItemCode: def.parentItemCode,
-              childItemCode: c.childItemCode,
-              childItemName: c.childItemName,
-              quantity: c.qtyPerParent,
-              uom: c.uom,
-              sortOrder: c.sortOrder,
-              syncedAt: now,
-            })
-          }
-        }
-        for (let i = 0; i < bomRows.length; i += 500) {
-          await tx.bomComponent.createMany({ data: bomRows.slice(i, i + 500) })
-        }
-      })
-
-      // GIỮ cache autocomplete: loadSalesItems vừa nạp dữ liệu TƯƠI NHẤT vào cache,
-      // xóa đi sẽ ép lần tìm tiếp theo tải lại toàn bộ danh mục từ SAP (rất chậm).
-      // Cache có TTL 5 phút nên không sợ dữ liệu cũ.
-      const bomCount = bomIndex.size
-      endSync('items', {
-        message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} mặt hàng bán được từ SAP B1${bomCount > 0 ? ` + ${bomCount} công thức BOM` : ''}.`,
-        processed: payload.length,
-      })
     } catch (e) {
       console.error('POST /api/items/sync (nền)', e)
       const msg = e instanceof Error ? e.message : 'Lỗi không rõ khi đồng bộ mặt hàng'
@@ -220,9 +161,177 @@ export async function POST(req: NextRequest) {
   })()
 
   return NextResponse.json(
-    { ok: true, started: true, message: 'Đã bắt đầu đồng bộ từ SAP B1 — tác vụ chạy nền trên máy chủ.' },
+    {
+      ok: true,
+      started: true,
+      mode,
+      message: mode === 'incremental'
+        ? 'Đã bắt đầu đồng bộ GIA TĂNG từ SAP B1 — chỉ tải mặt hàng thay đổi kể từ mốc đã lưu.'
+        : 'Đã bắt đầu đồng bộ TOÀN PHẦN từ SAP B1 — tác vụ chạy nền trên máy chủ.',
+    },
     { status: 202 },
   )
+}
+
+/** Đồng bộ toàn phần: tải hết danh mục, thay mới mirror, đặt lại mốc watermark */
+async function syncFull(s: NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>, syncDbId: string) {
+  const { rows, error } = await loadSalesItems(s, (p) => updateSync('items', p))
+  // Guard kép: lỗi HOẶC danh sách rỗng đều không được xóa mirror local
+  // (SL có thể trả 200 rỗng do sai filter/quyền → xóa sạch là mất dữ liệu)
+  if (error || rows.length === 0) {
+    throw new Error(
+      error ? `Không tải được danh mục từ SAP B1: ${error}` : 'SAP B1 trả về danh sách mặt hàng rỗng — không xóa dữ liệu local để an toàn',
+    )
+  }
+  const bomIndex = await syncBomMirror(s, syncDbId)
+  const now = new Date()
+
+  const payload = rows.map((it) => {
+    const price = it.ItemPrices?.find((p) => numv(p.PriceList) === 1)?.Price
+    const bomDef = bomIndex.get(it.ItemCode)
+    return {
+      sapDatabaseId: syncDbId,
+      itemCode: it.ItemCode,
+      itemName: it.ItemName ?? it.ItemCode,
+      uom: it.SalesUnit || it.InventoryUOM || '',
+      price: numv(price),
+      stock: numv(it.QuantityOnStock),
+      taxCode: it.SalesVATGroup ?? null,
+      barcode: it.BarCode ?? null,
+      bomType: bomDef?.bomType ?? 'none',
+      syncedAt: now,
+    }
+  })
+
+  updateSync('items', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} mặt hàng vào CSDL…`, total: payload.length, processed: 0 })
+  // Mirror trọn vẹn: bảng local phản ánh đúng danh mục Sales Item hiện tại trên SAP
+  await prisma.$transaction(async (tx) => {
+    await tx.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
+    // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
+    for (let i = 0; i < payload.length; i += 500) {
+      await tx.item.createMany({ data: payload.slice(i, i + 500) })
+      updateSync('items', { processed: Math.min(i + 500, payload.length) })
+    }
+  })
+
+  // GIỮ cache autocomplete: loadSalesItems vừa nạp dữ liệu TƯƠI NHẤT vào cache,
+  // xóa đi sẽ ép lần tìm tiếp theo tải lại toàn bộ danh mục từ SAP (rất chậm).
+  // Cache có TTL 5 phút nên không sợ dữ liệu cũ.
+  const wm = advanceWatermark(null, rows)
+  await setWatermark(syncDbId, 'items', wm, 'full')
+  const bomCount = bomIndex.size
+  endSync('items', {
+    message: `Đã đồng bộ TOÀN PHẦN ${payload.length.toLocaleString('vi-VN')} mặt hàng bán được từ SAP B1${bomCount > 0 ? ` + ${bomCount} công thức BOM` : ''}.`,
+    processed: payload.length,
+  })
+}
+
+/** Đồng bộ gia tăng: chỉ tải bản ghi đổi kể từ mốc, upsert vào mirror, nâng mốc */
+async function syncIncremental(
+  s: NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>,
+  syncDbId: string,
+  wm: DeltaWatermark,
+) {
+  const { rows, error } = await loadSalesItemsDelta(s, wm, (p) => updateSync('items', p))
+  if (error) {
+    throw new Error(`Không tải được mặt hàng thay đổi từ SAP B1: ${error}`)
+  }
+  const bomIndex = await syncBomMirror(s, syncDbId)
+  const now = new Date()
+
+  if (rows.length === 0) {
+    // Không có thay đổi — vẫn ghi nhận lượt chạy để UI hiện "đồng bộ cuối"
+    await setWatermark(syncDbId, 'items', wm, 'incremental')
+    endSync('items', {
+      message: `Không có mặt hàng nào thay đổi trên SAP B1 kể từ mốc ${wm.date}. Mirror giữ nguyên.`,
+      processed: 0,
+    })
+    return
+  }
+
+  updateSync('items', { phase: 'save', message: `Đang cập nhật ${rows.length.toLocaleString('vi-VN')} mặt hàng thay đổi…`, total: rows.length, processed: 0 })
+  let done = 0
+  for (const it of rows) {
+    const price = it.ItemPrices?.find((p) => numv(p.PriceList) === 1)?.Price
+    const bomDef = bomIndex.get(it.ItemCode)
+    const data = {
+      itemName: it.ItemName ?? it.ItemCode,
+      uom: it.SalesUnit || it.InventoryUOM || '',
+      price: numv(price),
+      stock: numv(it.QuantityOnStock),
+      taxCode: it.SalesVATGroup ?? null,
+      barcode: it.BarCode ?? null,
+      bomType: bomDef?.bomType ?? 'none',
+      syncedAt: now,
+    }
+    await prisma.item.upsert({
+      where: { sapDatabaseId_itemCode: { sapDatabaseId: syncDbId, itemCode: it.ItemCode } },
+      create: { sapDatabaseId: syncDbId, itemCode: it.ItemCode, ...data },
+      update: data,
+    })
+    done += 1
+    if (done % 50 === 0 || done === rows.length) updateSync('items', { processed: done })
+  }
+
+  // Trộn delta vào cache autocomplete để lần tìm sau dùng ngay dữ liệu mới
+  mergeItemsCache(s, rows)
+
+  const newWm = advanceWatermark(wm, rows)
+  await setWatermark(syncDbId, 'items', newWm, 'incremental')
+  endSync('items', {
+    message: `Đã đồng bộ GIA TĂNG ${rows.length.toLocaleString('vi-VN')} mặt hàng thay đổi từ SAP B1 (mốc ${wm.date} → ${newWm.date}).`,
+    processed: rows.length,
+  })
+}
+
+/**
+ * Mirror BOM: tải ProductTrees (Template + Production) từ SAP B1 và thay mới
+ * toàn bộ công thức của DB. Chạy trong cả 2 chế độ (toàn phần + gia tăng) vì
+ * thêm/sửa công thức trên SAP có thể không làm đổi UpdateDate của mặt hàng cha.
+ */
+async function syncBomMirror(
+  s: NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>,
+  syncDbId: string,
+) {
+  updateSync('items', { phase: 'fetch', message: 'Đang tải công thức BOM (ProductTrees) từ SAP B1…' })
+  const { trees, error: bomError } = await loadProductTrees(s)
+  if (bomError) {
+    // BOM sync thất bại không chặn sync mặt hàng — chỉ ghi log, mirror BOM giữ nguyên
+    console.warn('POST /api/items/sync — không tải được ProductTrees:', bomError)
+  }
+  const bomIndex = indexTrees(trees)
+  const now = new Date()
+  await prisma.$transaction(async (tx) => {
+    await tx.bomComponent.deleteMany({ where: { sapDatabaseId: syncDbId } })
+    const bomRows: {
+      sapDatabaseId: string
+      parentItemCode: string
+      childItemCode: string
+      childItemName: string
+      quantity: number
+      uom: string
+      sortOrder: number
+      syncedAt: Date
+    }[] = []
+    for (const def of bomIndex.values()) {
+      for (const c of def.components) {
+        bomRows.push({
+          sapDatabaseId: syncDbId,
+          parentItemCode: def.parentItemCode,
+          childItemCode: c.childItemCode,
+          childItemName: c.childItemName,
+          quantity: c.qtyPerParent,
+          uom: c.uom,
+          sortOrder: c.sortOrder,
+          syncedAt: now,
+        })
+      }
+    }
+    for (let i = 0; i < bomRows.length; i += 500) {
+      await tx.bomComponent.createMany({ data: bomRows.slice(i, i + 500) })
+    }
+  })
+  return bomIndex
 }
 
 // ---------- DELETE: xóa toàn bộ dữ liệu đã đồng bộ ----------
@@ -237,6 +346,7 @@ export async function DELETE(req: NextRequest) {
   const dbScope = s?.dbId ? { sapDatabaseId: s.dbId } : {}
   await prisma.item.deleteMany({ where: dbScope })
   await prisma.bomComponent.deleteMany({ where: dbScope })
+  if (s?.dbId) await clearWatermark(s.dbId, 'items') // xóa mốc → lần sau đồng bộ toàn phần
   clearItemsCache(s?.dbId)
   return NextResponse.json({ ok: true, message: 'Đã xóa toàn bộ dữ liệu mặt hàng đã đồng bộ.' })
 }
