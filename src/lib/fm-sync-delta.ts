@@ -11,7 +11,7 @@ import { db as prisma } from './db'
 // Vì một số bản Service Layer từ chối `or`/ngoặc tròn trong $filter,
 // công thức trên được tách thành 2 query and-only rồi gộp kết quả tại chỗ:
 //   ①  <base> and UpdateDate gt datetime'<D>T00:00:00'
-//   ②  <base> and UpdateDate eq datetime'<D>T00:00:00' and UpdateTime gt <T>
+//   ②  <base> and UpdateDate eq datetime'<D>T00:00:00' and UpdateTime gt PT<H>H<M>M<S>S
 // ============================================================
 
 /** Mốc thay đổi SAP: ngày (YYYY-MM-DD) + giờ (số nguyên HHMMSS, vd 143025) */
@@ -44,6 +44,18 @@ export const updateDateStr = (v: unknown): string => {
 export const dtLit = (date: string): string => `datetime'${date}T00:00:00'`
 
 /**
+ * Literal Edm.Time cho $filter: số nguyên HHMMSS (vd 143025) → 'PT14H30M25S'.
+ * SAP B1 từ chối dạng số thô (vd '0') với lỗi "invalid time format".
+ */
+export const timeLit = (hhmmss: number): string => {
+  const t = String(Math.max(0, Math.trunc(hhmmss) || 0)).padStart(6, '0')
+  const h = t.slice(0, 2)
+  const m = t.slice(2, 4)
+  const s = t.slice(4, 6)
+  return `PT${h}H${m}M${s}S`
+}
+
+/**
  * Dựng 2 điều kiện $filter and-only cho delta (không dùng `or`/ngoặc —
  * an toàn với mọi bản Service Layer). Gộp kết quả 2 query rồi khử trùng
  * theo khóa tự nhiên tại chỗ.
@@ -52,7 +64,7 @@ export function deltaFilters(baseFilter: string, wm: DeltaWatermark): [string, s
   const d = dtLit(wm.date)
   return [
     `${baseFilter} and UpdateDate gt ${d}`,
-    `${baseFilter} and UpdateDate eq ${d} and UpdateTime gt ${wm.time}`,
+    `${baseFilter} and UpdateDate eq ${d} and UpdateTime gt ${timeLit(wm.time)}`,
   ]
 }
 
