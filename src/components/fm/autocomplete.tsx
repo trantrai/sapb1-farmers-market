@@ -313,7 +313,9 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
       notice =
         meta.source === 'sap'
           ? 'Không có mặt hàng nào khớp từ khóa (chỉ tìm trong MẶT HÀNG BÁN ĐƯỢC — Sales Item)'
-          : 'Dữ liệu local trống — kết nối SAP B1 ở trang Cài đặt để lấy dữ liệu thật'
+          : meta.source === 'mirror'
+            ? 'Không có mặt hàng nào khớp — thử từ khóa khác hoặc vào "Đồng bộ Mặt hàng" để cập nhật danh mục'
+            : 'Dữ liệu local trống — kết nối SAP B1 ở trang Cài đặt để lấy dữ liệu thật'
     else if (all && options.length === 0)
       notice = `Không có mục nào khớp “${query.trim()}” trong ${all.length} mục đã tải`
   }

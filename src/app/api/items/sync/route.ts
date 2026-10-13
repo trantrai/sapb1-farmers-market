@@ -204,8 +204,9 @@ export async function POST(req: NextRequest) {
         }
       })
 
-      // Cache autocomplete chứa dữ liệu cũ — ép tải lại (theo DB)
-      clearItemsCache(syncDbId)
+      // GIỮ cache autocomplete: loadSalesItems vừa nạp dữ liệu TƯƠI NHẤT vào cache,
+      // xóa đi sẽ ép lần tìm tiếp theo tải lại toàn bộ danh mục từ SAP (rất chậm).
+      // Cache có TTL 5 phút nên không sợ dữ liệu cũ.
       const bomCount = bomIndex.size
       endSync('items', {
         message: `Đã đồng bộ ${payload.length.toLocaleString('vi-VN')} mặt hàng bán được từ SAP B1${bomCount > 0 ? ` + ${bomCount} công thức BOM` : ''}.`,
