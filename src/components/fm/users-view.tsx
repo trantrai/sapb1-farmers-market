@@ -120,8 +120,7 @@ export default function UsersView({ user }: Props) {
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Quản lý người dùng']}
         title="Quản Lý Người Dùng"
-        badge="Cập nhật tức thời"
-        actions={<>
+actions={<>
           <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}><UserPlus size={14} /> Thêm người dùng mới</button>
         </>}
       />

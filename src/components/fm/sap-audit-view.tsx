@@ -132,8 +132,7 @@ export default function SapAuditView() {
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Service Layer Audit']}
         title="Nhật Ký Gọi SAP B1 Service Layer"
-        badge="Cập nhật tức thời"
-        actions={<>
+actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => load(1, status, q)}>
             <RefreshCw size={14} /> Tải lại
           </button>

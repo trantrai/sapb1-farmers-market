@@ -61,6 +61,19 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [error, setError] = useState('')
   const [showPrint, setShowPrint] = useState(false)
   const [showEmail, setShowEmail] = useState(false)
+
+  // Đóng dialog print/email bằng Escape
+  useEffect(() => {
+    if (!showPrint && !showEmail) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowPrint(false)
+        setShowEmail(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showPrint, showEmail])
   const [emailTo, setEmailTo] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
@@ -222,8 +235,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
       <PageHeader
         breadcrumb={['Chức năng chính', 'Danh sách đơn hàng', `Sale Order #${order.docNum}`]}
         title={`Sale Order #${order.docNum}`}
-        badge={overdue ? undefined : 'Cập nhật tức thời'}
-        actions={
+actions={
           <>
             <button className="fm-btn fm-btn--secondary" onClick={onBack}>
               <ArrowLeft size={15} /> Quay lại

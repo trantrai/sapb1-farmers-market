@@ -926,8 +926,7 @@ export default function OrderFormView({
       <PageHeader
         breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng #${editOrder?.docNum}` : 'Tạo đơn hàng mới']}
         title={isEdit ? `Cập Nhật Sale Order #${editOrder?.docNum}` : 'Tạo Sale Order Mới'}
-        badge="Cập nhật tức thời"
-      />
+/>
       {error && (
         <div className="fm-alert fm-alert--error" role="alert">
           <div><b>{isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể lưu đơn hàng'}</b>{error}</div>

@@ -55,6 +55,16 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
   const [dbBusy, setDbBusy] = useState<string | null>(null) // id DB đang test/xóa/đặt mặc định, hoặc 'new'
   const [form, setForm] = useState<DbForm | null>(null) // null = đóng modal
 
+  // Đóng modal database bằng Escape
+  useEffect(() => {
+    if (!form) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setForm(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [form])
+
   const load = async () => {
     const res = await api('/api/settings')
     if (res.status === 401) { window.location.reload(); return }
@@ -200,8 +210,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Cài đặt SAP B1']}
         title="Cài Đặt Kết Nối SAP Business One"
-        badge="Cập nhật tức thời"
-      />
+/>
 
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>

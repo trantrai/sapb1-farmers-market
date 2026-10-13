@@ -81,7 +81,7 @@ interface Props {
 export default function AppShell({ user, onLogout }: Props) {
   const [view, setView] = useState<ViewKey>('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'error' } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
@@ -137,8 +137,8 @@ export default function AppShell({ user, onLogout }: Props) {
   const adminMenu = menu.filter((m) => m.group === 'admin')
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const showToast = (t: string) => {
-    setToast(t)
+  const showToast = (t: string, type: 'success' | 'warning' | 'error' = 'success') => {
+    setToast({ msg: t, type })
     if (toastTimer.current) clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(null), 5000)
   }
@@ -438,8 +438,8 @@ export default function AppShell({ user, onLogout }: Props) {
       {/* Toast */}
       {toast && (
         <div className="fm-toast-host">
-          <div role="status" className="fm-alert fm-alert--success" style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto' }}>
-            <div><b>Hoàn tất</b>{toast}</div>
+          <div role="status" className={`fm-alert fm-alert--${toast.type}`} style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto' }}>
+            <div><b>{toast.type === 'success' ? 'Hoàn tất' : toast.type === 'warning' ? 'Lưu ý' : 'Lỗi'}</b>{toast.msg}</div>
           </div>
         </div>
       )}
