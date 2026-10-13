@@ -7,7 +7,6 @@ import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import OrderPrintView from './order-print-view'
-import RelationshipMap, { type RelNode } from './relationship-map'
 
 interface OrderLine {
   id: string
@@ -407,34 +406,6 @@ actions={
           </>
         }
       />
-
-      {/* Sơ đồ liên kết chứng từ */}
-      {(() => {
-        const nodes: RelNode[] = [
-          {
-            kind: 'order',
-            id: order.id,
-            docNum: order.docNum,
-            docDate: order.docDate,
-            status: order.sapSyncStatus === 'synced' ? 'synced' : order.status,
-            current: true,
-          },
-          ...(order.deliveries ?? []).map((d) => ({
-            kind: 'delivery' as const,
-            id: d.id,
-            docNum: d.docNum,
-            docDate: d.docDate,
-            status: d.sapSyncStatus === 'synced' ? 'synced' : d.status,
-          })),
-        ]
-        return (
-          <RelationshipMap
-            nodes={nodes}
-            onGoOrder={() => {}}
-            onGoDelivery={(id) => onGoDelivery?.(id)}
-          />
-        )
-      })()}
 
       {overdue && (
         <div className="fm-alert fm-alert--error" style={{ marginBottom: 16 }}>
