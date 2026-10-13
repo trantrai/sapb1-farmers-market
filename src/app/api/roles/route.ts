@@ -36,6 +36,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Chỉ Admin mới được sửa quyền Admin' }, { status: 403 })
     }
 
+    // Không cho user sửa chính vai trò mình đang mang (tránh tự leo thang quyền);
+    // Admin vẫn được phép sửa vai trò Admin theo quy định ở trên
+    if (user.role !== 'Admin' && role.name === user.role) {
+      return NextResponse.json(
+        { error: 'Bạn không thể sửa vai trò mình đang sử dụng' },
+        { status: 403 },
+      )
+    }
+
     const updated = await prisma.role.update({ where: { id }, data: { permissions } })
     return NextResponse.json({ ok: true, role: updated })
   } catch (e) {

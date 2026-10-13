@@ -99,6 +99,8 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
           e.stopPropagation()
           onSync()
         }}
+        // Chặn keydown bubble lên hàng/card cha (tránh mở chi tiết khi nhấn Enter trên nút)
+        onKeyDown={(e) => e.stopPropagation()}
       >
         <RefreshCw size={11} style={{ flex: 'none' }} />
         {syncing ? 'Đang đẩy…' : 'Chưa đẩy'}
@@ -451,7 +453,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <td>{sapChip(o, canCreate, syncingId === o.id, () => syncOrder(o))}</td>
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                         <button className="fm-icon-btn" title="Nhân bản đơn hàng" aria-label="Nhân bản đơn hàng" onClick={() => onGoDuplicate({ ...toEditData(o), id: undefined })}>
                           <Copy size={14} />
                         </button>
@@ -512,6 +514,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                         title="Xóa đơn hàng"
                         aria-label={`Xóa đơn hàng ${o.docNum}`}
                         onClick={(e) => { e.stopPropagation(); deleteOrder(o) }}
+                        // Chặn keydown bubble lên card cha (tránh mở chi tiết khi nhấn Enter trên nút Xóa)
+                        onKeyDown={(e) => e.stopPropagation()}
                       >
                         <Trash2 size={16} />
                       </button>

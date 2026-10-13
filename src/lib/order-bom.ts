@@ -7,7 +7,7 @@
 //   có thuộc công thức của cha không
 // ============================================================
 
-import { getBomDefinition, recalcChildQty } from './fm-bom'
+import { getBomDefinitions, recalcChildQty } from './fm-bom'
 import type { OrderLineInput } from './order-calc'
 
 export interface BomLineInput extends OrderLineInput {
@@ -38,9 +38,18 @@ export async function normalizeBomLines<T extends BomLineInput>(
     else g.parent = l
   }
 
+  // Gộp: đọc công thức BOM của TẤT CẢ các cha trong 1 lần (2 query),
+  // thay vì mỗi nhóm BOM 1 cặp query nối tiếp (đơn có g cha = 2g query)
+  const parentCodes = [...new Set(
+    [...groups.values()]
+      .filter((g) => g.parent && g.children.length > 0)
+      .map((g) => g.parent.itemCode),
+  )]
+  const defs = await getBomDefinitions(dbId, parentCodes)
+
   for (const [gk, g] of groups) {
     if (!g.parent || g.children.length === 0) continue
-    const def = await getBomDefinition(dbId, g.parent.itemCode)
+    const def = defs.get(g.parent.itemCode)
     if (!def) continue // công thức đã bị xóa khỏi mirror → giữ nguyên như client gửi
 
     const compMap = new Map(def.components.map((c) => [c.childItemCode, c]))

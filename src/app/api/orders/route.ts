@@ -17,6 +17,9 @@ import { normalizeBomLines } from '@/lib/order-bom'
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
+  if (!user.permissions.orders?.view) {
+    return NextResponse.json({ error: 'Bạn không có quyền xem đơn hàng' }, { status: 403 })
+  }
 
   const sp = req.nextUrl.searchParams
 

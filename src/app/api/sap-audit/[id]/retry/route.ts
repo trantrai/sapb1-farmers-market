@@ -26,8 +26,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: 'Không tìm thấy bản ghi nhật ký' }, { status: 404 })
   }
 
-  // Retry dùng database của phiên hiện tại — admin cần đăng nhập đúng DB trước khi retry
-  const s = await loadSapSettings(user.databaseId)
+  // Retry dùng DB GỐC của bản ghi audit (đơn được đẩy từ DB nào → retry đúng DB đó);
+  // bản ghi cũ chưa có sapDatabaseId thì fallback DB của phiên hiện tại
+  const s = await loadSapSettings(entry.sapDatabaseId ?? user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer — hãy cấu hình ở trang Cài đặt trước khi Retry' }, { status: 400 })
   }

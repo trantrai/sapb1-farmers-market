@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { rateLimit } from '@/lib/rate-limit'
 import { loadCustomers, loadCustomersDelta, mergeCustomersCache, clearCustomersCache } from '@/lib/fm-master'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
 import {
@@ -140,6 +141,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền đồng bộ khách hàng' }, { status: 403 })
   }
 
+  // M10: đồng bộ là tác vụ nặng — tối đa 5 lượt / 5 phút / user
+  const rl = rateLimit(`sync:partners:${user.id}`, 5, 5 * 60 * 1000)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: `Đã vượt giới hạn 5 lượt đồng bộ khách hàng trong 5 phút — vui lòng thử lại sau ${rl.retryAfterSec} giây.` },
+      { status: 429 },
+    )
+  }
+
   const s = await loadSapSettings(user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json(
@@ -262,16 +272,20 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
   }
 
   updateSync('partners', { phase: 'save', message: `Đang cập nhật ${rows.length.toLocaleString('vi-VN')} khách hàng thay đổi…`, total: rows.length, processed: 0 })
-  let done = 0
-  for (const p of rows) {
+  // M11: gom upsert thành batch (chunk 100, mỗi chunk 1 $transaction) thay vì
+  // await từng dòng nối tiếp (O(n) round-trip SQLite).
+  const ops = rows.map((p) => {
     const data = toPayload(p, syncDbId, now)
-    await prisma.businessPartner.upsert({
+    return prisma.businessPartner.upsert({
       where: { sapDatabaseId_cardCode: { sapDatabaseId: syncDbId, cardCode: p.CardCode } },
       create: data,
       update: data,
     })
-    done += 1
-    if (done % 50 === 0 || done === rows.length) updateSync('partners', { processed: done })
+  })
+  const CHUNK = 100
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    await prisma.$transaction(ops.slice(i, i + CHUNK))
+    updateSync('partners', { processed: Math.min(i + CHUNK, ops.length) })
   }
 
   // Trộn delta vào cache để lần tìm sau dùng ngay dữ liệu mới

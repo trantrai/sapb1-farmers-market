@@ -270,7 +270,7 @@ export default function AppShell({ user, onLogout }: Props) {
         <div style={{ marginTop: 'auto', paddingTop: 12 }}>
           <div style={{ padding: '4px 12px 8px', fontSize: 11.5, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>
             <div style={{ fontWeight: 600, color: 'rgba(255,255,255,.8)' }}>Phiên làm việc</div>
-            <div>SAP Service 200 OK</div>
+            <div>{sapStatus === 'ok' ? 'SAP Service — Live' : sapStatus === 'none' ? 'SAP Service — Chưa cấu hình' : 'SAP Service — Lỗi'}</div>
           </div>
           <div
             className="fm-menu-item"

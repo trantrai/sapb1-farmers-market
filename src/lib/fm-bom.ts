@@ -162,6 +162,59 @@ export async function getBomDefinition(
   }
 }
 
+/**
+ * Đọc công thức BOM của NHIỀU mặt hàng cha trong 2 query duy nhất
+ * (1 findMany Item + 1 findMany BomComponent), trả Map theo parentItemCode
+ * — cha không có BOM thật thì KHÔNG có trong Map.
+ * Dùng khi validate đơn có nhiều nhóm BOM: tránh g nhóm × 2 query nối tiếp.
+ */
+export async function getBomDefinitions(
+  dbId: string | null,
+  parentItemCodes: string[],
+): Promise<Map<string, BomDefinition>> {
+  const map = new Map<string, BomDefinition>()
+  const codes = [...new Set(parentItemCodes)].filter(Boolean)
+  if (codes.length === 0) return map
+  const dbScope = dbId ? { sapDatabaseId: dbId } : {}
+  // Query 1: loại BOM của từng cha (chỉ giữ template/production/assembly)
+  const items = await prisma.item.findMany({
+    where: { ...dbScope, itemCode: { in: codes } },
+    select: { itemCode: true, bomType: true },
+  })
+  const bomTypes = new Map<string, BomType>()
+  for (const it of items) {
+    const t = it.bomType
+    if (t === 'template' || t === 'production' || t === 'assembly') bomTypes.set(it.itemCode, t)
+  }
+  // Query 2: toàn bộ dòng con của các cha, nhóm lại theo parentItemCode
+  const rows = await prisma.bomComponent.findMany({
+    where: { ...dbScope, parentItemCode: { in: codes } },
+    orderBy: [{ sortOrder: 'asc' }, { childItemCode: 'asc' }],
+  })
+  const compMap = new Map<string, typeof rows>()
+  for (const r of rows) {
+    const arr = compMap.get(r.parentItemCode)
+    if (arr) arr.push(r)
+    else compMap.set(r.parentItemCode, [r])
+  }
+  for (const [code, bomType] of bomTypes) {
+    const comps = compMap.get(code) ?? []
+    if (comps.length === 0) continue // cùng ngữ nghĩa với getBomDefinition: không dòng con → coi như không có BOM
+    map.set(code, {
+      parentItemCode: code,
+      bomType,
+      components: comps.map((r) => ({
+        childItemCode: r.childItemCode,
+        childItemName: r.childItemName,
+        qtyPerParent: r.quantity,
+        uom: r.uom,
+        sortOrder: r.sortOrder,
+      })),
+    })
+  }
+  return map
+}
+
 /** Danh sách mã mặt hàng cha có BOM (để gắn bomType cho mirror Item khi sync) */
 export function indexTrees(trees: B1ProductTree[]): Map<string, BomDefinition> {
   const map = new Map<string, BomDefinition>()

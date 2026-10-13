@@ -167,6 +167,9 @@ model SapAuditLog {
   payload       String? // JSON body đã gửi (POST) — để Retry; đã CHE mật khẩu
   resultSummary String? // tóm tắt kết quả (DocEntry/DocNum/số bản ghi…)
   retryOf       String? // id của bản ghi gốc nếu đây là lệnh Retry
+  // DB (CompanyDB) đã dùng cho lệnh gọi này — Retry phải dùng đúng DB gốc
+  // (nullable: dữ liệu audit cũ không có DB thì fallback DB của phiên hiện tại)
+  sapDatabaseId String?
   createdAt     DateTime @default(now())
 
   @@index([createdAt])

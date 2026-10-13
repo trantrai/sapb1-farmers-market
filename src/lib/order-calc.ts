@@ -104,6 +104,9 @@ export function calcOrderLines(lines: OrderLineInput[], headerDiscPct = 0): Calc
   // Bước 1-2: LineTotal → CK dòng → số tiền sau CK dòng (chưa gồm CK đầu)
   // VND không có đơn vị nhỏ hơn đồng → làm tròn LineTotal ngay từ đầu để
   // mọi tổng phía sau đều là số nguyên, khớp cách SAP B1 làm tròn từng dòng.
+  // Dòng thiếu vatPct bị áp mặc định 8% — đếm lại và warn 1 lần duy nhất
+  // (không warn từng dòng để tránh spam log), giúp phát hiện dữ liệu thiếu thuế suất.
+  let vatDefaulted = 0
   const base = lines.map((l) => {
     const quantity = Number(l.quantity)
     const unitPrice = Number(l.unitPrice)
@@ -111,8 +114,12 @@ export function calcOrderLines(lines: OrderLineInput[], headerDiscPct = 0): Calc
     const discPct = clamp(Number(l.discPct) || 0, 0, 100)
     const discAmt = Math.round((lineTotal * discPct) / 100)
     const afterDisc = lineTotal - discAmt
+    if (l.vatPct === undefined || l.vatPct === null) vatDefaulted += 1
     return { ...l, quantity, unitPrice, lineTotal, discPct, discAmt, afterDisc, vatPct: clamp(Number(l.vatPct ?? 8) || 0, 0, 100) }
   })
+  if (vatDefaulted > 0) {
+    console.warn(`[order-calc] ${vatDefaulted} dòng thiếu vatPct — áp mặc định 8%`)
+  }
 
   // Bước 3: CK đầu chứng từ — phân bổ theo tỷ lệ sau-KH-dòng
   const baseSum = base.reduce((s, l) => s + l.afterDisc, 0)

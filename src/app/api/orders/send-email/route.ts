@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { decryptSecret } from '@/lib/fm-crypto'
+import { rateLimit } from '@/lib/rate-limit'
 
 const esc = (v: unknown) =>
   String(v ?? '')
@@ -95,6 +96,15 @@ export async function POST(req: NextRequest) {
   if (!user) return unauthorized()
   if (!user.permissions.orders?.view) {
     return NextResponse.json({ error: 'Bạn không có quyền xem đơn hàng' }, { status: 403 })
+  }
+
+  // Giới hạn theo user: tối đa 10 email / 10 phút (chống spam email)
+  const rl = rateLimit(`order:send-email:${user.id}`, 10, 10 * 60 * 1000)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Bạn đã gửi quá nhiều email — vui lòng thử lại sau' },
+      { status: 429 },
+    )
   }
 
   try {

@@ -7,6 +7,7 @@ import PageHeader from './page-header'
 import { formatVND, formatNum } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
+import { useFocusTrap } from './use-focus-trap'
 
 interface DraftLine {
   key: number
@@ -168,6 +169,8 @@ export default function OrderFormView({
   const [tplDesc, setTplDesc] = useState('')
   const [tplSaving, setTplSaving] = useState(false)
   const [tplMsg, setTplMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  // Focus trap + Escape cho modal "Lưu thành mẫu đơn hàng"
+  const tplTrapRef = useFocusTrap<HTMLDivElement>(tplModal, () => setTplModal(false))
 
   const loadTemplates = async () => {
     try {
@@ -302,6 +305,8 @@ export default function OrderFormView({
   const [priceHist, setPriceHist] = useState<PriceHistRow[]>([])
   const [priceHistLoading, setPriceHistLoading] = useState(false)
   const [priceHistFor, setPriceHistFor] = useState<{ key: number; itemCode: string; itemName: string } | null>(null)
+  // Focus trap + Escape cho modal "Lịch sử giá"
+  const priceHistTrapRef = useFocusTrap<HTMLDivElement>(!!priceHistFor, () => setPriceHistFor(null))
 
   const openPriceHist = (lineKey: number, itemCode: string, itemName: string) => {
     const code = partner?.code
@@ -1475,7 +1480,7 @@ export default function OrderFormView({
       {/* Modal lưu thành mẫu đơn hàng */}
       {tplModal && (
         <div className="fm-backdrop" onClick={() => setTplModal(false)}>
-          <div className="fm-modal" role="dialog" aria-modal="true" aria-label="Lưu thành mẫu đơn hàng" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+          <div ref={tplTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label="Lưu thành mẫu đơn hàng" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
             <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <BookmarkPlus size={17} /> Lưu thành mẫu đơn hàng
             </h3>
@@ -1557,7 +1562,7 @@ export default function OrderFormView({
       {/* Modal lịch sử giá theo khách hàng */}
       {priceHistFor && (
         <div className="fm-backdrop" onClick={() => setPriceHistFor(null)}>
-          <div className="fm-modal" role="dialog" aria-modal="true" aria-label="Lịch sử giá" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+          <div ref={priceHistTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label="Lịch sử giá" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <h3 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <History size={17} /> Lịch sử giá
             </h3>

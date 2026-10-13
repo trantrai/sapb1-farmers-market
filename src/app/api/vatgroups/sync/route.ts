@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { rateLimit } from '@/lib/rate-limit'
 import { loadVatGroups, loadVatGroupsDelta, clearVatGroupsCache } from '@/lib/fm-master'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
 import {
@@ -126,6 +127,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền đồng bộ nhóm thuế' }, { status: 403 })
   }
 
+  // M10: đồng bộ là tác vụ nặng — tối đa 5 lượt / 5 phút / user
+  const rl = rateLimit(`sync:vatgroups:${user.id}`, 5, 5 * 60 * 1000)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: `Đã vượt giới hạn 5 lượt đồng bộ nhóm thuế trong 5 phút — vui lòng thử lại sau ${rl.retryAfterSec} giây.` },
+      { status: 429 },
+    )
+  }
+
   const s = await loadSapSettings(user.databaseId)
   if (!isSapConfigured(s)) {
     return NextResponse.json(
@@ -234,20 +244,24 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
   }
 
   updateSync('vatgroups', { phase: 'save', message: `Đang cập nhật ${rows.length} nhóm thuế thay đổi…`, total: rows.length, processed: 0 })
-  let done = 0
-  for (const v of rows) {
+  // M11: gom upsert thành batch (chunk 100, mỗi chunk 1 $transaction) thay vì
+  // await từng dòng nối tiếp (O(n) round-trip SQLite).
+  const ops = rows.map((v) => {
     const data = {
       name: v.name,
       rate: v.rate,
       syncedAt: now,
     }
-    await prisma.vatGroup.upsert({
+    return prisma.vatGroup.upsert({
       where: { sapDatabaseId_code_category: { sapDatabaseId: syncDbId, code: v.code, category: v.category } },
       create: { sapDatabaseId: syncDbId, code: v.code, category: v.category, ...data },
       update: data,
     })
-    done += 1
-    updateSync('vatgroups', { processed: done })
+  })
+  const CHUNK = 100
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    await prisma.$transaction(ops.slice(i, i + CHUNK))
+    updateSync('vatgroups', { processed: Math.min(i + CHUNK, ops.length) })
   }
 
   clearVatGroupsCache(syncDbId)

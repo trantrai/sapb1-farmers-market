@@ -315,7 +315,7 @@ export async function sapGet<T = unknown>(
         const error = e instanceof Error ? e.message : String(e)
         // AUDIT: GET lỗi (kể cả lỗi login) — lưu path+query để Retry được
         if (opts.audit !== 'off')
-          void logSapAudit({ method: 'GET', path: fullPath, ok: false, httpStatus: 0, error, retryOf: opts.retryOf })
+          void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'GET', path: fullPath, ok: false, httpStatus: 0, error, retryOf: opts.retryOf })
         return { ok: false, status: 0, error }
       }
     }
@@ -338,11 +338,11 @@ export async function sapGet<T = unknown>(
         const error = sapErrorVN(res.status, await safeJson(res))
         // AUDIT: GET lỗi — lưu path+query đầy đủ để Retry được
         if (opts.audit !== 'off')
-          void logSapAudit({ method: 'GET', path: fullPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
+          void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'GET', path: fullPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
         return { ok: false, status: res.status, error }
       }
       if (opts.audit === 'always')
-        void logSapAudit({ method: 'GET', path: fullPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, resultSummary: 'HTTP 200', retryOf: opts.retryOf })
+        void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'GET', path: fullPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, resultSummary: 'HTTP 200', retryOf: opts.retryOf })
       return { ok: true, status: res.status, data: (await res.json()) as T }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -350,13 +350,13 @@ export async function sapGet<T = unknown>(
         ? `Service Layer không phản hồi sau ${TIMEOUT_MS / 1000}s`
         : `Không kết nối được Service Layer (${msg})`
       if (opts.audit !== 'off')
-        void logSapAudit({ method: 'GET', path: fullPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
+        void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'GET', path: fullPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
       return { ok: false, status: 0, error }
     }
   }
   const authError = 'Không thể xác thực session với Service Layer'
   if (opts.audit !== 'off')
-    void logSapAudit({ method: 'GET', path: fullPath, ok: false, httpStatus: 401, error: authError, retryOf: opts.retryOf })
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'GET', path: fullPath, ok: false, httpStatus: 401, error: authError, retryOf: opts.retryOf })
   return { ok: false, status: 401, error: authError }
 }
 
@@ -385,6 +385,7 @@ export async function sapGetAll<T = unknown>(
     if (!page.ok || !page.data) {
       // AUDIT: 1 dòng tổng kết cho cả lần lấy-all (không spam từng trang)
       void logSapAudit({
+        sapDatabaseId: c.dbId ?? null,
         method: 'GET', path, ok: false, httpStatus: page.status,
         durationMs: Date.now() - startedAt, error: page.error,
         resultSummary: `Lấy-all: nhận ${all.length} bản ghi trước khi lỗi`,
@@ -408,6 +409,7 @@ export async function sapGetAll<T = unknown>(
   }
   // AUDIT: tổng kết lấy-all thành công (1 dòng cho toàn bộ các trang)
   void logSapAudit({
+    sapDatabaseId: c.dbId ?? null,
     method: 'GET', path, ok: true, httpStatus: 200,
     durationMs: Date.now() - startedAt,
     resultSummary: `Đã lấy ${all.length} bản ghi (tự phân trang)`,
@@ -425,7 +427,7 @@ export async function sapPost<T = unknown>(c: SapConfig, path: string, body: unk
       session = await sapLogin(c)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      void logSapAudit({ method: 'POST', path: cleanPath, ok: false, httpStatus: 0, error, payload: body, retryOf: opts.retryOf })
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, error, payload: body, retryOf: opts.retryOf })
       return { ok: false, status: 0, error }
     }
   }
@@ -444,7 +446,7 @@ export async function sapPost<T = unknown>(c: SapConfig, path: string, body: unk
     )
     if (!res.ok) {
       const error = sapErrorVN(res.status, await safeJson(res))
-      void logSapAudit({ method: 'POST', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
       return { ok: false, status: res.status, error }
     }
     const data = (await res.json()) as T
@@ -454,11 +456,11 @@ export async function sapPost<T = unknown>(c: SapConfig, path: string, body: unk
       typeof d?.DocEntry === 'number' || typeof d?.DocNum === 'number'
         ? `Đã tạo chứng từ — DocEntry ${d?.DocEntry ?? '?'} / DocNum ${d?.DocNum ?? '?'}`
         : `HTTP ${res.status}`
-    void logSapAudit({ method: 'POST', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, payload: body, resultSummary: summary, retryOf: opts.retryOf })
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, payload: body, resultSummary: summary, retryOf: opts.retryOf })
     return { ok: true, status: res.status, data }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    void logSapAudit({ method: 'POST', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
     return { ok: false, status: 0, error }
   }
 }
@@ -484,7 +486,7 @@ export async function sapPatch<T = unknown>(c: SapConfig, path: string, body: un
       session = await sapLogin(c)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
-      void logSapAudit({ method: 'PATCH', path: cleanPath, ok: false, httpStatus: 0, error, payload: body, retryOf: opts.retryOf })
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'PATCH', path: cleanPath, ok: false, httpStatus: 0, error, payload: body, retryOf: opts.retryOf })
       return { ok: false, status: 0, error }
     }
   }
@@ -508,7 +510,7 @@ export async function sapPatch<T = unknown>(c: SapConfig, path: string, body: un
     )
     if (!res.ok) {
       const error = sapErrorVN(res.status, await safeJson(res))
-      void logSapAudit({ method: 'PATCH', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'PATCH', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
       return { ok: false, status: res.status, error }
     }
     // PATCH thành công: SL thường trả 204 không có body — đọc body một cách an toàn nếu có
@@ -520,11 +522,11 @@ export async function sapPatch<T = unknown>(c: SapConfig, path: string, body: un
         /* body rỗng — bỏ qua */
       }
     }
-    void logSapAudit({ method: 'PATCH', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, payload: body, resultSummary: `Đã cập nhật chứng từ — HTTP ${res.status}`, retryOf: opts.retryOf })
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'PATCH', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, payload: body, resultSummary: `Đã cập nhật chứng từ — HTTP ${res.status}`, retryOf: opts.retryOf })
     return { ok: true, status: res.status, data }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    void logSapAudit({ method: 'PATCH', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'PATCH', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
     return { ok: false, status: 0, error }
   }
 }
@@ -537,6 +539,7 @@ export async function sapTestLogin(
   try {
     const s = await sapLogin(c)
     void logSapAudit({
+      sapDatabaseId: c.dbId ?? null,
       method: 'POST', path: '/Login', ok: true, httpStatus: 200,
       durationMs: Date.now() - startedAt,
       payload: { CompanyDB: c.companyDb, UserName: c.sapUser, Password: c.sapPassword },
@@ -546,6 +549,7 @@ export async function sapTestLogin(
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     void logSapAudit({
+      sapDatabaseId: c.dbId ?? null,
       method: 'POST', path: '/Login', ok: false, httpStatus: 0,
       durationMs: Date.now() - startedAt, error,
       payload: { CompanyDB: c.companyDb, UserName: c.sapUser, Password: c.sapPassword },

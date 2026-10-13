@@ -26,6 +26,8 @@ export interface SapAuditEntry {
   resultSummary?: string
   /** id bản ghi gốc nếu đây là lệnh Retry */
   retryOf?: string
+  /** Id của SapDatabase đã dùng cho lệnh gọi này (ghi vào SapAuditLog.sapDatabaseId) */
+  sapDatabaseId?: string | null
 }
 
 /** Đệ quy che các trường mật khẩu trước khi lưu payload vào audit */
@@ -63,6 +65,8 @@ export async function logSapAudit(entry: SapAuditEntry): Promise<void> {
         payload: payloadStr,
         resultSummary: entry.resultSummary?.slice(0, 500) ?? null,
         retryOf: entry.retryOf ?? null,
+        // DB đã dùng cho lệnh gọi — để Retry dùng đúng DB gốc thay vì DB của phiên hiện tại
+        sapDatabaseId: entry.sapDatabaseId ?? null,
       },
     })
   } catch {

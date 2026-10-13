@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { rateLimit } from '@/lib/rate-limit'
 import { loadSalesItems, loadSalesItemsDelta, mergeItemsCache, clearItemsCache, numv } from '@/lib/fm-items'
 import { loadProductTrees, indexTrees } from '@/lib/fm-bom'
 import { startSync, updateSync, endSync, getProgress } from '@/lib/fm-sync-progress'
@@ -118,6 +119,15 @@ export async function POST(req: NextRequest) {
   if (!user) return unauthorized()
   if (!user.permissions.settings?.edit) {
     return NextResponse.json({ error: 'Bạn không có quyền đồng bộ mặt hàng' }, { status: 403 })
+  }
+
+  // M10: đồng bộ là tác vụ nặng — tối đa 5 lượt / 5 phút / user
+  const rl = rateLimit(`sync:items:${user.id}`, 5, 5 * 60 * 1000)
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: `Đã vượt giới hạn 5 lượt đồng bộ mặt hàng trong 5 phút — vui lòng thử lại sau ${rl.retryAfterSec} giây.` },
+      { status: 429 },
+    )
   }
 
   const s = await loadSapSettings(user.databaseId)
@@ -253,8 +263,10 @@ async function syncIncremental(
   }
 
   updateSync('items', { phase: 'save', message: `Đang cập nhật ${rows.length.toLocaleString('vi-VN')} mặt hàng thay đổi…`, total: rows.length, processed: 0 })
-  let done = 0
-  for (const it of rows) {
+  // M11: gom upsert thành batch (chunk 100, mỗi chunk 1 $transaction) thay vì
+  // await từng dòng nối tiếp (O(n) round-trip SQLite). Chunk nhỏ để transaction
+  // SQLite không giữ write-lock quá lâu (xem chú thích B5 ở syncFull).
+  const ops = rows.map((it) => {
     const price = it.ItemPrices?.find((p) => numv(p.PriceList) === 1)?.Price
     const bomDef = bomIndex.get(it.ItemCode)
     const data = {
@@ -267,13 +279,16 @@ async function syncIncremental(
       bomType: bomDef?.bomType ?? 'none',
       syncedAt: now,
     }
-    await prisma.item.upsert({
+    return prisma.item.upsert({
       where: { sapDatabaseId_itemCode: { sapDatabaseId: syncDbId, itemCode: it.ItemCode } },
       create: { sapDatabaseId: syncDbId, itemCode: it.ItemCode, ...data },
       update: data,
     })
-    done += 1
-    if (done % 50 === 0 || done === rows.length) updateSync('items', { processed: done })
+  })
+  const CHUNK = 100
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    await prisma.$transaction(ops.slice(i, i + CHUNK))
+    updateSync('items', { processed: Math.min(i + CHUNK, ops.length) })
   }
 
   // Trộn delta vào cache autocomplete để lần tìm sau dùng ngay dữ liệu mới
