@@ -98,10 +98,13 @@ export default function OrderPrintView({ order, partner }: Props) {
             const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
             const lineTotal = afterDisc * (1 + line.vatPct / 100)
             const isChild = Boolean(line.isBomChild)
+            const isBomParent = !isChild && Boolean(line.bomGroupKey)
+            // STT chi dem dong cha/hang thuong (bo qua dong con BOM)
+            const stt = order.lines.slice(0, i + 1).filter((l) => !l.isBomChild).length
             return (
               <tr key={i}>
-                <td>{isChild ? '' : i + 1}</td>
-                <td>{isChild && <span aria-hidden>└─ </span>}<b>{line.itemCode}</b></td>
+                <td>{isChild ? '' : stt}</td>
+                <td>{isChild && <span aria-hidden>└─ </span>}<b>{line.itemCode}</b>{isBomParent && ' (BOM)'}</td>
                 <td>{line.itemName}</td>
                 <td className="fm-num">{line.quantity}</td>
                 <td>{line.uom}</td>

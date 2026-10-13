@@ -614,6 +614,12 @@
 /* Dòng thành phần con BOM (form tạo/sửa SO): nền nhẹ + viền trái để phân biệt */
 .fm-table tr.is-bom-child td { background: #F7FAFF; }
 .fm-table tr.is-bom-child td:first-child { box-shadow: inset 3px 0 0 var(--fm-navy); }
+.fm-table tr.is-bom-parent td { background: #FFF8E6; font-weight: 600; }
+.fm-chip--bom { background: var(--fm-gold); color: #5C4300; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+/* Mobile: khối thành phần BOM lồng trong card cha */
+.fm-lcard__bom { margin: 8px 0 4px; padding: 8px 10px; background: #F7FAFF; border-left: 3px solid var(--fm-navy); border-radius: 0 8px 8px 0; font-size: 13px; }
+.fm-lcard__bom-title { font-weight: 700; color: var(--fm-navy); margin-bottom: 4px; }
+.fm-lcard__bom-row { color: var(--fm-text-2); padding: 2px 0; }
 .fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 15px; padding: 8px 10px; border-radius: var(--fm-r-sm); min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; }
 .fm-row-del:hover { background: var(--fm-red-soft); }
 

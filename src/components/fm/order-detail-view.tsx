@@ -304,16 +304,23 @@ actions={
               </tr>
             </thead>
             <tbody>
-              {order.lines.map((line, i) => {
+              {(() => {
+                let stt = 0
+                return order.lines.map((line, i) => {
                 const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
                 const vatAmt = afterDisc * (line.vatPct / 100)
                 const isChild = Boolean(line.isBomChild)
+                const isBomParent = !isChild && Boolean(line.bomGroupKey)
+                if (!isChild) stt += 1
                 return (
-                  <tr key={i} className={isChild ? 'is-bom-child' : ''}>
-                    <td>{isChild ? '' : i + 1}</td>
+                  <tr key={i} className={isChild ? 'is-bom-child' : isBomParent ? 'is-bom-parent' : ''}>
+                    <td>{isChild ? '' : stt}</td>
                     <td>
                       {isChild && <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>}
                       <b>{line.itemCode}</b>
+                      {isBomParent && (
+                        <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>
+                      )}
                     </td>
                     <td>{line.itemName}</td>
                     <td className="fm-num">{line.quantity}</td>
@@ -326,7 +333,8 @@ actions={
                     <td className="fm-num"><b>{formatVND(afterDisc + vatAmt)}</b></td>
                   </tr>
                 )
-              })}
+                })
+              })()}
             </tbody>
             <tfoot>
               <tr>
@@ -359,16 +367,26 @@ actions={
           </table>
           {/* Mobile (<=640px): card thay cho bảng 11 cột cuộn ngang */}
           <div className="fm-lcard-list">
-            {order.lines.map((line, i) => {
+            {(() => {
+              let stt = 0
+              return order.lines.map((line, i) => {
               const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
               const vatAmt = afterDisc * (line.vatPct / 100)
-              if (line.isBomChild) return null
+              const isChild = Boolean(line.isBomChild)
+              if (isChild) return null // dòng con vẽ lồng trong card của cha (bên dưới)
+              stt += 1
+              const isBomParent = Boolean(line.bomGroupKey)
+              const children = isBomParent
+                ? order.lines.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey)
+                : []
               return (
                 <div key={i} className="fm-lcard">
                   <div className="fm-lcard__head">
-                    <span className="fm-lcard__num">{i + 1}</span>
+                    <span className="fm-lcard__num">{stt}</span>
                     <div>
-                      <div className="fm-lcard__name">{line.itemName}</div>
+                      <div className="fm-lcard__name">{line.itemName}
+                        {isBomParent && <span className="fm-chip fm-chip--bom">BOM</span>}
+                      </div>
                       <div className="fm-lcard__code">{line.itemCode} · {line.uom} · Kho {line.warehouseCode || '—'}</div>
                     </div>
                   </div>
@@ -378,13 +396,24 @@ actions={
                     <div><span className="k">CK</span><span className="v">{line.discPct}%</span></div>
                     <div><span className="k">VAT</span><span className="v">{line.vatPct}%</span></div>
                   </div>
+                  {children.length > 0 && (
+                    <div className="fm-lcard__bom">
+                      <div className="fm-lcard__bom-title">Thành phần ({children.length}):</div>
+                      {children.map((c, ci) => (
+                        <div key={ci} className="fm-lcard__bom-row">
+                          <span aria-hidden>└─ </span>{c.itemCode} — {c.itemName} × {c.quantity} {c.uom}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="fm-lcard__total">
                     <span>Thành tiền (sau VAT)</span>
                     <b>{formatVND(afterDisc + vatAmt)}</b>
                   </div>
                 </div>
               )
-            })}
+              })
+            })()}
           </div>
         </div>
       </div>
