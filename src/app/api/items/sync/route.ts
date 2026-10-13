@@ -330,8 +330,16 @@ async function syncBomMirror(
         })
       }
     }
-    for (let i = 0; i < bomRows.length; i += 500) {
-      await tx.bomComponent.createMany({ data: bomRows.slice(i, i + 500) })
+    // Phòng thủ: khử trùng (parent, child) đề phòng dữ liệu SAP bất thường
+    const seen = new Set<string>()
+    const uniqRows = bomRows.filter((r) => {
+      const k = `${r.parentItemCode}${r.childItemCode}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    for (let i = 0; i < uniqRows.length; i += 500) {
+      await tx.bomComponent.createMany({ data: uniqRows.slice(i, i + 500) })
     }
   })
   return bomIndex

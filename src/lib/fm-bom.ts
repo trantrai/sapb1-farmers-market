@@ -101,20 +101,28 @@ export function normalizeTree(t: B1ProductTree): BomDefinition | null {
   const parentItemCode = String(t.TreeCode ?? '').trim()
   if (bomType === 'none' || !parentItemCode) return null
   const treeQty = numv(t.Quantity) || 1 // SL cha mà định mức đang tính theo
-  const components: BomComponentRow[] = []
+  // Gộp mã con trùng (SAP cho phép cùng mã lặp nhiều dòng) — cộng dồn SL,
+  // tránh vi phạm unique (sapDatabaseId, parentItemCode, childItemCode).
+  const compMap = new Map<string, BomComponentRow>()
   for (const ln of asLineArray(t.ProductTreeLines)) {
     const childItemCode = String(ln.ItemCode ?? '').trim()
     if (!childItemCode) continue
     const qtyPerParent = numv(ln.Quantity) / treeQty
     if (!(qtyPerParent > 0)) continue
-    components.push({
-      childItemCode,
-      childItemName: String(ln.ItemName ?? ''),
-      qtyPerParent,
-      uom: String(ln.UnitOfMeasure ?? ''),
-      sortOrder: Math.trunc(numv(ln.SortOrder)),
-    })
+    const ex = compMap.get(childItemCode)
+    if (ex) {
+      ex.qtyPerParent = Math.round((ex.qtyPerParent + qtyPerParent) * 1000) / 1000
+    } else {
+      compMap.set(childItemCode, {
+        childItemCode,
+        childItemName: String(ln.ItemName ?? ''),
+        qtyPerParent,
+        uom: String(ln.UnitOfMeasure ?? ''),
+        sortOrder: Math.trunc(numv(ln.SortOrder)),
+      })
+    }
   }
+  const components = [...compMap.values()]
   if (components.length === 0) return null
   components.sort((a, b) => a.sortOrder - b.sortOrder || a.childItemCode.localeCompare(b.childItemCode))
   return { parentItemCode, bomType, components }
