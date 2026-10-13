@@ -103,7 +103,7 @@ export default function AppShell({ user, onLogout }: Props) {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (cancelled) return
-        const dbs = j?.data ?? j?.items ?? []
+        const dbs = j?.databases ?? j?.data ?? j?.items ?? []
         if (!Array.isArray(dbs) || dbs.length === 0) setSapStatus('none')
         else if (dbs.some((d: any) => d.connected)) setSapStatus('ok')
         else setSapStatus('error')
