@@ -362,13 +362,31 @@ export default function OrderFormView({
     void checkAtp(key, s.itemCode, line.warehouseCode)
   }
 
+  /** Parse số từ ô Excel: chấp nhận "1.234,56" (vi), "1,234.56" (en), "1,5".
+   *  Trả null khi ô trống, NaN khi không phải số. */
+  const parseExcelNum = (v: string): number | null => {
+    const s = v.trim().replace(/\s/g, '')
+    if (s === '') return null
+    let norm = s
+    if (norm.includes(',') && norm.includes('.')) {
+      norm =
+        norm.lastIndexOf(',') > norm.lastIndexOf('.')
+          ? norm.replace(/\./g, '').replace(',', '.')
+          : norm.replace(/,/g, '')
+    } else if (norm.includes(',')) {
+      norm = norm.replace(',', '.')
+    }
+    const n = Number(norm)
+    return Number.isFinite(n) ? n : NaN
+  }
+
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
 
     try {
-      // Lấy template mặc định
+      // 1) Lấy template mặc định
       const tRes = await api('/api/excel-templates')
       const tJson = await tRes.json()
       const templates = tJson.data ?? []
@@ -379,6 +397,7 @@ export default function OrderFormView({
       }
       const mapping: Record<string, string> = template.mapping
 
+      // 2) Đọc file Excel
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
@@ -392,9 +411,22 @@ export default function OrderFormView({
       const fieldToCol: Record<string, string> = {}
       for (const [col, field] of Object.entries(mapping)) fieldToCol[field] = col
 
-      const newLines: DraftLine[] = []
+      // 3) Parse + validate từng dòng (mã hàng, số lượng, số học)
+      interface ParsedRow {
+        excelRow: number // số dòng trên file (1-based, đã + header)
+        itemCode: string
+        itemName: string
+        quantity: number
+        unitPrice: number | null // null = Excel không khai → lấy từ master data
+        discPct: number | null
+        uom: string
+        taxCode: string
+        warehouseCode: string
+      }
+      const parsed: ParsedRow[] = []
       const errors: string[] = []
       rows.forEach((row, idx) => {
+        const excelRow = idx + 2
         const get = (field: string): string => {
           const col = fieldToCol[field]
           if (!col) return ''
@@ -402,29 +434,104 @@ export default function OrderFormView({
         }
         const itemCode = get('itemCode')
         if (!itemCode) {
-          errors.push(`Dòng ${idx + 2}: thiếu Mã hàng`)
+          errors.push(`Dòng ${excelRow}: thiếu Mã hàng`)
           return
         }
-        const quantity = Number(get('quantity')) || 0
+        const quantity = parseExcelNum(get('quantity'))
+        if (quantity === null || Number.isNaN(quantity)) {
+          errors.push(`Dòng ${excelRow}: Số lượng trống hoặc không phải số`)
+          return
+        }
         if (quantity <= 0) {
-          errors.push(`Dòng ${idx + 2}: Số lượng không hợp lệ`)
+          errors.push(`Dòng ${excelRow}: Số lượng phải > 0`)
           return
         }
-        newLines.push({
-          key: nextKey(),
-          item: { code: itemCode, name: get('itemName') || itemCode } as ACOption,
+        const unitPrice = parseExcelNum(get('unitPrice'))
+        if (unitPrice !== null && (Number.isNaN(unitPrice) || unitPrice < 0)) {
+          errors.push(`Dòng ${excelRow}: Đơn giá không hợp lệ`)
+          return
+        }
+        const discPct = parseExcelNum(get('discPct'))
+        if (discPct !== null && (Number.isNaN(discPct) || discPct < 0 || discPct > 100)) {
+          errors.push(`Dòng ${excelRow}: Chiết khấu % phải từ 0 đến 100`)
+          return
+        }
+        parsed.push({
+          excelRow,
+          itemCode,
+          itemName: get('itemName'),
           quantity,
-          unitPrice: Number(get('unitPrice')) || 0,
-          discPct: Number(get('discPct')) || 0,
-          vatPct: 8,
-          uom: get('uom') || undefined,
-          taxCode: get('taxCode') || undefined,
-          warehouseCode: get('warehouseCode') || headerWh || undefined,
+          unitPrice,
+          discPct,
+          uom: get('uom'),
+          taxCode: get('taxCode'),
+          warehouseCode: get('warehouseCode'),
         })
       })
 
+      // 4) Tra cứu master data cho các mã hàng distinct — điền thông tin còn thiếu
+      //    (tên hàng, đơn vị, đơn giá, mã thuế, VAT%) mà template không khai báo
+      interface MasterItem {
+        itemCode: string
+        itemName?: string
+        uom?: string
+        price?: number
+        taxCode?: string
+        vatRate?: number
+        barcode?: string
+      }
+      const master = new Map<string, MasterItem>()
+      const distinctCodes = [...new Set(parsed.map((p) => p.itemCode))]
+      for (const code of distinctCodes) {
+        try {
+          // Timeout dài: lần đầu cache SAP lạnh phải tải toàn bộ danh mục phân trang
+          const res = await api(`/api/items?q=${encodeURIComponent(code)}`, { timeoutMs: 120_000 })
+          if (!res.ok) continue
+          const json = await res.json()
+          const items = (json.data ?? []) as MasterItem[]
+          const found = items.find(
+            (it) => String(it.itemCode ?? '').trim().toLowerCase() === code.toLowerCase(),
+          )
+          if (found) master.set(code, found)
+        } catch {
+          /* lỗi mạng/timeout → coi như không tìm thấy, báo ở bước sau */
+        }
+      }
+
+      // 5) Dựng dòng đơn + validate mã hàng tồn tại trong danh mục
+      const newLines: DraftLine[] = []
+      for (const p of parsed) {
+        const m = master.get(p.itemCode)
+        if (!m) {
+          errors.push(`Dòng ${p.excelRow}: Mã hàng "${p.itemCode}" không có trong danh mục`)
+          continue
+        }
+        const item: ACOption = {
+          code: m.itemCode,
+          name: p.itemName || m.itemName || m.itemCode,
+          uom: m.uom ?? '',
+          taxCode: m.taxCode ?? '',
+          vatRate: typeof m.vatRate === 'number' ? m.vatRate : undefined,
+          price: typeof m.price === 'number' && m.price > 0 ? m.price : undefined,
+          barcode: m.barcode ?? '',
+        }
+        newLines.push({
+          key: nextKey(),
+          item,
+          quantity: p.quantity,
+          // Ưu tiên đơn giá trên Excel; thiếu → giá Price List 1 từ master data
+          unitPrice: p.unitPrice ?? item.price ?? 0,
+          discPct: p.discPct ?? 0,
+          // Template không có VAT% → lấy thuế suất theo mã thuế của mặt hàng
+          vatPct: item.vatRate ?? 8,
+          uom: p.uom || item.uom || undefined,
+          taxCode: p.taxCode || item.taxCode || undefined,
+          warehouseCode: p.warehouseCode || headerWh || undefined,
+        })
+      }
+
       if (newLines.length === 0) {
-        setImportMsg({ type: 'error', text: `Không nhập được dòng nào. ${errors.slice(0, 3).join('; ')}` })
+        setImportMsg({ type: 'error', text: `Không nhập được dòng nào. ${errors.slice(0, 5).join('; ')}` })
         return
       }
 
@@ -434,7 +541,7 @@ export default function OrderFormView({
         const base = hasData ? ls : []
         return [...base, ...newLines]
       })
-      // Tự động resolve giá/VAT cho từng dòng đã nhập
+      // Tự động resolve giá đặc biệt/VAT/tồn kho cho từng dòng đã nhập
       newLines.forEach((l) => {
         if (l.item) {
           void resolvePrice(l.key, l.item.code, partner?.code ?? null)
@@ -445,7 +552,7 @@ export default function OrderFormView({
       const msg = `Đã nhập ${newLines.length} dòng từ Excel (template "${template.name}").`
       setImportMsg({
         type: errors.length > 0 ? 'error' : 'success',
-        text: errors.length > 0 ? `${msg} ${errors.length} dòng lỗi: ${errors.slice(0, 3).join('; ')}` : msg,
+        text: errors.length > 0 ? `${msg} ${errors.length} dòng lỗi: ${errors.slice(0, 5).join('; ')}` : msg,
       })
     } catch {
       setImportMsg({ type: 'error', text: 'Không đọc được file Excel.' })
@@ -486,7 +593,7 @@ export default function OrderFormView({
     setRemarks(o.remarks ?? '')
     setHeaderWh(o.warehouseCode ?? '')
     setHeaderDiscPct(o.headerDiscPct ?? 0)
-    const prefilled: DraftLine[] = o.lines.map((l) => ({
+    const prefilled: DraftLine[] = (o.lines ?? []).map((l) => ({
       key: nextKey(),
       item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
       quantity: l.quantity,

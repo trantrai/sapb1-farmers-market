@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { api } from '@/lib/fm-client'
+import { api, ApiNetworkError } from '@/lib/fm-client'
 
 export interface ACOption {
   code: string
@@ -57,6 +57,9 @@ interface CacheEntry {
 }
 const listCache = new Map<string, CacheEntry>()
 const CACHE_TTL = 60_000
+/** Timeout riêng cho autocomplete: lần tải đầu (cache SAP lạnh) phải lấy toàn bộ
+ *  danh mục phân trang từ Service Layer nên có thể chậm — cho tới 120s thay vì 30s mặc định */
+const AC_TIMEOUT_MS = 120_000
 /** Giới hạn số dòng render để không treo DOM với danh mục rất lớn (dữ liệu vẫn tải đầy đủ) */
 const MAX_RENDER = 500
 
@@ -101,6 +104,24 @@ function mapResponse(json: { data?: Record<string, string | number>[]; source?: 
     }
   })
   return { options: found, source: json.source ?? '', error: json.error ?? '' }
+}
+
+/** Trích thông điệp lỗi thật từ response HTTP (ưu tiên trường error JSON do backend trả) */
+async function httpErrorDetail(res: Response): Promise<string> {
+  let detail = ''
+  try {
+    const body = (await res.json()) as { error?: string } | null
+    if (body && typeof body.error === 'string' && body.error) detail = ` — ${body.error}`
+  } catch { /* body không phải JSON */ }
+  return `HTTP ${res.status}${detail}`
+}
+
+/** Diễn giải lỗi fetch thành tiếng Việt ngắn gọn để hiển thị */
+function fetchErrorDetail(e: unknown): string {
+  if (e instanceof ApiNetworkError)
+    return 'không kết nối được máy chủ (quá thời gian chờ hoặc mất mạng) — Service Layer có thể đang tải danh mục chậm, thử lại sau ít phút'
+  if (e instanceof Error) return e.message
+  return 'lỗi không xác định'
 }
 
 /** Autocomplete chọn CardCode / ItemCode (Bước 1 & 2 của form SO) */
@@ -165,9 +186,9 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
       }
     }
     setLoading(true)
-    api(fetchUrl)
+    api(fetchUrl, { timeoutMs: AC_TIMEOUT_MS })
       .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        if (!res.ok) throw new Error(await httpErrorDetail(res))
         return res.json()
       })
       .then((json) => {
@@ -177,10 +198,10 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
         setMeta({ source: m.source, error: m.error })
         if (!m.error) listCache.set(fetchUrl, { ts: Date.now(), options: m.options, source: m.source, error: '' })
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (!cancelled) {
           setAll([])
-          setMeta({ source: '', error: 'fetch-failed' })
+          setMeta({ source: '', error: `fetch-failed: ${fetchErrorDetail(e)}` })
         }
       })
       .finally(() => {
@@ -223,9 +244,9 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
         return
       }
       setLoading(true)
-      api(key)
+      api(key, { timeoutMs: AC_TIMEOUT_MS })
         .then(async (res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          if (!res.ok) throw new Error(await httpErrorDetail(res))
           return res.json()
         })
         .then((json) => {
@@ -235,10 +256,10 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           setMeta({ source: m.source, error: m.error })
           if (!m.error) listCache.set(key, { ts: Date.now(), options: m.options, source: m.source, error: '' })
         })
-        .catch(() => {
+        .catch((e: unknown) => {
           if (!cancelled) {
             setAll([])
-            setMeta({ source: '', error: 'fetch-failed' })
+            setMeta({ source: '', error: `fetch-failed: ${fetchErrorDetail(e)}` })
           }
         })
         .finally(() => {
@@ -282,8 +303,12 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
   if (!loading) {
     if (minChars !== undefined && query.trim().length < minChars) {
       notice = minCharsHint ?? `Nhập tối thiểu ${minChars} ký tự để tìm kiếm…`
-    } else if (meta.error === 'fetch-failed') notice = 'Không thể truy vấn dữ liệu — kiểm tra kết nối SAP B1 ở trang Cài đặt'
-    else if (meta.error) notice = `⚠ Lỗi SAP: ${meta.error}`
+    } else if (meta.error.startsWith('fetch-failed')) {
+      const detail = meta.error.slice('fetch-failed:'.length).trim()
+      notice = detail
+        ? `Không thể truy vấn dữ liệu: ${detail}`
+        : 'Không thể truy vấn dữ liệu — kiểm tra kết nối SAP B1 ở trang Cài đặt'
+    } else if (meta.error) notice = `⚠ Lỗi SAP: ${meta.error}`
     else if (all && all.length === 0)
       notice =
         meta.source === 'sap'

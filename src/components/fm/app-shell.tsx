@@ -343,10 +343,11 @@ export default function AppShell({ user, onLogout }: Props) {
                 orderId={detailOrderId}
                 onBack={() => go('orders')}
                 onEdit={(orderId) => {
-                  // Lấy dữ liệu đơn để sửa
+                  // Lấy dữ liệu đơn để sửa — API trả { order } nên phải bóc lớp vỏ
                   api(`/api/orders/${orderId}`).then(async (r) => {
                     if (r.ok) {
-                      const o = await r.json()
+                      const j = await r.json()
+                      const o = j.order ?? j
                       setEditOrder({
                         id: o.id,
                         docNum: o.docNum,
@@ -358,7 +359,7 @@ export default function AppShell({ user, onLogout }: Props) {
                         warehouseCode: o.warehouseCode,
                         remarks: o.remarks,
                         headerDiscPct: o.headerDiscPct,
-                        lines: o.lines,
+                        lines: o.lines ?? [],
                       })
                       go('ordersNew')
                     }

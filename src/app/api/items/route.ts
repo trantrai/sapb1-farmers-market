@@ -10,6 +10,26 @@ import { loadSalesItems, vatRateMap, mapItem, norm } from '@/lib/fm-items'
 // Service Layer thật từ chối hàm/ngoặc trong $filter với lỗi 400). Chỉ lấy
 // MẶT HÀNG BÁN ĐƯỢC (SalesItem = tYES). Chưa cấu hình SL → tìm local.
 export async function GET(req: NextRequest) {
+  try {
+    return await handleGet(req)
+  } catch (e) {
+    // Không để Next.js trả 500 trống — frontend cần thông điệp thật để chẩn đoán.
+    // Làm sạch message (bỏ stack trace turbopack, chỉ giữ dòng lỗi chính).
+    const raw = e instanceof Error ? e.message : String(e)
+    const lines = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('→') && !l.includes('__TURBOPACK__') && !/^\d+\s/.test(l))
+    const message = lines.length > 0 ? lines[lines.length - 1] : raw.slice(0, 200)
+    console.error('[GET /api/items] unexpected:', raw)
+    return NextResponse.json(
+      { data: [], total: 0, source: '', error: `Lỗi máy chủ: ${message}` },
+      { status: 500 },
+    )
+  }
+}
+
+async function handleGet(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
 
