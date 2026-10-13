@@ -128,7 +128,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
     <div>
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Phân quyền RBAC']}
-        title="Phân Quyền Vai Trò (RBAC)"
+        title="Phân quyền vai trò (RBAC)"
 actions={<>
           <span className="fm-hint">Bấm vào vai trò để xem và chỉnh ma trận quyền</span>
         </>}

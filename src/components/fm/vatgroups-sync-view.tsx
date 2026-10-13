@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Percent, RefreshCw, Trash2, Search, DatabaseZap } from 'lucide-react'
 import { api, safeJson } from '@/lib/fm-client'
+import FmPagination from './fm-pagination'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
 import SyncModePicker, { fmtWatermark, type SyncMode } from './sync-mode-picker'
 import PageHeader from './page-header'
@@ -140,11 +141,10 @@ export default function VatGroupsSyncView() {
     <div>
       <PageHeader
         breadcrumb={['Đồng bộ dữ liệu', 'Đồng bộ Nhóm thuế']}
-        title="Quản Lý Đồng Bộ Nhóm Thuế"
+        title="Quản lý đồng bộ nhóm thuế"
         badge="Cập nhật tức thời"
         actions={<>
-          <SyncModePicker mode={mode} onChange={setMode} disabled={busy !== null} hasWatermark={!!st?.watermark?.date} />
-          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ nhóm thuế từ SAP B1 về CSDL local">
+<button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ nhóm thuế từ SAP B1 về CSDL local">
             <RefreshCw size={14} className={busy === 'sync' ? 'fm-spin' : ''} />
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
@@ -183,6 +183,9 @@ export default function VatGroupsSyncView() {
           <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
           <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt gia tăng chỉ tải bản ghi mới hơn mốc này">
             Mốc SAP: {fmtWatermark(st?.watermark?.date ?? null, st?.watermark?.time ?? null)}
+          </span>
+          <span style={{ marginLeft: 'auto' }}>
+            <SyncModePicker mode={mode} onChange={setMode} disabled={busy !== null} hasWatermark={!!st?.watermark?.date} />
           </span>
         </div>
 
@@ -268,13 +271,7 @@ export default function VatGroupsSyncView() {
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" disabled={page <= 1} onClick={() => load(page - 1, q, cat)}>← Trước</button>
-            <span className="fm-hint">Trang {page}/{totalPages}</span>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" disabled={page >= totalPages} onClick={() => load(page + 1, q, cat)}>Sau →</button>
-          </div>
-        )}
+        <FmPagination page={page} totalPages={totalPages} onPage={(p) => load(p, q, cat)} />
       </div>
     </div>
   )

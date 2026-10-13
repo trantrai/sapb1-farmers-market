@@ -219,7 +219,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   if (error || !order) {
     return (
       <div>
-        <PageHeader breadcrumb={['Chức năng chính', 'Chi tiết đơn hàng']} title="Chi Tiết Đơn Hàng" />
+        <PageHeader breadcrumb={['Chức năng chính', 'Chi tiết đơn hàng']} title="Chi tiết đơn hàng" />
         <div className="fm-alert fm-alert--error">{error || 'Không tìm thấy đơn hàng.'}</div>
         <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
           <ArrowLeft size={15} /> Quay lại

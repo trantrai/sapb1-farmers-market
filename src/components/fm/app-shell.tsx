@@ -93,6 +93,25 @@ export default function AppShell({ user, onLogout }: Props) {
   /** Từ khóa điền sẵn cho màn đồng bộ khi chọn kết quả từ palette */
   const [syncPrefill, setSyncPrefill] = useState<{ view: 'items' | 'partners'; q: string } | null>(null)
 
+  /** Trạng thái cấu hình SAP: 'ok' | 'none' | 'error' */
+  const [sapStatus, setSapStatus] = useState<'ok' | 'none' | 'error'>('none')
+
+  // Lấy trạng thái SAP thật từ /api/sap-databases (không hardcode "Live")
+  useEffect(() => {
+    let cancelled = false
+    api('/api/sap-databases')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled) return
+        const dbs = j?.data ?? j?.items ?? []
+        if (!Array.isArray(dbs) || dbs.length === 0) setSapStatus('none')
+        else if (dbs.some((d: any) => d.connected)) setSapStatus('ok')
+        else setSapStatus('error')
+      })
+      .catch(() => { if (!cancelled) setSapStatus('error') })
+    return () => { cancelled = true }
+  }, [])
+
   // Đóng drawer mobile bằng phím Escape
   useEffect(() => {
     if (!drawerOpen) return
@@ -220,9 +239,9 @@ export default function AppShell({ user, onLogout }: Props) {
             <span className="fm-sap-status__icon">⇄</span>
             <span>SAP Service Layer</span>
           </div>
-          <span className="fm-sap-status__live">
-            <span className="fm-sap-status__dot" />
-            Live
+          <span className="fm-sap-status__live" style={sapStatus === 'none' ? { opacity: 0.6 } : sapStatus === 'error' ? { color: 'var(--fm-red)' } : undefined}>
+            <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: '#9aa0a6' } : sapStatus === 'error' ? { background: 'var(--fm-red)' } : undefined} />
+            {sapStatus === 'ok' ? 'Live' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi'}
           </span>
         </div>
 

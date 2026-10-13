@@ -841,6 +841,11 @@ export default function OrderFormView({
       setError('Đơn hàng cần ít nhất 1 dòng hàng hóa có mã hàng và số lượng > 0')
       return
     }
+    const negPrice = valid.find((l) => l.unitPrice < 0)
+    if (negPrice) {
+      setError(`Đơn giá không được âm (dòng ${negPrice.item?.code ?? ''}) — hãy sửa lại trước khi lưu`)
+      return
+    }
 
     setSaving(true)
     try {
@@ -1276,10 +1281,11 @@ export default function OrderFormView({
                           step="1000"
                           inputMode="decimal"
                           aria-label={`Đơn giá dòng ${l.key}`}
+                          aria-invalid={l.unitPrice < 0}
                           className="fm-line-input"
-                          style={{ flex: 1, minWidth: 0 }}
+                          style={{ flex: 1, minWidth: 0, ...(l.unitPrice < 0 ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : {}) }}
                           value={l.unitPrice || ''}
-                          title={l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
+                          title={l.unitPrice < 0 ? 'Đơn giá không được âm' : l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
                           onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value) || 0, priceSource: l.item ? 'manual' : undefined })}
                         />
                         {l.priceSource === 'special' && (

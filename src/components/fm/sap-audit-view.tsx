@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { History, RefreshCw, RotateCcw, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import FmPagination from './fm-pagination'
 import PageHeader from './page-header'
 
 // ============================================================
@@ -131,7 +132,7 @@ export default function SapAuditView() {
     <div>
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Service Layer Audit']}
-        title="Nhật Ký Gọi SAP B1 Service Layer"
+        title="Nhật ký gọi SAP B1 Service Layer"
 actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => load(1, status, q)}>
             <RefreshCw size={14} /> Tải lại
@@ -258,13 +259,7 @@ actions={<>
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" disabled={page <= 1} onClick={() => load(page - 1, status, q)}>← Trước</button>
-            <span className="fm-hint">Trang {page}/{totalPages}</span>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" disabled={page >= totalPages} onClick={() => load(page + 1, status, q)}>Sau →</button>
-          </div>
-        )}
+        <FmPagination page={page} totalPages={totalPages} onPage={(p) => load(p, status, q)} />
       </div>
 
       {/* Xác nhận Retry — z-index 75: trên bottom tab bar (65), ngang hàng modal thường */}

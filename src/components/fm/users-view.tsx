@@ -119,7 +119,7 @@ export default function UsersView({ user }: Props) {
     <div>
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Quản lý người dùng']}
-        title="Quản Lý Người Dùng"
+        title="Quản lý người dùng"
 actions={<>
           <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}><UserPlus size={14} /> Thêm người dùng mới</button>
         </>}
@@ -154,10 +154,7 @@ actions={<>
       </div>
 
       <div className="fm-card">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div>
-            <h2 className="fm-card__title">Người dùng hệ thống</h2>
-          </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}>
               <UserPlus size={15} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm người dùng

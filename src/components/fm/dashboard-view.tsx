@@ -100,7 +100,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
     <div>
       <PageHeader
         breadcrumb={['Bảng điều khiển', 'Tổng quan hệ thống']}
-        title="Tổng Quan Hệ Thống"
+        title="Tổng quan hệ thống"
         badge="Cập nhật tức thời"
         actions={
           <>

@@ -5,6 +5,7 @@ import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pe
 import { formatVND, formatDateVN, formatNum, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
+import FmPagination from './fm-pagination'
 import type { EditOrderData } from './order-form-view'
 import PageHeader from './page-header'
 import * as XLSX from 'xlsx'
@@ -310,7 +311,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     <div>
       <PageHeader
         breadcrumb={['Chức năng chính', 'Danh sách đơn hàng']}
-        title="Danh Sách Sale Order"
+        title="Danh sách Sale Order"
         badge="Cập nhật tức thời"
         actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => load()}><RefreshCw size={14} /> Tải lại</button>
@@ -325,10 +326,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       )}
 
       <div className="fm-card">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div>
-            <h2 className="fm-card__title">Danh sách Sale Order</h2>
-          </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={onGoCreate}>
               <Plus size={15} style={{ verticalAlign: -2, marginRight: 4 }} /> Tạo đơn hàng
@@ -524,22 +522,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
             </div>
 
             {/* Phân trang */}
-            <div className="fm-pagination">
-              <span style={{ color: 'var(--fm-text-2)', marginRight: 8 }}>
-                Trang {page}/{totalPages}
-              </span>
-              <button className="fm-page-btn" aria-label="Về trang đầu" disabled={page <= 1} onClick={() => setPage(1)}>«</button>
-              <button className="fm-page-btn" aria-label="Trang trước" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter((p) => Math.abs(p - page) <= 1 || p === 1 || p === totalPages)
-                .map((p) => (
-                  <button key={p} className={`fm-page-btn${p === page ? ' is-active' : ''}`} aria-label={`Trang ${p}`} aria-current={p === page ? 'page' : undefined} onClick={() => setPage(p)}>
-                    {p}
-                  </button>
-                ))}
-              <button className="fm-page-btn" aria-label="Trang sau" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>›</button>
-              <button className="fm-page-btn" aria-label="Đến trang cuối" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>»</button>
-            </div>
+            <FmPagination page={page} totalPages={totalPages} onPage={setPage} />
           </>
         )}
       </div>

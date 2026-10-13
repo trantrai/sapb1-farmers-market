@@ -222,7 +222,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
     <div>
       <PageHeader
         breadcrumb={['Chức năng chính', 'Mẫu Excel']}
-        title="Quản Lý Template Excel"
+        title="Quản lý template Excel"
 actions={
           <button className="fm-btn fm-btn--primary" onClick={() => openForm()}>
             <Plus size={14} /> Thêm template

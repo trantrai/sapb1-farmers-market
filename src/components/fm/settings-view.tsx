@@ -209,7 +209,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
     <div>
       <PageHeader
         breadcrumb={['Quản trị & Hệ thống', 'Cài đặt SAP B1']}
-        title="Cài Đặt Kết Nối SAP Business One"
+        title="Cài đặt kết nối SAP Business One"
 />
 
       {msg && (
