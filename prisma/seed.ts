@@ -44,6 +44,7 @@ async function main() {
   const fullPerm = JSON.stringify({
     orders: { view: true, create: true, edit: true, delete: true },
     ordersNew: { view: true, create: true, edit: true, delete: true },
+    deliveries: { view: true, create: true, edit: true, delete: true },
     users: { view: true, create: true, edit: true, delete: true },
     settings: { view: true, create: true, edit: true, delete: true },
     roles: { view: true, create: true, edit: true, delete: true },
@@ -53,6 +54,7 @@ async function main() {
   const accPerm = JSON.stringify({
     orders: { view: true, create: true, edit: true, delete: false },
     ordersNew: { view: true, create: true, edit: true, delete: false },
+    deliveries: { view: true, create: true, edit: true, delete: false },
     users: { view: false, create: false, edit: false, delete: false },
     settings: { view: true, create: false, edit: false, delete: false },
     roles: { view: false, create: false, edit: false, delete: false },
@@ -62,6 +64,7 @@ async function main() {
   const staffPerm = JSON.stringify({
     orders: { view: true, create: true, edit: false, delete: false },
     ordersNew: { view: true, create: true, edit: false, delete: false },
+    deliveries: { view: true, create: false, edit: false, delete: false },
     users: { view: false, create: false, edit: false, delete: false },
     settings: { view: false, create: false, edit: false, delete: false },
     roles: { view: false, create: false, edit: false, delete: false },
