@@ -298,8 +298,9 @@ async function syncBomMirror(
   updateSync('items', { phase: 'fetch', message: 'Đang tải công thức BOM (ProductTrees) từ SAP B1…' })
   const { trees, error: bomError } = await loadProductTrees(s)
   if (bomError) {
-    // BOM sync thất bại không chặn sync mặt hàng — chỉ ghi log, mirror BOM giữ nguyên
-    console.warn('POST /api/items/sync — không tải được ProductTrees:', bomError)
+    // BOM sync thất bại: KHÔNG xóa mirror cũ, KHÔNG gán bomType='none' —
+    // ném lỗi để người dùng thấy rõ thay vì lặng lẽ mất dữ liệu BOM.
+    throw new Error(`Không tải được công thức BOM từ SAP B1 (ProductTrees): ${bomError}`)
   }
   const bomIndex = indexTrees(trees)
   const now = new Date()
