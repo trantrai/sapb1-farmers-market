@@ -306,7 +306,13 @@ actions={
             <tbody>
               {(() => {
                 let stt = 0
-                return order.lines.map((line, i) => {
+                // Chỉ hiển thị dòng con của BOM Template (bomEditable=true);
+                // Production/Assembly ẩn dòng con.
+                const visibleLines = order.lines.filter((l) => {
+                  if (!l.isBomChild) return true
+                  return l.bomEditable !== false
+                })
+                return visibleLines.map((line, i) => {
                 const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
                 const vatAmt = afterDisc * (line.vatPct / 100)
                 const isChild = Boolean(line.isBomChild)
@@ -376,8 +382,9 @@ actions={
               if (isChild) return null // dòng con vẽ lồng trong card của cha (bên dưới)
               stt += 1
               const isBomParent = Boolean(line.bomGroupKey)
+              // Chỉ liệt kê thành phần khi là BOM Template (con sửa được SL)
               const children = isBomParent
-                ? order.lines.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey)
+                ? order.lines.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey && l.bomEditable !== false)
                 : []
               return (
                 <div key={i} className="fm-lcard">

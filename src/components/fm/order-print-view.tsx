@@ -12,6 +12,7 @@ interface PrintLine {
   vatPct: number
   isBomChild?: boolean
   bomGroupKey?: string | null
+  bomEditable?: boolean
 }
 
 interface PrintOrder {
@@ -94,7 +95,9 @@ export default function OrderPrintView({ order, partner }: Props) {
           </tr>
         </thead>
         <tbody>
-          {order.lines.map((line, i) => {
+          {order.lines
+            .filter((l) => !l.isBomChild || l.bomEditable !== false)
+            .map((line, i) => {
             const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
             const lineTotal = afterDisc * (1 + line.vatPct / 100)
             const isChild = Boolean(line.isBomChild)
