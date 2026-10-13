@@ -611,6 +611,7 @@
 .fm-table tbody th[scope="row"] {
   padding: 10px 12px; border-bottom: 1px solid #F3F2F1; vertical-align: middle;
   font-weight: 600; text-align: left; background: none; white-space: normal;
+  color: var(--fm-text);
 }
 .fm-table tbody tr:nth-child(even) td, .fm-table tbody tr:nth-child(even) th[scope="row"] { background: #FFFDF5; }
 .fm-table tbody tr:hover td, .fm-table tbody tr:hover th[scope="row"] { background: var(--fm-yellow-faint); }
