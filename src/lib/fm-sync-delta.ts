@@ -108,8 +108,10 @@ export async function setWatermark(
         lastSyncAt: new Date(),
       },
     })
-  } catch {
-    /* bo qua — lan sync sau se thu lai sau khi generate */
+  } catch (e) {
+    // Log de chan doan — neu Prisma client chua duoc generate (thieu model
+    // SyncWatermark) thi watermark khong duoc luu, che do gia tang bi disable.
+    console.warn('setWatermark that bai (watermark se khong duoc luu):', e instanceof Error ? e.message : e)
   }
 }
 
