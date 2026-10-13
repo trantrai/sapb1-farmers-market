@@ -359,7 +359,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
             <input
               className="fm-input"
               style={{ paddingLeft: 32 }}
-              placeholder="Số CT, mã/N tên khách hàng…"
+              placeholder="Số CT, mã/tên khách hàng…"
               aria-label="Tìm kiếm đơn hàng theo số chứng từ, mã hoặc tên khách hàng"
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1) }}
@@ -371,8 +371,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
             <option value="Open">Open</option>
             <option value="Closed">Closed</option>
           </select>
-          <input type="date" className="fm-datepicker" title="Từ ngày" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
-          <input type="date" className="fm-datepicker" title="Đến ngày" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
+          <input type="date" className="fm-datepicker" title="Từ ngày" aria-label="Lọc từ ngày" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
+          <input type="date" className="fm-datepicker" title="Đến ngày" aria-label="Lọc đến ngày" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={resetFilter}>
             <RotateCcw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt lại
           </button>

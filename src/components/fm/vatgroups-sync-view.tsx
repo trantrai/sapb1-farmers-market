@@ -72,7 +72,7 @@ export default function VatGroupsSyncView() {
       if (res.status === 401) { window.location.reload(); return }
       const json: any = await safeJson(res)
       if (!res.ok) {
-        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Máy chủ lỗi HTTP ${res.status} — kiểm tra server.log` : 'Không tải được danh mục nhóm thuế') })
+        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status}) — hãy thử lại hoặc liên hệ quản trị` : 'Không tải được danh mục nhóm thuế') })
         setRows([])
         return
       }
@@ -107,7 +107,7 @@ export default function VatGroupsSyncView() {
       const res = await api('/api/vatgroups/sync', { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })
       const json: any = await safeJson(res)
       if (!res.ok) {
-        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Máy chủ lỗi HTTP ${res.status} — kiểm tra server.log` : 'Đồng bộ thất bại') })
+        setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status}) — hãy thử lại hoặc liên hệ quản trị` : 'Đồng bộ thất bại') })
         setBusy(null)
         return
       }
@@ -128,7 +128,7 @@ export default function VatGroupsSyncView() {
       const res = await api('/api/vatgroups/sync', { method: 'DELETE' })
       const json: any = await safeJson(res)
       if (res.ok) setMsg({ type: 'success', text: json?.message ?? 'Đã xóa dữ liệu đồng bộ.' })
-      else setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Máy chủ lỗi HTTP ${res.status} — kiểm tra server.log` : 'Không xóa được dữ liệu') })
+      else setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status}) — hãy thử lại hoặc liên hệ quản trị` : 'Không xóa được dữ liệu') })
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
     } finally {

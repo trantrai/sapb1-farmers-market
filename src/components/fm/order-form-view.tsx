@@ -992,7 +992,7 @@ export default function OrderFormView({
 
         <div className="fm-form-grid">
           <Autocomplete
-            label="Khách hàng (CardCode)"
+            label="Khách hàng"
             required
             placeholder="Gõ mã KH hoặc tên KH…"
             fetchUrl="/api/partners"

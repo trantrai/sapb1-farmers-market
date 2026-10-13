@@ -213,6 +213,7 @@ export default function AppShell({ user, onLogout }: Props) {
 
   return (
     <div className="fm-layout fm-app-root">
+      <a href="#fm-main" className="fm-skip-link">Bỏ qua tới nội dung chính</a>
       {/* ===== Sidebar ===== */}
       <aside className={`fm-sidebar${drawerOpen ? ' is-open' : ''}`}>
         <div className="fm-logo" style={{ justifyContent: 'space-between' }}>
@@ -342,7 +343,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
         </header>
 
-        <main className="fm-page">
+        <main className="fm-page" id="fm-main">
           <div className="fm-view" key={view}>
             {view === 'dashboard' && (
               <DashboardView onGoOrders={() => go('orders')} onGoCreate={() => { setEditOrder(null); go('ordersNew') }} onGoOrderDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }} />

@@ -394,7 +394,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           >
             {loading && <div className="fm-autocomplete__opt">{minChars !== undefined ? 'Đang tìm mặt hàng…' : 'Đang tải toàn bộ danh sách…'}</div>}
             {!loading && notice && (
-              <div className="fm-autocomplete__opt" style={notice.startsWith('⚠') || meta.error ? { color: '#C14B33' } : undefined}>{notice}</div>
+              <div className="fm-autocomplete__opt" style={notice.startsWith('⚠') || meta.error ? { color: 'var(--fm-red)' } : undefined}>{notice}</div>
             )}
             {!loading && !notice && options.length === 0 && (
               <div className="fm-autocomplete__opt">Không tìm thấy kết quả</div>

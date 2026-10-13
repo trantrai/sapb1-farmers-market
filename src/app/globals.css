@@ -908,7 +908,14 @@
   .fm-page { padding: 12px; overflow-x: clip; } /* chặn tuyệt đối control ló khỏi card nếu trình duyệt nào còn phình nội dung */
   .fm-totals { width: 100%; }
   .fm-view-detail { grid-template-columns: minmax(0, 1fr); }
+  /* Touch target >= 44px cho mobile */
+  .fm-icon-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .fm-topbar__bell { width: 44px; height: 44px; }
 }
+
+/* Skip link cho keyboard/a11y */
+.fm-skip-link { position: absolute; left: -9999px; top: 0; z-index: 200; background: var(--fm-navy); color: #fff; padding: 10px 16px; border-radius: 0 0 8px 0; font-weight: 600; }
+.fm-skip-link:focus { left: 0; }
 
 /* ============================================================
    14. UI POLISH — Animation, skeleton, focus, mobile drawer

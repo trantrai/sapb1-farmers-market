@@ -247,10 +247,10 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                   {d.isDefault && <span className="fm-chip fm-chip--role"><Star size={12} style={{ verticalAlign: -1, marginRight: 3 }} />Mặc định</span>}
                   <span
                     className="fm-chip"
-                    style={d.connected ? { background: '#E6F4EA', color: '#1B7A3D' } : undefined}
+                    style={d.connected ? { background: 'var(--fm-green-soft)', color: 'var(--fm-green)' } : undefined}
                     title={d.lastTestAt ? `Test gần nhất: ${new Date(d.lastTestAt).toLocaleString('vi-VN')}` : 'Chưa test'}
                   >
-                    <span className="dot" style={{ background: d.connected ? '#2E7D32' : '#B0B0B0' }} />
+                    <span className="dot" style={{ background: d.connected ? 'var(--fm-green)' : '#B0B0B0' }} />
                     {d.connected ? 'Đã kết nối' : 'Chưa test'}
                   </span>
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -330,12 +330,12 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                 />
               </div>
               <div className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input id="db-ssl" type="checkbox" checked={form.sslSkipVerify} onChange={(e) => updateForm({ sslSkipVerify: e.target.checked })} style={{ width: 16, height: 16, accentColor: '#C14B33' }} />
+                <input id="db-ssl" type="checkbox" checked={form.sslSkipVerify} onChange={(e) => updateForm({ sslSkipVerify: e.target.checked })} style={{ width: 16, height: 16, accentColor: 'var(--fm-primary)' }} />
                 <label className="fm-label" htmlFor="db-ssl" style={{ margin: 0 }}>Bỏ qua xác thực SSL</label>
               </div>
             </div>
             <label className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 12 }}>
-              <input id="db-default" type="checkbox" checked={form.isDefault} onChange={(e) => updateForm({ isDefault: e.target.checked })} style={{ width: 16, height: 16, accentColor: '#C14B33' }} />
+              <input id="db-default" type="checkbox" checked={form.isDefault} onChange={(e) => updateForm({ isDefault: e.target.checked })} style={{ width: 16, height: 16, accentColor: 'var(--fm-primary)' }} />
               <label className="fm-label" htmlFor="db-default" style={{ margin: 0 }}>Đặt làm database mặc định</label>
             </label>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

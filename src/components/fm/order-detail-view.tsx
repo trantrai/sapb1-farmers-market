@@ -293,7 +293,7 @@ actions={
 
       {/* Dòng hàng */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
-        <h2 className="fm-card__title">Hàng Hóa & Chi Tiết (RDR1)</h2>
+        <h2 className="fm-card__title">Hàng hóa & chi tiết</h2>
         <div className="fm-table-wrap">
           <table className="fm-table">
             <thead>
