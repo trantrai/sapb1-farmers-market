@@ -87,28 +87,39 @@ export async function setWatermark(
   wm: DeltaWatermark,
   mode: 'full' | 'incremental',
 ): Promise<void> {
-  await prisma.syncWatermark.upsert({
-    where: { sapDatabaseId_entity: { sapDatabaseId: dbId, entity } },
-    create: {
-      sapDatabaseId: dbId,
-      entity,
-      lastUpdateDate: wm.date,
-      lastUpdateTime: wm.time,
-      lastMode: mode,
-      lastSyncAt: new Date(),
-    },
-    update: {
-      lastUpdateDate: wm.date,
-      lastUpdateTime: wm.time,
-      lastMode: mode,
-      lastSyncAt: new Date(),
-    },
-  })
+  // Khong bao gio throw: watermark chi la du lieu phu tro — neu Prisma client
+  // chua duoc generate (thieu model SyncWatermark) thi bo qua, sync van chay
+  // o che do full thay vi crash ca request.
+  try {
+    await prisma.syncWatermark.upsert({
+      where: { sapDatabaseId_entity: { sapDatabaseId: dbId, entity } },
+      create: {
+        sapDatabaseId: dbId,
+        entity,
+        lastUpdateDate: wm.date,
+        lastUpdateTime: wm.time,
+        lastMode: mode,
+        lastSyncAt: new Date(),
+      },
+      update: {
+        lastUpdateDate: wm.date,
+        lastUpdateTime: wm.time,
+        lastMode: mode,
+        lastSyncAt: new Date(),
+      },
+    })
+  } catch {
+    /* bo qua — lan sync sau se thu lai sau khi generate */
+  }
 }
 
 /** Xóa mốc watermark (khi xóa toàn bộ dữ liệu mirror của entity) */
 export async function clearWatermark(dbId: string, entity: SyncEntity): Promise<void> {
-  await prisma.syncWatermark.deleteMany({ where: { sapDatabaseId: dbId, entity } })
+  try {
+    await prisma.syncWatermark.deleteMany({ where: { sapDatabaseId: dbId, entity } })
+  } catch {
+    /* bo qua — tuong tu setWatermark */
+  }
 }
 
 /** Thông tin mốc để hiển thị ở màn hình đồng bộ */

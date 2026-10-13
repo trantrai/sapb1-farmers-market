@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
       purchaseCount,
       missingRateCount,
       lastSyncAt: await lastSyncAt(dbIdTop),
-      watermark: await watermarkInfo(dbIdTop, 'vatgroups'),
+      watermark: await watermarkInfo(dbIdTop, 'vatgroups').catch(() => null),
       progress: getProgress('vatgroups'),
     },
   })
@@ -143,7 +143,9 @@ export async function POST(req: NextRequest) {
   try {
     bodyMode = (await req.json())?.mode
   } catch { /* không có body */ }
-  const wm0 = await getWatermark(syncDbId, 'vatgroups')
+  // Graceful fallback: neu Prisma client/bang SyncWatermark chua duoc generate/push
+  // (vd quen chay generate sau khi pull) thi chay full sync thay vi crash 500.
+  const wm0 = await getWatermark(syncDbId, 'vatgroups').catch(() => null)
   const mode: 'full' | 'incremental' =
     bodyMode === 'full' ? 'full'
     : bodyMode === 'incremental' ? (wm0 ? 'incremental' : 'full')

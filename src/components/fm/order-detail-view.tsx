@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, Download, X, Mail } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -34,8 +34,14 @@ interface Order {
   warehouseCode?: string
   createdBy: string
   totalBeforeDisc: number
+  discountAmt: number
+  headerDiscPct: number
+  headerDiscAmt: number
   vatAmt: number
   grandTotal: number
+  sapDocNum?: number | null
+  sapSyncStatus?: string
+  sapSyncedAt?: string | null
   lines: OrderLine[]
 }
 
@@ -193,46 +199,6 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    api(`/api/orders/${orderId}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((j: { order?: Order } & Partial<Order>) => {
-        if (cancelled) return
-        // API trả về { order } — unwrap để tương thích
-        const o: Order = (j.order ?? j) as Order
-        setOrder(o)
-        setError('')
-        // Lấy thông tin địa chỉ/người liên hệ + email
-        if (o.cardCode) {
-          api(`/api/partners?q=${encodeURIComponent(o.cardCode)}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((j) => {
-              if (cancelled) return
-              const p = j?.items?.find((x: any) => x.cardCode === o.cardCode) ?? j?.items?.[0]
-              if (p) setPartner((cur) => ({ ...cur, address: p.address, contactPerson: p.contactPerson, contactPhone: p.contactPhone }))
-            })
-            .catch(() => {})
-          // Email từ danh mục KH đã đồng bộ (local)
-          api(`/api/bpartners/sync?q=${encodeURIComponent(o.cardCode)}&pageSize=5`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((j) => {
-              if (cancelled) return
-              const p = j?.data?.find((x: any) => x.cardCode === o.cardCode)
-              if (p?.email) setPartner((cur) => ({ ...cur, email: p.email }))
-            })
-            .catch(() => {})
-        }
-      })
-      .catch(() => { if (!cancelled) setError('Không tải được chi tiết đơn hàng.') })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [orderId])
-
   if (loading) {
     return <div className="fm-skeleton" style={{ height: 400 }} />
   }
@@ -294,6 +260,21 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
           <div><dt>Kho xuất</dt><dd>{order.warehouseCode || '—'}</dd></div>
           <div><dt>Người tạo</dt><dd>{order.createdBy}</dd></div>
           <div><dt>Trạng thái</dt><dd>{order.status === 'Open' ? 'Đang mở' : 'Đã đóng'}</dd></div>
+          <div><dt>Chiết khấu đầu chứng từ</dt><dd>{order.headerDiscPct > 0 ? `${order.headerDiscPct}% (${formatVND(order.headerDiscAmt)})` : '—'}</dd></div>
+          <div>
+            <dt>Đồng bộ SAP B1</dt>
+            <dd>
+              {order.sapSyncStatus === 'synced' ? (
+                <span className="fm-chip fm-chip--sap" title={order.sapSyncedAt ? `Đẩy thành công lúc ${new Date(order.sapSyncedAt).toLocaleString('vi-VN')}` : undefined}>
+                  Đã đẩy{order.sapDocNum ? ` — DocNum ${order.sapDocNum}` : ''}
+                </span>
+              ) : order.sapSyncStatus === 'pending' ? (
+                <span className="fm-chip fm-chip--overdue">Chờ đẩy / đẩy lỗi</span>
+              ) : (
+                <span className="fm-chip fm-chip--role">Chưa đẩy</span>
+              )}
+            </dd>
+          </div>
           <div><dt>Ghi chú</dt><dd>{order.remarks || '—'}</dd></div>
         </dl>
       </div>
@@ -345,16 +326,30 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Tổng trước VAT:</td>
+                <td colSpan={10} style={{ textAlign: 'right' }}>Tổng trước chiết khấu:</td>
                 <td className="fm-num">{formatVND(order.totalBeforeDisc)}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Tiền VAT:</td>
+                <td colSpan={10} style={{ textAlign: 'right' }}>Chiết khấu các dòng:</td>
+                <td className="fm-num">{order.discountAmt > 0 ? `−${formatVND(order.discountAmt)}` : formatVND(0)}</td>
+              </tr>
+              {order.headerDiscAmt > 0 && (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: 'right' }}>Chiết khấu đầu chứng từ ({order.headerDiscPct}%):</td>
+                  <td className="fm-num">−{formatVND(order.headerDiscAmt)}</td>
+                </tr>
+              )}
+              <tr>
+                <td colSpan={10} style={{ textAlign: 'right' }}>Sau chiết khấu:</td>
+                <td className="fm-num">{formatVND(order.totalBeforeDisc - order.discountAmt - order.headerDiscAmt)}</td>
+              </tr>
+              <tr>
+                <td colSpan={10} style={{ textAlign: 'right' }}>Thuế VAT các dòng:</td>
                 <td className="fm-num">{formatVND(order.vatAmt)}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>TỔNG CỘNG THANH TOÁN:</td>
-                <td className="fm-num">{formatVND(order.grandTotal)}</td>
+                <td colSpan={10} style={{ textAlign: 'right' }}><b>TỔNG CỘNG:</b></td>
+                <td className="fm-num"><b>{formatVND(order.grandTotal)}</b></td>
               </tr>
             </tfoot>
           </table>
@@ -367,24 +362,14 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
           {actionMsg.text}
         </div>
       )}
+      {/* Nút thao tác — chỉ giữ các hành động KHÔNG có trên thanh header:
+          Đóng/Mở đơn và Đẩy SAP. (Sửa/In/Gửi email đã có ở header → không lặp) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
-          <Pencil size={15} /> Sửa đơn hàng
-        </button>
         <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
           <Lock size={15} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
         </button>
         <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
           <CloudUpload size={15} /> Đẩy sang SAP B1 ngay
-        </button>
-        <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
-          <Printer size={15} /> In phiếu
-        </button>
-        <button className="fm-btn fm-btn--secondary" onClick={openEmail}>
-          <Mail size={15} /> Gửi email
-        </button>
-        <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
-          <Download size={15} /> Xem trước bản in
         </button>
       </div>
 
