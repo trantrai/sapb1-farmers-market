@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useFocusTrap } from './use-focus-trap'
 import * as XLSX from 'xlsx'
 import { Plus, Pencil, Trash2, Download, Star, X, Save } from 'lucide-react'
 import { api } from '@/lib/fm-client'
@@ -41,18 +42,9 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   const [showForm, setShowForm] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<ExcelTemplate | null>(null)
 
-  // Đóng dialog bằng Escape
-  useEffect(() => {
-    if (!showForm && !confirmDelete) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowForm(false)
-        setConfirmDelete(null)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showForm, confirmDelete])
+  // Focus trap + Escape cho 2 dialog
+  const formTrapRef = useFocusTrap<HTMLDivElement>(showForm, () => setShowForm(false))
+  const delTrapRef = useFocusTrap<HTMLDivElement>(!!confirmDelete, () => setConfirmDelete(null))
 
   // Form state
   const [formName, setFormName] = useState('')
@@ -290,7 +282,7 @@ actions={
       {/* Form thêm/sửa */}
       {showForm && (
         <div className="fm-backdrop" onClick={() => setShowForm(false)}>
-          <div className="fm-modal fm-modal--wide" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editing ? 'Sửa template' : 'Thêm template'}>
+          <div ref={formTrapRef} className="fm-modal fm-modal--wide" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editing ? 'Sửa template' : 'Thêm template'}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <b style={{ fontSize: 17 }}>{editing ? 'Sửa template' : 'Thêm template mới'}</b>
               <button className="fm-icon-btn" onClick={() => setShowForm(false)} aria-label="Đóng"><X size={16} /></button>
@@ -367,7 +359,7 @@ actions={
       {/* Xác nhận xóa */}
       {confirmDelete && (
         <div className="fm-backdrop" onClick={() => setConfirmDelete(null)}>
-          <div className="fm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Xác nhận xóa">
+          <div ref={delTrapRef} className="fm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Xác nhận xóa">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <b style={{ fontSize: 16 }}>Xác nhận xóa</b>
               <button className="fm-icon-btn" onClick={() => setConfirmDelete(null)} aria-label="Đóng"><X size={16} /></button>

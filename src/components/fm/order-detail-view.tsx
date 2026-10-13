@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useFocusTrap } from './use-focus-trap'
 import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
@@ -62,18 +63,9 @@ export default function OrderDetailView({ orderId, onBack, onEdit }: Props) {
   const [showPrint, setShowPrint] = useState(false)
   const [showEmail, setShowEmail] = useState(false)
 
-  // Đóng dialog print/email bằng Escape
-  useEffect(() => {
-    if (!showPrint && !showEmail) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowPrint(false)
-        setShowEmail(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showPrint, showEmail])
+  // Focus trap + Escape cho dialog print/email
+  const printTrapRef = useFocusTrap<HTMLDivElement>(showPrint, () => setShowPrint(false))
+  const emailTrapRef = useFocusTrap<HTMLDivElement>(showEmail, () => setShowEmail(false))
   const [emailTo, setEmailTo] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
@@ -365,6 +357,35 @@ actions={
               </tr>
             </tfoot>
           </table>
+          {/* Mobile (<=640px): card thay cho bảng 11 cột cuộn ngang */}
+          <div className="fm-lcard-list">
+            {order.lines.map((line, i) => {
+              const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)
+              const vatAmt = afterDisc * (line.vatPct / 100)
+              if (line.isBomChild) return null
+              return (
+                <div key={i} className="fm-lcard">
+                  <div className="fm-lcard__head">
+                    <span className="fm-lcard__num">{i + 1}</span>
+                    <div>
+                      <div className="fm-lcard__name">{line.itemName}</div>
+                      <div className="fm-lcard__code">{line.itemCode} · {line.uom} · Kho {line.warehouseCode || '—'}</div>
+                    </div>
+                  </div>
+                  <div className="fm-lcard__grid">
+                    <div><span className="k">SL</span><span className="v">{line.quantity}</span></div>
+                    <div><span className="k">Đơn giá</span><span className="v">{formatVND(line.unitPrice)}</span></div>
+                    <div><span className="k">CK</span><span className="v">{line.discPct}%</span></div>
+                    <div><span className="k">VAT</span><span className="v">{line.vatPct}%</span></div>
+                  </div>
+                  <div className="fm-lcard__total">
+                    <span>Thành tiền (sau VAT)</span>
+                    <b>{formatVND(afterDisc + vatAmt)}</b>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -389,6 +410,7 @@ actions={
       {showPrint && (
         <div className="fm-backdrop fm-print-hide" onClick={() => setShowPrint(false)}>
           <div
+            ref={printTrapRef}
             className="fm-modal fm-modal--wide fm-print-preview"
             role="dialog"
             aria-modal="true"
@@ -422,6 +444,7 @@ actions={
       {showEmail && (
         <div className="fm-backdrop" onClick={() => { if (!emailBusy) setShowEmail(false) }}>
           <div
+            ref={emailTrapRef}
             className="fm-modal"
             role="dialog"
             aria-modal="true"

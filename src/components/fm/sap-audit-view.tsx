@@ -1,6 +1,7 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useFocusTrap } from './use-focus-trap'
 import { History, RefreshCw, RotateCcw, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
@@ -44,22 +45,14 @@ export default function SapAuditView() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [confirmRetry, setConfirmRetry] = useState<AuditRow | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
-  const retryModalRef = useRef<HTMLDivElement>(null)
-  const clearModalRef = useRef<HTMLDivElement>(null)
 
-  // Modal xác nhận: đưa focus vào modal khi mở + đóng bằng Escape
-  useEffect(() => {
-    if (!confirmRetry && !confirmClear) return
-    ;(confirmClear ? clearModalRef.current : retryModalRef.current)?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setConfirmRetry(null)
-        setConfirmClear(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [confirmRetry, confirmClear])
+  // Focus trap + Escape cho 2 dialog xac nhan
+  const closeDialogs = () => {
+    setConfirmRetry(null)
+    setConfirmClear(false)
+  }
+  const retryModalRef = useFocusTrap<HTMLDivElement>(!!confirmRetry, closeDialogs)
+  const clearModalRef = useFocusTrap<HTMLDivElement>(!!confirmClear, closeDialogs)
 
   const loadSeq = useRef(0)
   const load = useCallback(async (p: number, st: string, query: string) => {

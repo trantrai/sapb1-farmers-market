@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useFocusTrap } from './use-focus-trap'
 import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -55,15 +56,8 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
   const [dbBusy, setDbBusy] = useState<string | null>(null) // id DB đang test/xóa/đặt mặc định, hoặc 'new'
   const [form, setForm] = useState<DbForm | null>(null) // null = đóng modal
 
-  // Đóng modal database bằng Escape
-  useEffect(() => {
-    if (!form) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setForm(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [form])
+  // Focus trap + Escape cho modal database
+  const formTrapRef = useFocusTrap<HTMLDivElement>(!!form, () => setForm(null))
 
   const load = async () => {
     const res = await api('/api/settings')
@@ -295,7 +289,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       {/* Modal thêm/sửa database */}
       {form && (
         <div className="fm-backdrop" onClick={() => setForm(null)}>
-          <div className="fm-modal" role="dialog" aria-modal="true" aria-label={form.id ? 'Sửa database' : 'Thêm database'} onClick={(e) => e.stopPropagation()}>
+          <div ref={formTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label={form.id ? 'Sửa database' : 'Thêm database'} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <b style={{ fontSize: 16 }}>{form.id ? 'Sửa database' : 'Thêm database SAP B1'}</b>
               <button className="fm-btn fm-btn--ghost fm-btn--sm" aria-label="Đóng" onClick={() => setForm(null)}><X size={15} /></button>
