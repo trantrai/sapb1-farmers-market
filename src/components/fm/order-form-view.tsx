@@ -2,7 +2,6 @@
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND, formatNum } from '@/lib/fm-shared'
@@ -399,6 +398,8 @@ export default function OrderFormView({
 
       // 2) Đọc file Excel
       const buf = await file.arrayBuffer()
+      // B4: lazy load xlsx (~7MB) chỉ khi dùng nhập Excel
+      const XLSX = await import('xlsx')
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })

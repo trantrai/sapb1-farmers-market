@@ -198,13 +198,12 @@ async function syncFull(s: SapCfg, syncDbId: string) {
 
   updateSync('vatgroups', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} nhóm thuế vào CSDL…`, total: payload.length, processed: 0 })
   // Mirror trọn vẹn: bảng local phản ánh đúng danh mục OVTG hiện tại trên SAP
-  await prisma.$transaction(async (tx) => {
-    await tx.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
-    for (let i = 0; i < payload.length; i += 500) {
-      await tx.vatGroup.createMany({ data: payload.slice(i, i + 500) })
-      updateSync('vatgroups', { processed: Math.min(i + 500, payload.length) })
-    }
-  })
+  // B5: không ôm transaction dài (xem items/sync)
+  await prisma.vatGroup.deleteMany({ where: { sapDatabaseId: syncDbId } })
+  for (let i = 0; i < payload.length; i += 500) {
+    await prisma.vatGroup.createMany({ data: payload.slice(i, i + 500) })
+    updateSync('vatgroups', { processed: Math.min(i + 500, payload.length) })
+  }
 
   clearVatGroupsCache(syncDbId)
 

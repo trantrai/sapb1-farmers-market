@@ -116,6 +116,12 @@ model SalesOrder {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   lines           SalesOrderLine[]
+
+  // M14: index cho query thực tế
+  @@index([sapDatabaseId, status])
+  @@index([cardCode, docDate])
+  @@index([sapSyncStatus, sapDocEntry])
+  @@index([docNum])
 }
 
 model SalesOrderLine {

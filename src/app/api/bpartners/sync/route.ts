@@ -229,13 +229,12 @@ async function syncFull(s: SapCfg, syncDbId: string) {
 
   updateSync('partners', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} khách hàng vào CSDL…`, total: payload.length, processed: 0 })
   // Mirror trọn vẹn: bảng local phản ánh đúng danh mục khách hàng trên SAP
-  await prisma.$transaction(async (tx) => {
-    await tx.businessPartner.deleteMany({ where: { sapDatabaseId: syncDbId } })
-    for (let i = 0; i < payload.length; i += 500) {
-      await tx.businessPartner.createMany({ data: payload.slice(i, i + 500) })
-      updateSync('partners', { processed: Math.min(i + 500, payload.length) })
-    }
-  })
+  // B5: không ôm transaction dài (xem items/sync)
+  await prisma.businessPartner.deleteMany({ where: { sapDatabaseId: syncDbId } })
+  for (let i = 0; i < payload.length; i += 500) {
+    await prisma.businessPartner.createMany({ data: payload.slice(i, i + 500) })
+    updateSync('partners', { processed: Math.min(i + 500, payload.length) })
+  }
 
   const wm = advanceWatermark(null, rows)
   await setWatermark(syncDbId, 'partners', wm, 'full')

@@ -207,14 +207,15 @@ async function syncFull(s: NonNullable<Awaited<ReturnType<typeof loadSapSettings
 
   updateSync('items', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} mặt hàng vào CSDL…`, total: payload.length, processed: 0 })
   // Mirror trọn vẹn: bảng local phản ánh đúng danh mục Sales Item hiện tại trên SAP
-  await prisma.$transaction(async (tx) => {
-    await tx.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
-    // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
-    for (let i = 0; i < payload.length; i += 500) {
-      await tx.item.createMany({ data: payload.slice(i, i + 500) })
-      updateSync('items', { processed: Math.min(i + 500, payload.length) })
-    }
-  })
+  // B5: không ôm toàn bộ trong 1 transaction (giữ write-lock SQLite quá lâu,
+  // chặn tạo đơn/login). Xóa rồi nạp từng lô 500; nếu lỗi giữa chừng,
+  // lần sync sau sẽ thay mới toàn bộ lại (idempotent).
+  await prisma.item.deleteMany({ where: { sapDatabaseId: syncDbId } })
+  // Chia lô 500 dòng phòng giới hạn số tham số của SQLite
+  for (let i = 0; i < payload.length; i += 500) {
+    await prisma.item.createMany({ data: payload.slice(i, i + 500) })
+    updateSync('items', { processed: Math.min(i + 500, payload.length) })
+  }
 
   // GIỮ cache autocomplete: loadSalesItems vừa nạp dữ liệu TƯƠI NHẤT vào cache,
   // xóa đi sẽ ép lần tìm tiếp theo tải lại toàn bộ danh mục từ SAP (rất chậm).
@@ -304,8 +305,8 @@ async function syncBomMirror(
   }
   const bomIndex = indexTrees(trees)
   const now = new Date()
-  await prisma.$transaction(async (tx) => {
-    await tx.bomComponent.deleteMany({ where: { sapDatabaseId: syncDbId } })
+  // B5: không ôm transaction dài
+  await prisma.bomComponent.deleteMany({ where: { sapDatabaseId: syncDbId } })
     const bomRows: {
       sapDatabaseId: string
       parentItemCode: string
@@ -338,10 +339,9 @@ async function syncBomMirror(
       seen.add(k)
       return true
     })
-    for (let i = 0; i < uniqRows.length; i += 500) {
-      await tx.bomComponent.createMany({ data: uniqRows.slice(i, i + 500) })
-    }
-  })
+  for (let i = 0; i < uniqRows.length; i += 500) {
+    await prisma.bomComponent.createMany({ data: uniqRows.slice(i, i + 500) })
+  }
   return bomIndex
 }
 
