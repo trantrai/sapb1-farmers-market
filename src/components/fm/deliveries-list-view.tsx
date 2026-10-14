@@ -302,10 +302,19 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
           ) : rows.length === 0 ? (
             <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).</div>
           ) : rows.map((d) => (
-            <article
+            <div
               key={d.id}
               className="fm-ocard"
-              aria-label={`Phiếu giao hàng #${d.docNum} — ${d.cardName}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`Xem chi tiết phiếu giao hàng #${d.docNum} — ${d.cardName}`}
+              onClick={() => d.source !== 'sap' && onGoDetail(d.id)}
+              onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && d.source !== 'sap') {
+                  e.preventDefault()
+                  onGoDetail(d.id)
+                }
+              }}
             >
               <div className="fm-ocard__top">
                 <span className="fm-ocard__num">#{d.docNum}</span>
@@ -337,7 +346,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       className="fm-ocard__more"
                       title="Xem chi tiết"
                       aria-label={`Xem chi tiết phiếu ${d.docNum}`}
-                      onClick={() => onGoDetail(d.id)}
+                      onClick={(e) => { e.stopPropagation(); onGoDetail(d.id) }}
+                      onKeyDown={(e) => e.stopPropagation()}
                     >
                       <Eye size={16} />
                     </button>
@@ -348,7 +358,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       className="fm-ocard__push"
                       title="Đẩy sang SAP B1"
                       aria-label={`Đẩy phiếu ${d.docNum} sang SAP`}
-                      onClick={() => void doPush(d)}
+                      onClick={(e) => { e.stopPropagation(); void doPush(d) }}
+                      onKeyDown={(e) => e.stopPropagation()}
                       disabled={busyId === d.id}
                     >
                       <CloudUpload size={16} />
@@ -361,7 +372,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       className="fm-ocard__del"
                       title="Xóa"
                       aria-label={`Xóa phiếu ${d.docNum}`}
-                      onClick={() => void doDelete(d)}
+                      onClick={(e) => { e.stopPropagation(); void doDelete(d) }}
+                      onKeyDown={(e) => e.stopPropagation()}
                       disabled={busyId === d.id}
                     >
                       <Trash2 size={16} />
@@ -369,7 +381,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   )}
                 </span>
               </div>
-            </article>
+            </div>
           ))}
         </div>
 

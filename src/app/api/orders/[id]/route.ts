@@ -243,8 +243,14 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (order.status !== 'Open') {
     return NextResponse.json({ error: 'Chỉ có thể sửa đơn hàng đang ở trạng thái Open' }, { status: 400 })
   }
-  // Optimistic locking: client phải gửi đúng version đã đọc khi mở form
-  if (typeof version === 'number' && version !== order.version) {
+  // Optimistic locking: client BẮT BUỘC gửi đúng version đã đọc khi mở form
+  if (typeof version !== 'number') {
+    return NextResponse.json(
+      { error: 'Thiếu version — vui lòng tải lại đơn hàng', code: 'VERSION_REQUIRED' },
+      { status: 400 },
+    )
+  }
+  if (version !== order.version) {
     return NextResponse.json(
       { error: 'Dữ liệu đã bị thay đổi bởi người khác — vui lòng tải lại đơn hàng', code: 'VERSION_CONFLICT' },
       { status: 409 },
