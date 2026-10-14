@@ -6,6 +6,44 @@ import { parsePerm, SessionUser } from '@/lib/fm-shared'
 // Re-export để các route cũ vẫn import từ '@/lib/fm-auth' được
 export { hashPassword, verifyPassword } from './fm-crypto'
 
+/**
+ * Migration 1 lần: bổ sung quyền module `deliveries` cho các role cũ
+ * (tạo trước khi module Giao hàng ra đời). Chạy lazy khi có request
+ * authenticated đầu tiên sau deploy — không cần chạy seed lại.
+ */
+let _roleMigrated = false
+async function ensureDeliveriesPerm(): Promise<void> {
+  if (_roleMigrated) return
+  _roleMigrated = true
+  try {
+    const roles = await prisma.role.findMany({ select: { id: true, name: true, permissions: true } })
+    for (const r of roles) {
+      let perm: Record<string, Record<string, boolean>>
+      try {
+        perm = JSON.parse(r.permissions ?? '{}')
+      } catch {
+        continue
+      }
+      if (perm.deliveries) continue
+      // Mặc định kế thừa từ quyền orders (cùng workflow chứng từ)
+      const orders = perm.orders ?? {}
+      perm.deliveries = {
+        view: true,
+        create: Boolean(orders.create),
+        edit: Boolean(orders.edit),
+        delete: Boolean(orders.delete),
+      }
+      await prisma.role.update({
+        where: { id: r.id },
+        data: { permissions: JSON.stringify(perm) },
+      })
+      console.log(`[migrate] Đã bổ sung quyền deliveries cho role ${r.name}`)
+    }
+  } catch (e) {
+    console.warn('[migrate] Bổ sung quyền deliveries thất bại:', e instanceof Error ? e.message : e)
+  }
+}
+
 export const SESSION_COOKIE = 'fm_session'
 /** Token có hiệu lực 12 giờ — khớp maxAge của cookie phiên */
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000
@@ -102,6 +140,9 @@ export async function getSessionUser(req?: Request): Promise<SessionUser | null>
 
   if (!tokenInfo) return null
   const { username, databaseId } = tokenInfo
+
+  // Migration lazy: đảm bảo roles cũ có quyền deliveries
+  await ensureDeliveriesPerm()
 
   const user = await prisma.user.findUnique({ where: { username } })
   if (!user || !user.active) return null // tài khoản bị vô hiệu hóa → coi như chưa đăng nhập
