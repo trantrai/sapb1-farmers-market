@@ -3,6 +3,8 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { fetchSapDeliveryDetail } from '@/lib/sap-deliveries'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -16,6 +18,22 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: 'Bạn không có quyền xem giao hàng' }, { status: 403 })
   }
   const { id } = await ctx.params
+  // Phiếu SAP trực tiếp (id = sap-{DocEntry}): lấy thẳng từ Service Layer
+  if (id.startsWith('sap-')) {
+    const docEntry = Number(id.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: 'ID phiếu SAP không hợp lệ' }, { status: 400 })
+    }
+    const s = await loadSapSettings(user.databaseId)
+    if (!isSapConfigured(s)) {
+      return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+    }
+    const det = await fetchSapDeliveryDetail(s, docEntry)
+    if (!det.ok || !det.delivery) {
+      return NextResponse.json({ error: det.error ?? 'Không lấy được chi tiết phiếu từ SAP B1' }, { status: 502 })
+    }
+    return NextResponse.json({ ok: true, delivery: det.delivery })
+  }
   const delivery = await prisma.delivery.findUnique({
     where: { id },
     include: {

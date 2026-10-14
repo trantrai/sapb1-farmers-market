@@ -242,27 +242,15 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   <td className="fm-num"><b>{formatVND(d.grandTotal)}</b></td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      {d.source !== 'sap' ? (
-                        <button
-                          type="button"
-                          className="fm-btn fm-btn--ghost fm-btn--sm"
-                          onClick={() => onGoDetail(d.id)}
-                          title="Xem chi tiết"
-                          aria-label={`Xem chi tiết phiếu ${d.docNum}`}
-                        >
-                          <Eye size={15} />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="fm-btn fm-btn--ghost fm-btn--sm"
-                          disabled
-                          title="Phiếu từ SAP B1 — chỉ xem trên danh sách"
-                          aria-label={`Phiếu ${d.docNum} từ SAP B1`}
-                        >
-                          <Eye size={15} />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="fm-btn fm-btn--ghost fm-btn--sm"
+                        onClick={() => onGoDetail(d.id)}
+                        title="Xem chi tiết"
+                        aria-label={`Xem chi tiết phiếu ${d.docNum}`}
+                      >
+                        <Eye size={15} />
+                      </button>
                       {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                         <button
                           type="button"
@@ -308,9 +296,9 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               role="button"
               tabIndex={0}
               aria-label={`Xem chi tiết phiếu giao hàng #${d.docNum} — ${d.cardName}`}
-              onClick={() => d.source !== 'sap' && onGoDetail(d.id)}
+              onClick={() => onGoDetail(d.id)}
               onKeyDown={(e) => {
-                if ((e.key === 'Enter' || e.key === ' ') && d.source !== 'sap') {
+                if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   onGoDetail(d.id)
                 }
@@ -340,18 +328,16 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               <div className="fm-ocard__bottom">
                 <span className="fm-ocard__total">{formatVND(d.grandTotal)}</span>
                 <span style={{ display: 'flex', gap: 4 }}>
-                  {d.source !== 'sap' && (
-                    <button
-                      type="button"
-                      className="fm-ocard__more"
-                      title="Xem chi tiết"
-                      aria-label={`Xem chi tiết phiếu ${d.docNum}`}
-                      onClick={(e) => { e.stopPropagation(); onGoDetail(d.id) }}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    >
-                      <Eye size={16} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="fm-ocard__more"
+                    title="Xem chi tiết"
+                    aria-label={`Xem chi tiết phiếu ${d.docNum}`}
+                    onClick={(e) => { e.stopPropagation(); onGoDetail(d.id) }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <Eye size={16} />
+                  </button>
                   {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                     <button
                       type="button"

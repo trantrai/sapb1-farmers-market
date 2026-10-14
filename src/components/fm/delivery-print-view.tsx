@@ -17,8 +17,9 @@ interface PrintDelivery {
   cardName: string
   docDate: string
   remarks?: string | null
-  createdBy: string
+  createdBy?: string | null
   grandTotal: number
+  source?: string | null
   sourceOrder?: { docNum: number } | null
   lines: PrintLine[]
 }
@@ -58,12 +59,12 @@ export default function DeliveryPrintView({ delivery }: Props) {
           <div><b>Khách hàng:</b> {delivery.cardName} ({delivery.cardCode})</div>
           <div>
             <b>Đơn nguồn:</b>{' '}
-            {delivery.sourceOrder ? `SO-${delivery.sourceOrder.docNum}` : 'Tạo thủ công'}
+            {delivery.sourceOrder ? `SO-${delivery.sourceOrder.docNum}` : delivery.source === 'sap' ? 'Từ SAP B1' : 'Tạo thủ công'}
           </div>
         </div>
         <div className="fm-print__info-col">
           <div><b>Ngày giao:</b> {formatDateVN(delivery.docDate)}</div>
-          <div><b>Người lập:</b> {delivery.createdBy}</div>
+          <div><b>Người lập:</b> {delivery.createdBy ?? (delivery.source === 'sap' ? 'SAP B1' : '')}</div>
         </div>
       </div>
 

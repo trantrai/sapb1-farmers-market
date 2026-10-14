@@ -34,10 +34,12 @@ interface Delivery {
   status: string
   remarks?: string | null
   grandTotal: number
-  /** Người tạo phiếu (user id) */
-  createdBy: string
-  createdAt: string
-  updatedAt: string
+  /** 'sap' = dữ liệu lấy trực tiếp từ SAP B1, không có bản ghi local */
+  source?: string | null
+  /** Người tạo phiếu (user id) — không có với phiếu SAP */
+  createdBy?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
   /** Optimistic locking version */
   version?: number
   sapSyncedAt?: string | null
@@ -149,7 +151,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
     }
   }
 
-  const canEdit = delivery !== null && delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled'
+  const canEdit = delivery !== null && delivery.source !== 'sap' && delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled'
 
   // Mở modal sửa SL: lấy đơn nguồn để tính maxQty từng dòng
   // maxQty = SL đặt của đơn - SL đã giao ở các phiếu khác (không tính phiếu này)
@@ -378,6 +380,8 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                   {' '}· Ngày {formatDateVN(delivery.sourceOrder.docDate)}
                   {' '}<span className={`fm-chip fm-chip--${(delivery.sourceOrder.status ?? 'Open').toLowerCase()}`}>{STATUS_LABEL[delivery.sourceOrder.status] ?? delivery.sourceOrder.status}</span>
                 </div>
+              ) : delivery.source === 'sap' ? (
+                <div>Phiếu từ SAP B1 (không có bản ghi đơn nguồn trên local)</div>
               ) : (
                 <div>Tạo thủ công (không từ đơn hàng)</div>
               )}
@@ -408,7 +412,9 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
           <div>
             <div className="fm-hint">SAP B1</div>
             <div>
-              {delivery.sapSyncStatus === 'synced' ? (
+              {delivery.source === 'sap' ? (
+                <span className="fm-chip fm-chip--sap">Từ SAP B1 — DocNum {delivery.sapDocNum}</span>
+              ) : delivery.sapSyncStatus === 'synced' ? (
                 <span className="fm-chip fm-chip--sap">Đã đẩy — DocNum {delivery.sapDocNum}</span>
               ) : delivery.sapSyncStatus === 'pending' ? (
                 <span className="fm-chip fm-chip--error" title={delivery.sapSyncError ?? ''}>Đẩy lỗi</span>
@@ -417,22 +423,26 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
               )}
             </div>
           </div>
-          <div>
-            <div className="fm-hint">Người tạo</div>
-            <div>{delivery.createdBy}</div>
-          </div>
-          <div>
-            <div className="fm-hint">Ngày tạo</div>
-            <div>{formatDateVN(delivery.createdAt)}</div>
-          </div>
-          <div>
-            <div className="fm-hint">Cập nhật cuối</div>
-            <div>{formatDateVN(delivery.updatedAt)}</div>
-          </div>
-          <div>
-            <div className="fm-hint">Version</div>
-            <div>v{delivery.version ?? 0}</div>
-          </div>
+          {delivery.source !== 'sap' && (
+            <>
+              <div>
+                <div className="fm-hint">Người tạo</div>
+                <div>{delivery.createdBy}</div>
+              </div>
+              <div>
+                <div className="fm-hint">Ngày tạo</div>
+                <div>{formatDateVN(delivery.createdAt ?? '')}</div>
+              </div>
+              <div>
+                <div className="fm-hint">Cập nhật cuối</div>
+                <div>{formatDateVN(delivery.updatedAt ?? '')}</div>
+              </div>
+              <div>
+                <div className="fm-hint">Version</div>
+                <div>v{delivery.version ?? 0}</div>
+              </div>
+            </>
+          )}
           {delivery.remarks && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div className="fm-hint">Ghi chú</div>
@@ -506,10 +516,10 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         </div>
       </div>
 
-      {/* Lịch sử thao tác — suy ra từ các mốc thời gian của phiếu */}
-      {(() => {
+      {/* Lịch sử thao tác — suy ra từ các mốc thời gian của phiếu (chỉ phiếu local) */}
+      {delivery.source !== 'sap' && (() => {
         const events: { label: string; time: string; tone: string }[] = [
-          { label: 'Tạo phiếu', time: delivery.createdAt, tone: 'var(--fm-navy)' },
+          { label: 'Tạo phiếu', time: delivery.createdAt ?? '', tone: 'var(--fm-navy)' },
         ]
         if (delivery.updatedAt && delivery.updatedAt !== delivery.createdAt) {
           events.push({ label: 'Cập nhật', time: delivery.updatedAt, tone: 'var(--fm-text-2)' })
@@ -518,7 +528,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
           events.push({ label: 'Đẩy sang SAP B1', time: delivery.sapSyncedAt, tone: 'var(--fm-green)' })
         }
         if (delivery.status === 'Cancelled') {
-          events.push({ label: 'Hủy phiếu', time: delivery.updatedAt, tone: 'var(--fm-coral)' })
+          events.push({ label: 'Hủy phiếu', time: delivery.updatedAt ?? '', tone: 'var(--fm-coral)' })
         }
         return (
           <div className="fm-card" style={{ marginTop: 16 }}>
