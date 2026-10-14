@@ -195,8 +195,21 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       const res = await api(`/api/orders?${sp.toString()}`)
       if (seq !== loadSeq.current) return
       if (res.status === 401) { window.location.reload(); return }
-      const json = await res.json()
-      setOrders(json.data ?? [])
+      let json: { data?: unknown[]; total?: number; totalPages?: number; source?: string; warning?: string; error?: string }
+      try {
+        const text = await res.text()
+        json = text ? JSON.parse(text) : {}
+      } catch {
+        json = {}
+      }
+      if (!res.ok) {
+        setAlert({ type: 'error', msg: json.error ?? `Tải danh sách đơn thất bại (HTTP ${res.status})` })
+        setOrders([])
+        setTotal(0)
+        setTotalPages(1)
+        return
+      }
+      setOrders((json.data as never[]) ?? [])
       setTotal(json.total ?? 0)
       setTotalPages(json.totalPages ?? 1)
       setSource(json.source ?? '')
