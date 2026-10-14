@@ -105,8 +105,14 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
     setLoading(true)
     try {
       const r = await api(`/api/deliveries/${deliveryId}`)
-      const j = await r.json()
-      if (r.ok && j.ok) {
+      let j: { ok?: boolean; delivery?: Delivery; error?: string }
+      try {
+        const text = await r.text()
+        j = text ? JSON.parse(text) : {}
+      } catch {
+        j = {}
+      }
+      if (r.ok && j.ok && j.delivery) {
         setDelivery(j.delivery)
         setError('')
       } else {
