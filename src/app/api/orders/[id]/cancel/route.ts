@@ -23,9 +23,25 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params
-  // Đơn SAP trực tiếp (chưa có bản ghi local) → không hỗ trợ hủy local
+  // Đơn SAP trực tiếp (id = sap-{DocEntry}): gọi thẳng Service Layer, không cần bản ghi local
   if (id.startsWith('sap-')) {
-    return NextResponse.json({ error: 'Không thể hủy đơn lấy trực tiếp từ SAP B1' }, { status: 400 })
+    const docEntry = Number(id.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: 'ID đơn SAP không hợp lệ' }, { status: 400 })
+    }
+    const s = await loadSapSettings(user.databaseId)
+    if (!isSapConfigured(s)) {
+      return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+    }
+    const result = await sapCancelOrder(s, docEntry)
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: `Không thể hủy chứng từ trên SAP B1: ${result.error ?? 'lỗi không xác định'}` },
+        { status: 502 },
+      )
+    }
+    clearSapOrdersCache()
+    return NextResponse.json({ ok: true, message: `Đã hủy đơn SAP #${docEntry} trên SAP B1` })
   }
 
   let body: { version?: number }
