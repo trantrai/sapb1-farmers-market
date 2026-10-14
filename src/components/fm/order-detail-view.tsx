@@ -510,7 +510,7 @@ actions={
                 <Pencil size={15} /> Sửa đơn hàng
               </button>
             )}
-            {order.status === 'Open' && (
+            {order.status === 'Open' && !order.id.startsWith('sap-') && (
               <button
                 className="fm-btn fm-btn--secondary"
                 onClick={openCopyModal}

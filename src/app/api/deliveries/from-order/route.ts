@@ -34,7 +34,13 @@ export async function POST(req: NextRequest) {
     where: { id: orderId },
     include: { lines: { orderBy: { lineNum: 'asc' } } },
   })
-  if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  if (!order) {
+    // Đơn SAP trực tiếp (sap-*) chưa có bản ghi local → hướng dẫn rõ
+    if (orderId.startsWith('sap-')) {
+      return NextResponse.json({ error: 'Đơn từ SAP B1 chưa có bản ghi local — vui lòng đồng bộ hoặc tạo đơn local trước khi copy delivery' }, { status: 404 })
+    }
+    return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  }
   // B1: cách ly DB
   if (user.databaseId && order.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
