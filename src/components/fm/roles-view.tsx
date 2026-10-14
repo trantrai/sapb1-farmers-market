@@ -167,7 +167,7 @@ actions={<>
                 }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                  padding: '10px 12px', borderRadius: 'var(--fm-r-md)', marginBottom: 4, fontSize: 13,
+                  padding: '10px 12px', borderRadius: 'var(--fm-r-md)', marginBottom: 4, fontSize: 12.5,
                   background: r.id === selectedId ? 'var(--fm-yellow-faint)' : 'transparent',
                   borderLeft: r.id === selectedId ? '3px solid var(--fm-yellow)' : '3px solid transparent',
                   fontWeight: r.id === selectedId ? 700 : 500,
@@ -194,9 +194,9 @@ actions={<>
               ))}
               {canGoUsers && (
                 <button className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 10, width: '100%' }} onClick={onGoUsers}>
-                  <UsersRound size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+                  <UsersRound size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
                   Quản lý người dùng
-                  <ArrowRight size={12} style={{ marginLeft: 'auto' }} />
+                  <ArrowRight size={14} style={{ marginLeft: 'auto' }} />
                 </button>
               )}
             </div>
@@ -250,7 +250,7 @@ actions={<>
 
               <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || saving}>
-                  <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+                  <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
                   {saving ? 'Đang lưu…' : 'Lưu phân quyền'}
                 </button>
                 {dirty && !saving && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
@@ -263,7 +263,12 @@ actions={<>
               </div>
             </>
           ) : (
-            <div className="fm-empty">Đang tải ma trận quyền…</div>
+            <div aria-busy="true">
+              <div className="fm-skeleton fm-skeleton--text" style={{ width: '50%', marginBottom: 10 }} />
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="fm-skeleton fm-skeleton--row" />
+              ))}
+            </div>
           )}
         </div>
       </div>

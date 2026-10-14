@@ -4,10 +4,11 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
-import { formatVND, formatNum } from '@/lib/fm-shared'
+import { formatVND, formatNum, formatDateVN } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import { useFocusTrap } from './use-focus-trap'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 
 interface DraftLine {
   key: number
@@ -20,6 +21,8 @@ interface DraftLine {
   priceSource?: string
   /** Mã nhóm thuế SAP (SalesVATGroup, vd S1/S2/S8) — tự điền khi chọn mặt hàng, đi kèm khi đẩy đơn sang SAP B1 */
   taxCode?: string
+  /** true = người dùng đã tự sửa VAT% tay (ghi đè thuế suất từ mã thuế) */
+  vatOverridden?: boolean
   /** Đơn vị tính (SalesUnit) — tự điền khi chọn mặt hàng */
   uom?: string
   /** Kho xuất của dòng (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng */
@@ -79,6 +82,83 @@ export interface EditOrderData {
   lines: EditOrderLine[]
 }
 
+// ---------- Nguồn dữ liệu đầu vào cho toEditData (đơn từ danh sách, chi tiết API, ...) ----------
+/** Hình dạng tối thiểu của 1 dòng đơn để dựng EditOrderData */
+export interface EditOrderSourceLine {
+  id?: string
+  lineNum?: number
+  itemCode: string
+  itemName: string
+  uom?: string
+  warehouseCode?: string
+  quantity: number
+  unitPrice: number
+  discPct?: number
+  vatPct?: number
+  taxCode?: string
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
+  bomQtyPerParent?: number | null
+}
+/** Hình dạng tối thiểu của 1 đơn để dựng EditOrderData */
+export interface EditOrderSource {
+  id: string
+  docNum: number
+  cardCode: string
+  cardName: string
+  docDate: string
+  docDueDate: string
+  status: string
+  remarks: string | null
+  warehouseCode?: string | null
+  headerDiscPct?: number
+  sapSyncStatus?: string
+  version?: number
+  source?: string
+  localId?: string | null
+  lines: EditOrderSourceLine[]
+}
+
+/**
+ * Dựng EditOrderData từ 1 đơn — DÙNG CHUNG cho mọi đường vào form sửa
+ * (danh sách đơn, chi tiết đơn, ...).
+ * QUAN TRỌNG: map dbId (dòng local) / sapLineNum (dòng SAP) để API PUT
+ * nhận diện đúng dòng cũ — thiếu 2 trường này, PUT sẽ append TRÙNG dòng
+ * trên SAP B1 (B1S-ReplaceCollectionsOnPatch coi dòng không LineNum là dòng mới).
+ */
+export const toEditData = (o: EditOrderSource): EditOrderData => ({
+  id: o.source === 'sap' ? o.localId ?? o.id : o.id,
+  docNum: o.docNum,
+  cardCode: o.cardCode,
+  cardName: o.cardName,
+  docDate: o.docDate,
+  docDueDate: o.docDueDate,
+  status: o.status,
+  remarks: o.remarks,
+  warehouseCode: o.warehouseCode ?? null,
+  headerDiscPct: o.headerDiscPct ?? 0,
+  sapSyncStatus: o.sapSyncStatus ?? (o.source === 'sap' ? 'synced' : 'none'),
+  version: o.version,
+  lines: o.lines.map((l) => ({
+    dbId: o.source === 'sap' ? undefined : l.id,
+    sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
+    itemCode: l.itemCode,
+    itemName: l.itemName,
+    uom: l.uom,
+    warehouseCode: l.warehouseCode,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    discPct: l.discPct,
+    vatPct: l.vatPct,
+    taxCode: l.taxCode,
+    isBomChild: l.isBomChild ?? false,
+    bomGroupKey: l.bomGroupKey ?? null,
+    bomEditable: l.bomEditable ?? true,
+    bomQtyPerParent: l.bomQtyPerParent ?? null,
+  })),
+})
+
 // ---------- ATP check (tồn kho khả dụng từ SAP B1 /InventoryItems) ----------
 interface StockRow {
   warehouseCode: string
@@ -107,12 +187,15 @@ export default function OrderFormView({
   onSaved,
   editOrder,
   onCancel,
+  userId,
 }: {
-  onSaved: (result: { docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
+  onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
   /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
   editOrder?: EditOrderData | null
   /** Nút hủy ở chế độ sửa → quay lại danh sách */
   onCancel?: () => void
+  /** Id user đăng nhập — dùng làm key nháp form (fm-order-draft-<userId>-...) */
+  userId?: string
 }) {
   const [partner, setPartner] = useState<ACOption | null>(null)
   const [partnerErr, setPartnerErr] = useState('')
@@ -136,12 +219,28 @@ export default function OrderFormView({
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  /** true = lỗi 409 VERSION_CONFLICT — banner hiện thêm nút "Tải lại" */
+  const [versionConflict, setVersionConflict] = useState(false)
+  const [reloading, setReloading] = useState(false)
+
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
   const [fieldErr, setFieldErr] = useState<Record<number, string>>({})
   const isEdit = Boolean(editOrder)
 
   // ---- Nhập từ Excel ----
   const fileRef = useRef<HTMLInputElement>(null)
   const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  /** Chi tiết các dòng lỗi khi nhập Excel — banner riêng tách khỏi banner thành công */
+  const [importErrors, setImportErrors] = useState<string[] | null>(null)
+  /** Tiến trình tra cứu mã hàng từ master data (null = không chạy) */
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null)
 
   // ---- Mẫu đơn hàng (Order Template) ----
   interface TemplateLine {
@@ -219,12 +318,12 @@ export default function OrderFormView({
   // Lưu form hiện tại thành mẫu
   const saveAsTemplate = async () => {
     if (!tplName.trim()) {
-      setTplMsg({ type: 'error', text: 'Vui lòng nhập tên mẫu.' })
+      setTplMsg({ type: 'error', text: 'Vui lòng nhập tên mẫu' })
       return
     }
     const validLines = lines.filter((l) => l.item && l.quantity > 0)
     if (validLines.length === 0) {
-      setTplMsg({ type: 'error', text: 'Form phải có ít nhất 1 dòng hàng hợp lệ.' })
+      setTplMsg({ type: 'error', text: 'Form phải có ít nhất 1 dòng hàng hợp lệ' })
       return
     }
     setTplSaving(true)
@@ -251,7 +350,7 @@ export default function OrderFormView({
       })
       const json = await res.json()
       if (!res.ok) {
-        setTplMsg({ type: 'error', text: json.error ?? 'Không lưu được mẫu.' })
+        setTplMsg({ type: 'error', text: json.error ?? 'Không lưu được mẫu' })
         return
       }
       setTplMsg({ type: 'success', text: `Đã lưu mẫu "${tplName.trim()}".` })
@@ -260,14 +359,23 @@ export default function OrderFormView({
       setTplDesc('')
       loadTemplates()
     } catch {
-      setTplMsg({ type: 'error', text: 'Không thể kết nối máy chủ.' })
+      setTplMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
     } finally {
       setTplSaving(false)
     }
   }
 
+  const resetForm = () => {
+    setConfirmCfg(null)
+    setPartner(null); setRemarks('')
+    setHeaderDiscPct(0)
+    setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
+    setAtp({})
+    setError('')
+  }
+
   const deleteTemplate = async (id: string, name: string) => {
-    if (!window.confirm(`Xóa mẫu "${name}"?`)) return
+    setConfirmCfg(null)
     try {
       const res = await api(`/api/order-templates/${id}`, { method: 'DELETE' })
       if (res.ok) {
@@ -392,6 +500,10 @@ export default function OrderFormView({
     if (!file) return
 
     try {
+      // Reset banner cũ + bắt đầu hiển thị tiến trình
+      setImportMsg(null)
+      setImportErrors(null)
+
       // 1) Lấy template mặc định
       const tRes = await api('/api/excel-templates')
       const tJson = await tRes.json()
@@ -411,7 +523,7 @@ export default function OrderFormView({
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
       if (rows.length === 0) {
-        setImportMsg({ type: 'error', text: 'File Excel không có dữ liệu.' })
+        setImportMsg({ type: 'error', text: 'File Excel không có dữ liệu' })
         return
       }
 
@@ -490,7 +602,9 @@ export default function OrderFormView({
       }
       const master = new Map<string, MasterItem>()
       const distinctCodes = [...new Set(parsed.map((p) => p.itemCode))]
-      for (const code of distinctCodes) {
+      for (const [idx, code] of distinctCodes.entries()) {
+        // Hiển thị tiến trình tra cứu để người dùng biết không bị treo
+        setImportProgress({ current: idx + 1, total: distinctCodes.length })
         try {
           // Timeout dài: lần đầu cache SAP lạnh phải tải toàn bộ danh mục phân trang
           const res = await api(`/api/items?q=${encodeURIComponent(code)}`, { timeoutMs: 120_000 })
@@ -539,7 +653,8 @@ export default function OrderFormView({
       }
 
       if (newLines.length === 0) {
-        setImportMsg({ type: 'error', text: `Không nhập được dòng nào. ${errors.slice(0, 5).join('; ')}` })
+        setImportMsg({ type: 'error', text: 'Không nhập được dòng nào' })
+        setImportErrors(errors.length > 0 ? errors : null)
         return
       }
 
@@ -560,12 +675,14 @@ export default function OrderFormView({
       })
 
       const msg = `Đã nhập ${newLines.length} dòng từ Excel (template "${template.name}").`
-      setImportMsg({
-        type: errors.length > 0 ? 'error' : 'success',
-        text: errors.length > 0 ? `${msg} ${errors.length} dòng lỗi: ${errors.slice(0, 5).join('; ')}` : msg,
-      })
+      // Banner kết quả tách 2: success (số dòng OK) + error riêng (số dòng lỗi + chi tiết)
+      setImportMsg({ type: 'success', text: msg })
+      setImportErrors(errors.length > 0 ? errors : null)
     } catch {
-      setImportMsg({ type: 'error', text: 'Không đọc được file Excel.' })
+      setImportMsg({ type: 'error', text: 'Không đọc được file Excel' })
+      setImportErrors(null)
+    } finally {
+      setImportProgress(null)
     }
   }
 
@@ -595,7 +712,10 @@ export default function OrderFormView({
   // Khởi tạo form là EVENT (chạy 1 lần khi vào chế độ sửa), không phải effect
   // phản ứng — bọc bằng useEffectEvent để rõ ý định và tránh reset form nếu
   // identity của editOrder đổi giữa lúc nhập liệu.
-  const initEditForm = useEffectEvent((o: NonNullable<typeof editOrder>) => {
+  // Áp dữ liệu đơn vào form (hàm thường — gọi được từ event handler).
+  // initEditForm bọc nó bằng useEffectEvent cho effect khởi tạo (chạy 1 lần
+  // khi vào chế độ sửa, tránh reset form nếu identity của editOrder đổi giữa lúc nhập liệu).
+  const applyEditData = (o: EditOrderData) => {
     // Khởi tạo form từ editOrder (đồng bộ, hợp lệ — chạy 1 lần khi vào chế độ sửa)
     setPartner({ code: o.cardCode, name: o.cardName })
     setDocDate((o.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
@@ -637,12 +757,159 @@ export default function OrderFormView({
     setFieldErr({})
     // Kiểm tra ATP cho các dòng đã điền
     for (const l of prefilled) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
+  }
+
+  const initEditForm = useEffectEvent((o: NonNullable<typeof editOrder>) => {
+    applyEditData(o)
   })
 
   useEffect(() => {
     if (!editOrder) return
     initEditForm(editOrder)
   }, [editOrder])
+
+  // ---- Draft nháp: tự lưu khi đang nhập, restore khi quay lại form ----
+  // Đổi view (lỡ bấm sidebar...) unmount form → dữ liệu đang nhập không mất.
+  // Key riêng theo user + chế độ (tạo mới / sửa đơn nào); xóa sau khi lưu thành công.
+  interface OrderDraftLine {
+    item: { code: string; name: string; uom?: string; taxCode?: string } | null
+    quantity: number
+    unitPrice: number
+    discPct: number
+    vatPct: number
+    taxCode?: string
+    uom?: string
+    warehouseCode?: string
+    dbId?: string
+    sapLineNum?: number
+    isBomChild?: boolean
+    bomGroupKey?: string
+    bomEditable?: boolean
+    bomQtyPerParent?: number
+  }
+  interface OrderDraft {
+    v: 1
+    partner: { code: string; name: string } | null
+    docDate: string
+    docDueDate: string
+    remarks: string
+    headerWh: string
+    headerDiscPct: number
+    lines: OrderDraftLine[]
+  }
+  const draftKey = userId
+    ? `fm-order-draft-${userId}-${isEdit && editOrder?.id ? `edit-${editOrder.id}` : 'new'}`
+    : null
+  const [draftRestored, setDraftRestored] = useState(false)
+  const hydratedRef = useRef(false)
+
+  const clearDraft = () => {
+    if (draftKey) {
+      try { localStorage.removeItem(draftKey) } catch { /* bỏ qua */ }
+    }
+    setDraftRestored(false)
+  }
+
+  // Restore: chạy 1 lần sau mount, SAU effect initEditForm (khai báo sau nó)
+  // để nháp của chính user thắng dữ liệu gốc khi quay lại form.
+  useEffect(() => {
+    if (!draftKey || hydratedRef.current) return
+    hydratedRef.current = true
+    try {
+      const raw = localStorage.getItem(draftKey)
+      if (!raw) return
+      const d = JSON.parse(raw) as OrderDraft
+      if (!d || d.v !== 1 || !Array.isArray(d.lines) || d.lines.length === 0) return
+      // Chỉ restore khi nháp có nội dung thật (tránh ghi đè form trống bằng nháp trống)
+      const meaningful = d.partner || (d.remarks ?? '').trim() || d.lines.some((l) => l.item)
+      if (!meaningful) return
+      if (d.partner) setPartner({ code: d.partner.code, name: d.partner.name })
+      if (d.docDate) setDocDate(d.docDate)
+      if (d.docDueDate) setDocDueDate(d.docDueDate)
+      setRemarks(d.remarks ?? '')
+      setHeaderWh(d.headerWh ?? '')
+      setHeaderDiscPct(typeof d.headerDiscPct === 'number' ? d.headerDiscPct : 0)
+      const restored: DraftLine[] = d.lines.map((l) => ({
+        key: nextKey(),
+        item: l.item ? { code: l.item.code, name: l.item.name, uom: l.item.uom ?? '', taxCode: l.item.taxCode ?? '' } : null,
+        quantity: l.quantity ?? 1,
+        unitPrice: l.unitPrice ?? 0,
+        discPct: l.discPct ?? 0,
+        vatPct: l.vatPct ?? 8,
+        taxCode: l.taxCode,
+        uom: l.uom,
+        warehouseCode: l.warehouseCode,
+        priceSource: 'manual', // giữ nguyên số liệu nháp, không giải lại giá
+        dbId: l.dbId,
+        sapLineNum: l.sapLineNum,
+        isBomChild: l.isBomChild ?? false,
+        bomGroupKey: l.bomGroupKey,
+        bomEditable: l.bomEditable ?? true,
+        bomQtyPerParent: l.bomQtyPerParent,
+      }))
+      setLines(restored)
+      setDraftRestored(true)
+      // Kiểm tra lại ATP cho các dòng đã khôi phục
+      for (const l of restored) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
+    } catch { /* nháp hỏng → bỏ qua */ }
+  }, [draftKey])
+
+  // Tự lưu nháp (debounce 800ms) — đổi view giữa chừng vẫn kịp lưu
+  useEffect(() => {
+    if (!draftKey) return
+    const t = setTimeout(() => {
+      try {
+        const d: OrderDraft = {
+          v: 1,
+          partner: partner ? { code: partner.code, name: partner.name } : null,
+          docDate,
+          docDueDate,
+          remarks,
+          headerWh,
+          headerDiscPct,
+          lines: lines.map((l) => ({
+            item: l.item ? { code: l.item.code, name: l.item.name, uom: l.item.uom, taxCode: l.item.taxCode } : null,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discPct: l.discPct,
+            vatPct: l.vatPct,
+            taxCode: l.taxCode,
+            uom: l.uom,
+            warehouseCode: l.warehouseCode,
+            dbId: l.dbId,
+            sapLineNum: l.sapLineNum,
+            isBomChild: l.isBomChild,
+            bomGroupKey: l.bomGroupKey,
+            bomEditable: l.bomEditable,
+            bomQtyPerParent: l.bomQtyPerParent,
+          })),
+        }
+        localStorage.setItem(draftKey, JSON.stringify(d))
+      } catch { /* quota đầy → bỏ qua */ }
+    }, 800)
+    return () => clearTimeout(t)
+  }, [draftKey, partner, docDate, docDueDate, remarks, headerWh, headerDiscPct, lines])
+
+  // Bỏ nháp: xóa nháp + reset form về trạng thái ban đầu
+  const discardDraft = () => {
+    clearDraft()
+    if (isEdit && editOrder) {
+      applyEditData(editOrder)
+    } else {
+      setPartner(null)
+      setPartnerErr('')
+      setDocDate(new Date().toISOString().slice(0, 10))
+      const dd = new Date()
+      dd.setDate(dd.getDate() + 5)
+      setDocDueDate(dd.toISOString().slice(0, 10))
+      setRemarks('')
+      setHeaderWh('')
+      setHeaderDiscPct(0)
+      setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+      setError('')
+      setFieldErr({})
+    }
+  }
 
   // Đóng modal bằng Escape (WCAG — dialog phải đóng được bằng bàn phím)
   useEffect(() => {
@@ -844,6 +1111,7 @@ export default function OrderFormView({
 
   const save = async () => {
     setError('')
+    setVersionConflict(false)
     setPartnerErr('')
     if (!partner) { setPartnerErr('Vui lòng chọn khách hàng từ danh sách'); return }
     const valid = lines.filter((l) => l.item && l.quantity > 0)
@@ -894,14 +1162,17 @@ export default function OrderFormView({
       if (!res.ok) {
         // 409 VERSION_CONFLICT: đơn đã bị sửa bởi người khác
         if (res.status === 409 && json.code === 'VERSION_CONFLICT') {
-          setError('Đơn hàng đã bị sửa bởi người khác — vui lòng tải lại đơn hàng rồi thử lại.')
+          setVersionConflict(true)
+          setError('Đơn hàng đã bị sửa bởi người khác — vui lòng tải lại đơn hàng rồi thử lại')
         } else {
           setError(json.error ?? (isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể tạo đơn hàng'))
         }
         return
       }
       const o = json.order
+      clearDraft() // lưu thành công → xóa nháp
       onSaved({
+        id: o.id ?? null,
         docNum: o.docNum,
         sapStatus: o.sapSyncStatus ?? 'none',
         sapDocNum: o.sapDocNum ?? null,
@@ -911,6 +1182,29 @@ export default function OrderFormView({
       setError('Không thể kết nối máy chủ')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Tải lại dữ liệu mới nhất của đơn sau xung đột 409 — form reset về
+  // trạng thái server mới nhất (kèm version mới) để user xem lại rồi sửa tiếp.
+  const reloadLatest = async () => {
+    if (!isEdit || !editOrder?.id) return
+    setReloading(true)
+    try {
+      const r = await api(`/api/orders/${editOrder.id}`)
+      if (r.ok) {
+        const j = await r.json()
+        const o = j.order ?? j
+        applyEditData(toEditData(o))
+        setVersionConflict(false)
+        setError('')
+      } else {
+        setError('Không tải được dữ liệu mới nhất — hãy thử lại')
+      }
+    } catch {
+      setError('Không thể kết nối máy chủ')
+    } finally {
+      setReloading(false)
     }
   }
 
@@ -951,6 +1245,24 @@ export default function OrderFormView({
       {error && (
         <div className="fm-alert fm-alert--error" role="alert">
           <div><b>{isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể lưu đơn hàng'}</b>{error}</div>
+          {versionConflict && (
+            <button
+              type="button"
+              className="fm-btn fm-btn--secondary fm-btn--sm"
+              style={{ marginTop: 8 }}
+              onClick={() => void reloadLatest()}
+              disabled={reloading}
+            >
+              <RefreshCw size={14} /> {reloading ? 'Đang tải…' : 'Tải lại dữ liệu mới nhất'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {draftRestored && (
+        <div className="fm-alert fm-alert--info" role="status" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>Đã khôi phục bản nháp chưa lưu của bạn.</div>
+          <button type="button" className="fm-btn fm-btn--ghost fm-btn--sm" onClick={discardDraft}>Bỏ nháp</button>
         </div>
       )}
 
@@ -1102,15 +1414,15 @@ export default function OrderFormView({
               type="button"
               onClick={() => setSuggestOpen((v) => !v)}
               disabled={saving}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--fm-text)', padding: 0, width: '100%', textAlign: 'left' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12.5, color: 'var(--fm-text)', padding: 0, width: '100%', textAlign: 'left' }}
             >
-              <Sparkles size={15} style={{ color: 'var(--fm-primary)' }} />
+              <Sparkles size={16} style={{ color: 'var(--fm-primary)' }} />
               Gợi ý theo lịch sử mua hàng
               {suggestLoading
                 ? <span style={{ fontWeight: 400, color: 'var(--fm-text-2)' }}> — đang tải…</span>
                 : <span className="fm-chip fm-chip--role" style={{ marginLeft: 4 }}>{suggests.length} mặt hàng</span>}
               <span style={{ marginLeft: 'auto', color: 'var(--fm-text-2)' }}>
-                {suggestOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                {suggestOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </span>
             </button>
             {suggestOpen && !suggestLoading && (
@@ -1135,7 +1447,7 @@ export default function OrderFormView({
                       disabled={saving}
                       title={`Thêm ${s.itemName} vào đơn`}
                     >
-                      <Plus size={12} /> Thêm
+                      <Plus size={14} /> Thêm
                     </button>
                   </div>
                 ))}
@@ -1197,7 +1509,7 @@ export default function OrderFormView({
                         <div style={{ paddingLeft: 18 }}>
                           <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>
                           <b>{l.item?.code}</b>
-                          <div style={{ fontSize: 11.5, color: 'var(--fm-text-2)' }}>{l.item?.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>{l.item?.name}</div>
                         </div>
                       ) : (
                       <>
@@ -1222,7 +1534,7 @@ export default function OrderFormView({
                             taxCode: v?.taxCode || undefined,
                             uom: v?.uom || undefined,
                             warehouseCode: wh,
-                            ...(vat !== null ? { vatPct: vat } : {}),
+                            ...(vat !== null ? { vatPct: vat, vatOverridden: false } : {}),
                           })
                           if (v) {
                             void resolvePrice(l.key, v.code, partner?.code ?? null)
@@ -1249,9 +1561,10 @@ export default function OrderFormView({
                         aria-invalid={qtyInvalid || undefined}
                         aria-describedby={qtyInvalid ? `fm-line-${l.key}-qty-err` : undefined}
                         className="fm-line-input"
+                        style={{ ...(qtyInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : {}) }}
                         value={l.quantity || ''}
                         disabled={saving || (l.isBomChild && l.bomEditable === false)}
-                        title={l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
+                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
                       {qtyInvalid && (
@@ -1315,7 +1628,7 @@ export default function OrderFormView({
                             disabled={saving}
                             onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
                           >
-                            <RefreshCw size={12} />
+                            <RefreshCw size={14} />
                           </button>
                         </div>
                       )}
@@ -1360,7 +1673,7 @@ export default function OrderFormView({
                               disabled={saving}
                               onClick={() => openPriceHist(l.key, it.code, it.name)}
                             >
-                              <History size={13} />
+                              <History size={14} />
                             </button>
                           )
                         })()}
@@ -1398,10 +1711,15 @@ export default function OrderFormView({
                         aria-label={`VAT % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
                         value={l.vatPct || ''}
-                        readOnly
-                        tabIndex={-1}
-                        title="VAT % tự điền theo mã thuế"
+                        disabled={saving}
+                        title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
+                        onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
                       />
+                      {l.vatOverridden && (
+                        <div style={{ fontSize: 11, color: 'var(--fm-warn-ink)', lineHeight: 1.3, marginTop: 2 }}>
+                          Đã ghi đè thuế suất từ mã thuế
+                        </div>
+                      )}
                     </td>
                     <td className="fm-num" data-label="Sau CK (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
                     <td data-label="Xóa dòng">
@@ -1425,8 +1743,8 @@ export default function OrderFormView({
           <button className="fm-btn fm-btn--dashed fm-btn--sm" onClick={addLine} disabled={saving}>
             <Plus size={14} /> Thêm dòng hàng
           </button>
-          <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()} disabled={saving}>
-            <Upload size={14} /> Nhập từ Excel
+          <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()} disabled={saving || importProgress !== null}>
+            <Upload size={14} /> {importProgress ? 'Đang nhập…' : 'Nhập từ Excel'}
           </button>
           <input
             ref={fileRef}
@@ -1436,10 +1754,25 @@ export default function OrderFormView({
             onChange={handleExcelImport}
           />
         </div>
+        {importProgress && (
+          <div className="fm-alert fm-alert--info" style={{ marginTop: 10 }} role="status">
+            <div>Đang tra cứu mã hàng {importProgress.current}/{importProgress.total}…</div>
+          </div>
+        )}
         {importMsg && (
           <div className={`fm-alert ${importMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginTop: 10 }} role={importMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{importMsg.text}</div>
             <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportMsg(null)}>✕</button>
+          </div>
+        )}
+        {importErrors && importErrors.length > 0 && (
+          <div className="fm-alert fm-alert--error" style={{ marginTop: 10 }} role="alert">
+            <div>
+              <b>{importErrors.length} dòng lỗi:</b>{' '}
+              {importErrors.slice(0, 5).join('; ')}
+              {importErrors.length > 5 ? ` (+${importErrors.length - 5} dòng nữa)` : ''}
+            </div>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportErrors(null)}>✕</button>
           </div>
         )}
       </div>
@@ -1472,9 +1805,15 @@ export default function OrderFormView({
           </div>
         </div>
 
+        {lines.some((l) => l.item && atp[l.key]?.status === 'error') && (
+          <div className="fm-alert fm-alert--warning" role="alert" style={{ marginTop: 14 }}>
+            <div><b>Lưu ý tồn kho (ATP):</b> có dòng hàng không kiểm tra được tồn kho khả dụng — kiểm tra lại tồn kho trên SAP B1 trước khi đẩy đơn.</div>
+          </div>
+        )}
+
         <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
-            <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
             {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng'}
           </button>
           {!isEdit && (
@@ -1484,25 +1823,24 @@ export default function OrderFormView({
               disabled={saving}
               title="Lưu đơn hàng hiện tại thành mẫu để tạo nhanh lần sau"
             >
-              <BookmarkPlus size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+              <BookmarkPlus size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
               Lưu thành mẫu
             </button>
           )}
           {isEdit ? (
-            <button className="fm-btn fm-btn--ghost" onClick={onCancel} disabled={saving}>
+            <button className="fm-btn fm-btn--ghost" onClick={() => { clearDraft(); onCancel?.() }} disabled={saving}>
               Hủy — không lưu thay đổi
             </button>
           ) : (
             <button
               className="fm-btn fm-btn--ghost"
-              onClick={() => {
-                if (!window.confirm('Xóa toàn bộ dữ liệu đã nhập và bắt đầu lại?')) return
-                setPartner(null); setRemarks('')
-                setHeaderDiscPct(0)
-                setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
-                setAtp({})
-                setError('')
-              }}
+              onClick={() => setConfirmCfg({
+                title: 'Nhập lại đơn hàng',
+                message: 'Xóa toàn bộ dữ liệu đã nhập và bắt đầu lại?\nDữ liệu đã nhập trên form sẽ mất.',
+                confirmLabel: 'Nhập lại',
+                tone: 'danger',
+                run: resetForm,
+              })}
               disabled={saving}
             >
               Nhập lại
@@ -1516,7 +1854,7 @@ export default function OrderFormView({
         <div className="fm-backdrop" onClick={() => setTplModal(false)}>
           <div ref={tplTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label="Lưu thành mẫu đơn hàng" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
             <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <BookmarkPlus size={17} /> Lưu thành mẫu đơn hàng
+              <BookmarkPlus size={18} /> Lưu thành mẫu đơn hàng
             </h3>
             <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 14px' }}>
               {partner ? `${partner.name} (${partner.code})` : 'Chưa chọn khách hàng'} — {lines.filter((l) => l.item && l.quantity > 0).length} dòng hàng
@@ -1566,8 +1904,8 @@ export default function OrderFormView({
                   {templates.map((t) => (
                     <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--fm-cream)', borderRadius: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--fm-text-2)' }}>{t.lines.length} dòng{t.cardName ? ` — ${t.cardName}` : ''}</div>
+                        <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>{t.lines.length} dòng{t.cardName ? ` — ${t.cardName}` : ''}</div>
                       </div>
                       <button
                         className="fm-btn fm-btn--ghost fm-btn--sm"
@@ -1578,7 +1916,13 @@ export default function OrderFormView({
                       </button>
                       <button
                         className="fm-icon-btn fm-icon-btn--danger"
-                        onClick={() => deleteTemplate(t.id, t.name)}
+                        onClick={() => setConfirmCfg({
+                          title: 'Xóa mẫu đơn hàng',
+                          message: `Xóa mẫu "${t.name}"?\nHành động không thể hoàn tác.`,
+                          confirmLabel: 'Xóa',
+                          tone: 'danger',
+                          run: () => { void deleteTemplate(t.id, t.name) },
+                        })}
                         title={`Xóa mẫu "${t.name}"`}
                         aria-label={`Xóa mẫu ${t.name}`}
                       >
@@ -1598,7 +1942,7 @@ export default function OrderFormView({
         <div className="fm-backdrop" onClick={() => setPriceHistFor(null)}>
           <div ref={priceHistTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label="Lịch sử giá" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <History size={17} /> Lịch sử giá
+              <History size={18} /> Lịch sử giá
             </h3>
             <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 14px' }}>
               {priceHistFor.itemName} ({priceHistFor.itemCode}) — {partner?.name} ({partner?.code})
@@ -1625,7 +1969,7 @@ export default function OrderFormView({
                   <tbody>
                     {priceHist.map((h, i) => (
                       <tr key={`${h.docNum}-${i}`}>
-                        <td data-label="Ngày">{new Date(h.docDate).toLocaleDateString('vi-VN')}</td>
+                        <td data-label="Ngày">{formatDateVN(h.docDate)}</td>
                         <th scope="row" data-label="Số CT">#{h.docNum}</th>
                         <td data-label="SL" style={{ textAlign: 'right' }}>{formatNum(h.quantity)} {h.uom}</td>
                         <td data-label="Đơn giá (₫)" style={{ textAlign: 'right', fontWeight: 600 }}>{formatVND(h.unitPrice)}</td>
@@ -1652,6 +1996,18 @@ export default function OrderFormView({
             </div>
           </div>
         </div>
+      )}
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
       )}
     </div>
   )

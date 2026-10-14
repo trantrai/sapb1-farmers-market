@@ -80,7 +80,8 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
   useEffect(() => { load(); loadDbs() }, [])
 
   const update = (patch: Partial<SettingsData>) => setS((cur) => (cur ? { ...cur, ...patch } : cur))
-  const updateForm = (patch: Partial<DbForm>) => setForm((cur) => (cur ? { ...cur, ...patch } : cur))
+  const [fieldErr, setFieldErr] = useState<string | null>(null) // tên field lỗi trong modal DB (mục 45)
+  const updateForm = (patch: Partial<DbForm>) => { setFieldErr(null); setForm((cur) => (cur ? { ...cur, ...patch } : cur)) }
 
   const save = async () => {
     if (!s) return
@@ -98,7 +99,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         return
       }
       setS({ ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass) })
-      setMsg({ type: 'success', text: 'Đã lưu cài đặt.' })
+      setMsg({ type: 'success', text: 'Đã lưu cài đặt' })
     } finally {
       setBusy(false)
     }
@@ -114,11 +115,12 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
 
   const saveDb = async () => {
     if (!form) return
-    if (!form.label.trim()) { setMsg({ type: 'error', text: 'Vui lòng nhập tên database' }); return }
-    if (!/^https?:\/\/.+/i.test(form.serviceLayerUrl.trim())) { setMsg({ type: 'error', text: 'URL Service Layer không hợp lệ' }); return }
-    if (!form.companyDb.trim()) { setMsg({ type: 'error', text: 'Vui lòng nhập CompanyDB' }); return }
-    if (!form.sapUser.trim()) { setMsg({ type: 'error', text: 'Vui lòng nhập tài khoản SAP' }); return }
-    if (!form.id && !form.sapPassword) { setMsg({ type: 'error', text: 'Vui lòng nhập mật khẩu SAP' }); return }
+    setFieldErr(null)
+    if (!form.label.trim()) { setFieldErr('label'); setMsg({ type: 'error', text: 'Vui lòng nhập tên database' }); return }
+    if (!/^https?:\/\/.+/i.test(form.serviceLayerUrl.trim())) { setFieldErr('url'); setMsg({ type: 'error', text: 'URL Service Layer không hợp lệ' }); return }
+    if (!form.companyDb.trim()) { setFieldErr('companyDb'); setMsg({ type: 'error', text: 'Vui lòng nhập CompanyDB' }); return }
+    if (!form.sapUser.trim()) { setFieldErr('user'); setMsg({ type: 'error', text: 'Vui lòng nhập tài khoản SAP' }); return }
+    if (!form.id && !form.sapPassword) { setFieldErr('pass'); setMsg({ type: 'error', text: 'Vui lòng nhập mật khẩu SAP' }); return }
     setDbBusy('new')
     setMsg(null)
     try {
@@ -143,7 +145,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       }
       setForm(null)
       await loadDbs()
-      setMsg({ type: 'success', text: form.id ? 'Đã cập nhật database.' : 'Đã thêm database mới.' })
+      setMsg({ type: 'success', text: form.id ? 'Đã cập nhật database' : 'Đã thêm database mới' })
     } finally {
       setDbBusy(null)
     }
@@ -191,13 +193,22 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         return
       }
       await loadDbs()
-      setMsg({ type: 'success', text: 'Đã xóa database.' })
+      setMsg({ type: 'success', text: 'Đã xóa database' })
     } finally {
       setDbBusy(null)
     }
   }
 
-  if (!s) return <div className="fm-card"><div className="fm-empty">Đang tải cấu hình…</div></div>
+  if (!s) return (
+    <div className="fm-card">
+      <div aria-busy="true">
+        <div className="fm-skeleton fm-skeleton--text" style={{ width: '40%', marginBottom: 12 }} />
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="fm-skeleton fm-skeleton--row" />
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <div>
@@ -207,7 +218,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
 />
 
       {msg && (
-        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
+        <div id="db-form-msg" className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
@@ -225,7 +236,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             )}
           </span>
         </h2>
-        <p style={{ fontSize: 13, color: 'var(--fm-text-2)', margin: '0 0 12px' }}>
+        <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 12px' }}>
           Khai báo các CompanyDB kết nối qua Service Layer. Khi đăng nhập, người dùng chọn 1 database —
           mọi thao tác SAP (đẩy đơn, đồng bộ, tra cứu) dùng đúng database đã chọn.
         </p>
@@ -238,11 +249,11 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               <div key={d.id} className="fm-card" style={{ padding: 12, margin: 0, border: d.isDefault ? '1.5px solid var(--fm-accent)' : undefined }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <b style={{ fontSize: 14 }}>{d.label}</b>
-                  {d.isDefault && <span className="fm-chip fm-chip--role"><Star size={12} style={{ verticalAlign: -1, marginRight: 3 }} />Mặc định</span>}
+                  {d.isDefault && <span className="fm-chip fm-chip--role"><Star size={14} style={{ verticalAlign: -1, marginRight: 3 }} />Mặc định</span>}
                   <span
                     className="fm-chip"
                     style={d.connected ? { background: 'var(--fm-green-soft)', color: 'var(--fm-green)' } : undefined}
-                    title={d.lastTestAt ? `Test gần nhất: ${new Date(d.lastTestAt).toLocaleString('vi-VN')}` : 'Chưa test'}
+                    title={d.lastTestAt ? `Test gần nhất: ${new Date(d.lastTestAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}` : 'Chưa test'}
                   >
                     <span className="dot" style={{ background: d.connected ? 'var(--fm-green)' : '#B0B0B0' }} />
                     {d.connected ? 'Đã kết nối' : 'Chưa test'}
@@ -251,19 +262,19 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                     {canEdit && (
                       <>
                         <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => testDb(d)} disabled={dbBusy !== null} title="Kiểm tra kết nối Service Layer">
-                          <PlugZap size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+                          <PlugZap size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
                           {dbBusy === d.id ? 'Đang kiểm tra…' : 'Kiểm tra'}
                         </button>
                         <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => openEdit(d)} disabled={dbBusy !== null} aria-label={`Sửa ${d.label}`}>
-                          <Pencil size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Sửa
+                          <Pencil size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Sửa
                         </button>
                         {!d.isDefault && (
                           <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setDefault(d)} disabled={dbBusy !== null}>
-                            <Star size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt mặc định
+                            <Star size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt mặc định
                           </button>
                         )}
                         <button className="fm-btn fm-btn--ghost fm-btn--sm fm-btn--danger" onClick={() => deleteDb(d)} disabled={dbBusy !== null} aria-label={`Xóa ${d.label}`}>
-                          <Trash2 size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa
+                          <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa
                         </button>
                       </>
                     )}
@@ -297,30 +308,32 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             <div className="fm-form-grid" style={{ padding: '4px 0 12px' }}>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="db-label">Tên hiển thị <span className="fm-label__req">*</span></label>
-                <input id="db-label" className="fm-input" placeholder="Kho HCM — LIVE" value={form.label} onChange={(e) => updateForm({ label: e.target.value })} />
+                <input id="db-label" className={`fm-input${fieldErr === 'label' ? ' is-error' : ''}`} placeholder="Kho HCM — LIVE" value={form.label} onChange={(e) => updateForm({ label: e.target.value })} aria-invalid={fieldErr === 'label' ? true : undefined} aria-describedby={fieldErr === 'label' ? 'db-form-msg' : undefined} />
               </div>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="db-url">Service Layer URL <span className="fm-label__req">*</span></label>
-                <input id="db-url" className="fm-input" placeholder="https://sapb1…:50000/b1s/v1" value={form.serviceLayerUrl} onChange={(e) => updateForm({ serviceLayerUrl: e.target.value })} />
+                <input id="db-url" className={`fm-input${fieldErr === 'url' ? ' is-error' : ''}`} placeholder="https://sapb1…:50000/b1s/v1" value={form.serviceLayerUrl} onChange={(e) => updateForm({ serviceLayerUrl: e.target.value })} aria-invalid={fieldErr === 'url' ? true : undefined} aria-describedby={fieldErr === 'url' ? 'db-form-msg' : undefined} />
               </div>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="db-companydb">Company DB <span className="fm-label__req">*</span></label>
-                <input id="db-companydb" className="fm-input" placeholder="FM_LIVE" value={form.companyDb} onChange={(e) => updateForm({ companyDb: e.target.value })} />
+                <input id="db-companydb" className={`fm-input${fieldErr === 'companyDb' ? ' is-error' : ''}`} placeholder="FM_LIVE" value={form.companyDb} onChange={(e) => updateForm({ companyDb: e.target.value })} aria-invalid={fieldErr === 'companyDb' ? true : undefined} aria-describedby={fieldErr === 'companyDb' ? 'db-form-msg' : undefined} />
               </div>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="db-user">SAP User <span className="fm-label__req">*</span></label>
-                <input id="db-user" className="fm-input" placeholder="manager" value={form.sapUser} onChange={(e) => updateForm({ sapUser: e.target.value })} />
+                <input id="db-user" className={`fm-input${fieldErr === 'user' ? ' is-error' : ''}`} placeholder="manager" value={form.sapUser} onChange={(e) => updateForm({ sapUser: e.target.value })} aria-invalid={fieldErr === 'user' ? true : undefined} aria-describedby={fieldErr === 'user' ? 'db-form-msg' : undefined} />
               </div>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="db-pass">SAP Password {form.hasPassword || form.id ? '' : <span className="fm-label__req">*</span>}</label>
                 <input
                   id="db-pass"
                   type="password"
-                  className="fm-input"
+                  className={`fm-input${fieldErr === 'pass' ? ' is-error' : ''}`}
                   autoComplete="new-password"
                   placeholder={form.hasPassword ? '••••••••  (để trống = giữ mật khẩu cũ)' : ''}
                   value={form.sapPassword}
                   onChange={(e) => updateForm({ sapPassword: e.target.value })}
+                  aria-invalid={fieldErr === 'pass' ? true : undefined}
+                  aria-describedby={fieldErr === 'pass' ? 'db-form-msg' : undefined}
                 />
               </div>
               <div className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -335,7 +348,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="fm-btn fm-btn--ghost" onClick={() => setForm(null)}>Hủy</button>
               <button className="fm-btn fm-btn--primary" onClick={saveDb} disabled={dbBusy !== null}>
-                <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+                <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
                 {dbBusy === 'new' ? 'Đang lưu…' : form.id ? 'Cập nhật' : 'Thêm database'}
               </button>
             </div>
@@ -378,7 +391,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy}>
-            <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
         </div>
@@ -465,7 +478,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy}>
-            <Save size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
           {!canEdit && (

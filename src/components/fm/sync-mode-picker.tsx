@@ -30,7 +30,7 @@ export default function SyncModePicker({
         value={mode}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as SyncMode)}
-        style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}
+        style={{ width: 'auto', padding: '4px 8px', fontSize: 12.5 }}
         title="Gia tăng: chỉ tải bản ghi thay đổi kể từ mốc đã lưu (nhanh). Toàn phần: tải lại toàn bộ danh mục (chậm hơn, khớp hẳn kể cả bản ghi bị xóa trên SAP)."
       >
         <option value="auto">Tự động {hasWatermark ? '(sẽ chạy gia tăng)' : '(sẽ chạy toàn phần)'}</option>

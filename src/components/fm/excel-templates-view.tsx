@@ -40,6 +40,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [editing, setEditing] = useState<ExcelTemplate | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [nameErr, setNameErr] = useState(false) // tên template lỗi khi lưu (mục 45)
   const [confirmDelete, setConfirmDelete] = useState<ExcelTemplate | null>(null)
 
   // Focus trap + Escape cho 2 dialog
@@ -107,7 +108,9 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   }
 
   const saveTemplate = async () => {
+    setNameErr(false)
     if (!formName.trim()) {
+      setNameErr(true)
       setMsg({ type: 'error', text: 'Tên template không được để trống' })
       return
     }
@@ -223,7 +226,7 @@ actions={
       />
 
       {msg && (
-        <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
+        <div id="et-form-msg" className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b> {msg.text}</div>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
@@ -232,7 +235,11 @@ actions={
       <div className="fm-card">
         <h2 className="fm-card__title">Danh sách template</h2>
         {templates === null ? (
-          <p style={{ color: 'var(--fm-text-2)' }}>Đang tải…</p>
+          <div aria-busy="true">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="fm-skeleton fm-skeleton--row" />
+            ))}
+          </div>
         ) : templates.length === 0 ? (
           <p style={{ color: 'var(--fm-text-2)' }}>Chưa có template nào. Bấm "Thêm template" để tạo mới.</p>
         ) : (
@@ -255,20 +262,20 @@ actions={
                     <td data-label="Số cột map" className="fm-num">{Object.keys(t.mapping).length}</td>
                     <td data-label="Mặc định">
                       {t.isDefault ? (
-                        <span className="fm-chip fm-chip--role"><Star size={12} /> Mặc định</span>
+                        <span className="fm-chip fm-chip--role"><Star size={14} /> Mặc định</span>
                       ) : (
                         <button className="fm-link" onClick={() => setDefault(t)}>Đặt mặc định</button>
                       )}
                     </td>
                     <td data-label="Thao tác">
                       <button className="fm-icon-btn" title="Tải template mẫu" aria-label="Tải template mẫu" onClick={() => downloadSample(t)}>
-                        <Download size={15} />
+                        <Download size={16} />
                       </button>
                       <button className="fm-icon-btn" title="Sửa" aria-label="Sửa template" onClick={() => openForm(t)}>
-                        <Pencil size={15} />
+                        <Pencil size={16} />
                       </button>
                       <button className="fm-icon-btn fm-icon-btn--danger" title="Xóa" aria-label="Xóa template" onClick={() => setConfirmDelete(t)}>
-                        <Trash2 size={15} />
+                        <Trash2 size={16} />
                       </button>
                     </td>
                   </tr>
@@ -290,7 +297,7 @@ actions={
             <div>
               <div className="fm-field">
                 <label className="fm-label" htmlFor="et-name">Tên template *</label>
-                <input id="et-name" className="fm-input" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="VD: Template nhập hàng" />
+                <input id="et-name" className={`fm-input${nameErr ? ' is-error' : ''}`} value={formName} onChange={(e) => { setNameErr(false); setFormName(e.target.value) }} placeholder="VD: Template nhập hàng" aria-invalid={nameErr ? true : undefined} aria-describedby={nameErr ? 'et-form-msg' : undefined} />
               </div>
               <div className="fm-field" style={{ marginTop: 12 }}>
                 <label className="fm-label" htmlFor="et-desc">Mô tả</label>
@@ -343,7 +350,7 @@ actions={
                 </div>
               ))}
               <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={addMappingRow} style={{ marginTop: 4 }}>
-                <Plus size={13} /> Thêm cột
+                <Plus size={14} /> Thêm cột
               </button>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>

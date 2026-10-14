@@ -77,7 +77,7 @@ export default function ConfirmDialog({
             className="fm-modal__title"
             style={{ display: 'flex', alignItems: 'center', gap: 8, color: t.color }}
           >
-            <Icon size={20} aria-hidden />
+            <Icon size={18} aria-hidden />
             {title}
           </h3>
           <button type="button" className="fm-icon-btn" onClick={onCancel} aria-label="Đóng">
@@ -85,7 +85,7 @@ export default function ConfirmDialog({
           </button>
         </div>
 
-        <p id="fm-confirm-msg" style={{ margin: '0 0 20px', fontSize: 13.5, lineHeight: 1.6, color: 'var(--fm-text-2)', whiteSpace: 'pre-line' }}>
+        <p id="fm-confirm-msg" style={{ margin: '0 0 20px', fontSize: 14, lineHeight: 1.6, color: 'var(--fm-text-2)', whiteSpace: 'pre-line' }}>
           {message}
         </p>
 

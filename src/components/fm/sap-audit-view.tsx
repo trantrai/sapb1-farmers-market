@@ -29,7 +29,7 @@ interface AuditRow {
 }
 
 const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  new Date(iso).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 const fmtPath = (p: string) => (p.length > 64 ? `${p.slice(0, 64)}…` : p)
 
@@ -95,11 +95,11 @@ export default function SapAuditView() {
       const res = await api(`/api/sap-audit/${row.id}/retry`, { method: 'POST' })
       const json = await res.json()
       if (!res.ok) {
-        setMsg({ type: 'error', text: json.error ?? 'Retry thất bại' })
+        setMsg({ type: 'error', text: json.error ?? 'Thử lại thất bại' })
       } else if (json.ok) {
-        setMsg({ type: 'success', text: `Retry ${row.method} ${row.path} thành công${json.result?.DocNum ? ` — DocNum ${json.result.DocNum}` : ''}.` })
+        setMsg({ type: 'success', text: `Thử lại ${row.method} ${row.path} thành công${json.result?.DocNum ? ` — DocNum ${json.result.DocNum}` : ''}.` })
       } else {
-        setMsg({ type: 'error', text: `Retry ${row.method} ${row.path} lại LỖI (HTTP ${json.httpStatus ?? '?'})${json.error ? `: ${json.error}` : ''}` })
+        setMsg({ type: 'error', text: `Thử lại ${row.method} ${row.path} LỖI (HTTP ${json.httpStatus ?? '?'})${json.error ? `: ${json.error}` : ''}` })
       }
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
@@ -114,7 +114,7 @@ export default function SapAuditView() {
     const res = await api('/api/sap-audit', { method: 'DELETE' })
     const json = await res.json().catch(() => ({}))
     if (res.ok) {
-      setMsg({ type: 'success', text: 'Đã xóa toàn bộ nhật ký.' })
+      setMsg({ type: 'success', text: 'Đã xóa toàn bộ nhật ký' })
       await load(1, status, q)
     } else {
       setMsg({ type: 'error', text: json.error ?? 'Không xóa được nhật ký' })
@@ -177,7 +177,7 @@ actions={<>
                 <th style={{ minWidth: 210 }}>Endpoint</th>
                 <th style={{ width: 110 }}>Kết quả</th>
                 <th className="fm-num" style={{ width: 90 }}>Ms</th>
-                <th style={{ width: 96 }}>Retry</th>
+                <th style={{ width: 96 }}>Thử lại</th>
               </tr>
             </thead>
             <tbody>
@@ -213,19 +213,19 @@ actions={<>
                       <span className={`fm-chip ${r.ok ? 'fm-chip--sap' : 'fm-chip--overdue'}`} title={r.error ?? r.resultSummary ?? ''}>
                         {r.ok ? 'OK' : 'LỖI'}{r.httpStatus != null && r.httpStatus > 0 ? ` ${r.httpStatus}` : ''}
                       </span>
-                      {r.retryOf && <span className="fm-chip fm-chip--role" style={{ marginLeft: 4 }} title="Kết quả của lệnh Retry">↻</span>}
+                      {r.retryOf && <span className="fm-chip fm-chip--role" style={{ marginLeft: 4 }} title="Kết quả của lệnh Thử lại">↻</span>}
                     </td>
                     <td className="fm-num" data-label="Ms">{r.durationMs}</td>
-                    <td data-label="Retry">
+                    <td data-label="Thử lại">
                       <button
                         className="fm-btn fm-btn--ghost fm-btn--sm"
                         title={r.method === 'POST' ? 'Gửi lại payload lên Service Layer (POST /Orders sẽ tạo chứng từ MỚI)' : r.method === 'PATCH' ? 'Gửi lại payload PATCH để cập nhật lại chứng từ' : 'Gọi lại endpoint GET này'}
-                        aria-label={`Retry ${r.method} ${fmtPath(r.path)}`}
+                        aria-label={`Thử lại ${r.method} ${fmtPath(r.path)}`}
                         disabled={busyId === r.id}
                         onClick={(e) => { e.stopPropagation(); setConfirmRetry(r) }}
                       >
-                        <RotateCcw size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
-                        {busyId === r.id ? 'Đang gửi…' : 'Retry'}
+                        <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
+                        {busyId === r.id ? 'Đang gửi…' : 'Thử lại'}
                       </button>
                     </td>
                   </tr>
@@ -235,7 +235,7 @@ actions={<>
                         <div className="fm-audit-detail__inner" onClick={(e) => e.stopPropagation()}>
                           <div><b>Kết quả:</b> {r.resultSummary ?? (r.ok ? 'OK' : '—')}</div>
                           {r.error && <div className="fm-audit-error"><b>Lỗi:</b> {r.error}</div>}
-                          {r.retryOf && <div><b>Retry của:</b> {r.retryOf}</div>}
+                          {r.retryOf && <div><b>Thử lại của:</b> {r.retryOf}</div>}
                           {r.payload && (
                             <>
                               <div style={{ marginTop: 6 }}><b>Payload đã gửi:</b></div>
@@ -255,9 +255,9 @@ actions={<>
         <FmPagination page={page} totalPages={totalPages} onPage={(p) => load(p, status, q)} />
       </div>
 
-      {/* Xác nhận Retry — z-index 75: trên bottom tab bar (65), ngang hàng modal thường */}
+      {/* Xác nhận Thử lại — dùng .fm-backdrop chung (z-index 81: trên drawer mobile) */}
       {confirmRetry && (
-        <div className="fm-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmRetry(null)}>
+        <div className="fm-backdrop" onClick={() => setConfirmRetry(null)}>
           <div
             ref={retryModalRef}
             tabIndex={-1}
@@ -266,9 +266,9 @@ actions={<>
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={`Xác nhận retry ${confirmRetry.method} ${fmtPath(confirmRetry.path)}`}
+            aria-label={`Xác nhận thử lại ${confirmRetry.method} ${fmtPath(confirmRetry.path)}`}
           >
-            <h2 className="fm-modal__title">Xác nhận retry</h2>
+            <h2 className="fm-modal__title">Xác nhận thử lại</h2>
             <p className="fm-card__desc">
               Gửi lại <b>{confirmRetry.method} {fmtPath(confirmRetry.path)}</b> lên Service Layer?
               {confirmRetry.method === 'POST' && (
@@ -290,16 +290,16 @@ actions={<>
                 onClick={() => doRetry(confirmRetry)}
               >
                 <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
-                {busyId === confirmRetry.id ? 'Đang gửi…' : 'Retry ngay'}
+                {busyId === confirmRetry.id ? 'Đang gửi…' : 'Thử lại ngay'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Xác nhận Xóa log — dùng cùng pattern modal như Retry (không dùng window.confirm) */}
+      {/* Xác nhận Xóa log — dùng cùng pattern modal như Thử lại (không dùng window.confirm) */}
       {confirmClear && (
-        <div className="fm-backdrop" style={{ zIndex: 75 }} onClick={() => setConfirmClear(false)}>
+        <div className="fm-backdrop" onClick={() => setConfirmClear(false)}>
           <div
             ref={clearModalRef}
             tabIndex={-1}

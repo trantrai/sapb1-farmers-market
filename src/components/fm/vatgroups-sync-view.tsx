@@ -35,7 +35,7 @@ interface SyncStatus {
 }
 
 const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function VatGroupsSyncView() {
   const [rows, setRows] = useState<VatRow[] | null>(null)
@@ -59,7 +59,7 @@ export default function VatGroupsSyncView() {
     setCancelling(false)
     if (p.error) setMsg({ type: 'error', text: p.error })
     else if (p.message.includes('Đã dừng')) setMsg({ type: 'info', text: p.message })
-    else setMsg({ type: 'success', text: p.message || 'Đồng bộ hoàn tất.' })
+    else setMsg({ type: 'success', text: p.message || 'Đồng bộ hoàn tất' })
     loadRef.current()
   })
 
@@ -132,7 +132,7 @@ export default function VatGroupsSyncView() {
       const res = await api('/api/vatgroups/sync', { method: 'PATCH' })
       const json: any = await safeJson(res)
       if (res.ok) {
-        setMsg({ type: 'info', text: json?.message ?? 'Đã gửi yêu cầu dừng đồng bộ.' })
+        setMsg({ type: 'info', text: json?.message ?? 'Đã gửi yêu cầu dừng đồng bộ' })
         // Giữ polling cho tới khi server kết thúc lượt (onDone báo "Đã dừng…")
       } else {
         setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status})` : 'Không dừng được đồng bộ') })
@@ -151,7 +151,7 @@ export default function VatGroupsSyncView() {
     try {
       const res = await api('/api/vatgroups/sync', { method: 'DELETE' })
       const json: any = await safeJson(res)
-      if (res.ok) setMsg({ type: 'success', text: json?.message ?? 'Đã xóa dữ liệu đồng bộ.' })
+      if (res.ok) setMsg({ type: 'success', text: json?.message ?? 'Đã xóa dữ liệu đồng bộ' })
       else setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status}) — hãy thử lại hoặc liên hệ quản trị` : 'Không xóa được dữ liệu') })
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
@@ -202,7 +202,7 @@ export default function VatGroupsSyncView() {
           <span className={`fm-chip ${st?.configured ? 'fm-chip--sap' : 'fm-chip--overdue'}`} title="Trạng thái kết nối Service Layer">
             {st?.configured ? 'SAP B1 đã kết nối' : 'Chưa cấu hình SAP B1'}
           </span>
-          <span className="fm-chip fm-chip--role"><DatabaseZap size={13} />{st?.count ?? 0} nhóm thuế local</span>
+          <span className="fm-chip fm-chip--role"><DatabaseZap size={14} />{st?.count ?? 0} nhóm thuế local</span>
           <span className="fm-chip fm-chip--role">Bán: {st?.salesCount ?? 0} · Mua: {st?.purchaseCount ?? 0}</span>
           {(st?.missingRateCount ?? 0) > 0 && (
             <span className="fm-chip fm-chip--overdue" title="Số nhóm không tra được thuế suất hiệu lực (không có dòng hiệu lực trong VatGroups_Lines)">
@@ -231,7 +231,7 @@ export default function VatGroupsSyncView() {
             style={{ flex: 1, minWidth: 180 }}
           />
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => load(1, q, cat)}>
-            <Search size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Tìm
+            <Search size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Tìm
           </button>
           <button
             className={`fm-chip fm-chip--role fm-chip--btn${cat === '' ? ' is-active' : ''}`}

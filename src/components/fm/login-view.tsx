@@ -96,7 +96,7 @@ export default function LoginView({ onLogin }: Props) {
                 autoComplete="username"
                 required
               />
-              <User size={15} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
+              <User size={16} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
             </div>
           </div>
 
@@ -114,7 +114,7 @@ export default function LoginView({ onLogin }: Props) {
                 autoComplete="current-password"
                 required
               />
-              <Lock size={15} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
+              <Lock size={16} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
             </div>
           </div>
 
@@ -136,7 +136,7 @@ export default function LoginView({ onLogin }: Props) {
                     </option>
                   ))}
                 </select>
-                <Database size={15} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
+                <Database size={16} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
               </div>
             </div>
           )}

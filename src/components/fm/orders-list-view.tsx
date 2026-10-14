@@ -7,6 +7,7 @@ import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import type { EditOrderData } from './order-form-view'
+import { toEditData } from './order-form-view'
 import PageHeader from './page-header'
 import { Network } from 'lucide-react'
 import RelMapModal from './relmap-modal'
@@ -108,7 +109,7 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
         // Chặn keydown bubble lên hàng/card cha (tránh mở chi tiết khi nhấn Enter trên nút)
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <RefreshCw size={11} style={{ flex: 'none' }} />
+        <RefreshCw size={14} style={{ flex: 'none' }} />
         {syncing ? 'Đang đẩy…' : 'Đẩy lại'}
       </button>
     )
@@ -122,10 +123,13 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
 
 /** Bottom-sheet thao tác trên card mobile: dùng pattern fm-backdrop + fm-modal
  *  (tự thành bottom-sheet ở ≤640px), focus trap + trả focus về nút ⋯ khi đóng */
-function OrderSheet({ order, onClose, onOpenRelMap }: {
+function OrderSheet({ order, onClose, onOpenRelMap, canDuplicate, onDuplicate }: {
   order: Order
   onClose: () => void
   onOpenRelMap: (o: Order) => void
+  /** Nhân bản đơn hàng từ bottom-sheet — chỉ hiện khi user có quyền tạo đơn */
+  canDuplicate: boolean
+  onDuplicate: () => void
 }) {
   const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
   return (
@@ -145,15 +149,25 @@ function OrderSheet({ order, onClose, onOpenRelMap }: {
             <X size={16} />
           </button>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--fm-text-2)', marginBottom: 10 }}>{order.cardName}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--fm-text-2)', marginBottom: 10 }}>{order.cardName}</div>
         <div role="menu" aria-label={`Thao tác đơn hàng #${order.docNum}`}>
+          {canDuplicate && (
+            <button
+              type="button"
+              role="menuitem"
+              className="fm-sheet__item"
+              onClick={onDuplicate}
+            >
+              <Copy size={18} /> Nhân bản đơn hàng
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
             className="fm-sheet__item"
             onClick={() => onOpenRelMap(order)}
           >
-            <Network size={17} /> Sơ đồ liên kết
+            <Network size={18} /> Sơ đồ liên kết
           </button>
         </div>
       </div>
@@ -230,9 +244,13 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
   const deleteOrder = async (o: Order) => {
     if (!window.confirm(`Xóa đơn hàng #${o.docNum} — ${o.cardName}? Hành động không thể hoàn tác.`)) return
+    // Optimistic UI: gỡ dòng khỏi danh sách ngay, rollback nếu API lỗi
+    const prevOrders = orders
+    setOrders((os) => os.filter((x) => x.id !== o.id))
     const res = await api(`/api/orders/${o.id}`, { method: 'DELETE' })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
+      setOrders(prevOrders)
       setAlert({ type: 'error', msg: json.error ?? 'Không thể xóa đơn hàng' })
       return
     }
@@ -365,34 +383,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const editable = (o: Order): boolean =>
     Boolean(canEdit && o.status === 'Open' && o.lines.length > 0 && (o.source !== 'sap' || o.sapDocEntry != null))
 
-  /** Đơn trong modal → dữ liệu cho form sửa */
-  const toEditData = (o: Order): EditOrderData => ({
-    id: o.source === 'sap' ? o.localId ?? o.id : o.id,
-    docNum: o.docNum,
-    cardCode: o.cardCode,
-    cardName: o.cardName,
-    docDate: o.docDate,
-    docDueDate: o.docDueDate,
-    status: o.status,
-    remarks: o.remarks,
-    warehouseCode: (o as { warehouseCode?: string | null }).warehouseCode ?? null,
-    headerDiscPct: o.headerDiscPct ?? 0,
-    sapSyncStatus: o.sapSyncStatus ?? (o.source === 'sap' ? 'synced' : 'none'),
-    version: o.version,
-    lines: o.lines.map((l) => ({
-      dbId: o.source === 'sap' ? undefined : l.id,
-      sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
-      itemCode: l.itemCode,
-      itemName: l.itemName,
-      uom: l.uom,
-      warehouseCode: l.warehouseCode,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      discPct: l.discPct,
-      vatPct: l.vatPct,
-      taxCode: l.taxCode,
-    })),
-  })
+  // Dữ liệu cho form sửa — dùng hàm toEditData DÙNG CHUNG (map dbId/sapLineNum
+  // để PUT không append trùng dòng trên SAP B1)
 
   // Đẩy lại đơn sang SAP B1 (đơn đang 'pending' sau khi lưu)
   const syncOrder = async (o: Order) => {
@@ -435,7 +427,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={onGoCreate}>
-              <Plus size={15} style={{ verticalAlign: -2, marginRight: 4 }} /> Tạo đơn hàng
+              <Plus size={16} style={{ verticalAlign: -2, marginRight: 4 }} /> Tạo đơn hàng
             </button>
           )}
         </div>
@@ -481,10 +473,10 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
           <input type="date" className="fm-datepicker" title="Từ ngày" aria-label="Lọc từ ngày" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
           <input type="date" className="fm-datepicker" title="Đến ngày" aria-label="Lọc đến ngày" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={resetFilter}>
-            <RotateCcw size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt lại
+            <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt lại
           </button>
           <div className="fm-filterbar__spacer" />
-          <span className="fm-chip fm-chip--role"><Filter size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{total} kết quả</span>
+          <span className="fm-chip fm-chip--role"><Filter size={14} style={{ verticalAlign: -1, marginRight: 3 }} />{total} kết quả</span>
         </div>
 
         {/* Cảnh báo SAP lỗi khi load danh sách */}
@@ -503,6 +495,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
           <div className="fm-empty">
             <Inbox />
             Không có đơn hàng phù hợp bộ lọc
+            {canCreate && (
+              <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
+                <Plus size={16} /> Tạo đơn hàng
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -575,9 +572,16 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
                       <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                        <button className="fm-icon-btn" title="Nhân bản đơn hàng" aria-label="Nhân bản đơn hàng" onClick={() => onGoDuplicate({ ...toEditData(o), id: undefined })}>
-                          <Copy size={14} />
-                        </button>
+                        {editable(o) && (
+                          <button className="fm-icon-btn" title="Sửa đơn hàng" aria-label={`Sửa đơn hàng ${o.docNum}`} onClick={() => onGoEdit(toEditData(o))}>
+                            <Pencil size={14} />
+                          </button>
+                        )}
+                        {canCreate && (
+                          <button className="fm-icon-btn" title="Nhân bản đơn hàng" aria-label="Nhân bản đơn hàng" onClick={() => onGoDuplicate({ ...toEditData(o), id: undefined })}>
+                            <Copy size={14} />
+                          </button>
+                        )}
                         {canDelete && o.source !== 'sap' && (
                           <button className="fm-row-del" title="Xóa đơn hàng" aria-label="Xóa đơn hàng" onClick={() => deleteOrder(o)}>
                             <Trash2 size={14} />
@@ -700,7 +704,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
             role="menuitem"
             onClick={() => { setRelMapOrder({ id: ctxMenu.order.id, docNum: ctxMenu.order.docNum }); setCtxMenu(null) }}
           >
-            <Network size={15} /> Sơ đồ liên kết
+            <Network size={16} /> Sơ đồ liên kết
           </button>
         </div>
       )}
@@ -711,6 +715,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
           order={sheetOrder}
           onClose={() => setSheetOrder(null)}
           onOpenRelMap={(o) => { setSheetOrder(null); setRelMapOrder({ id: o.id, docNum: o.docNum }) }}
+          canDuplicate={canCreate}
+          onDuplicate={() => { const o = sheetOrder; setSheetOrder(null); if (o) onGoDuplicate({ ...toEditData(o), id: undefined }) }}
         />
       )}
 

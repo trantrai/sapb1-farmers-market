@@ -7,6 +7,7 @@ import FmPagination from './fm-pagination'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
 import SyncModePicker, { fmtWatermark, type SyncMode } from './sync-mode-picker'
 import PageHeader from './page-header'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 
 // ============================================================
 // ĐỒNG BỘ MẶT HÀNG — quản lý bản mirror danh mục Sales Item của
@@ -37,7 +38,7 @@ interface SyncStatus {
 const fmtVND = (n: number) => new Intl.NumberFormat('vi-VN').format(n)
 const fmtNum = (n: number) => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(n)
 const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: string }) {
   const [rows, setRows] = useState<ItemRow[] | null>(null)
@@ -60,7 +61,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
     setCancelling(false)
     if (p.error) setMsg({ type: 'error', text: p.error })
     else if (p.message.includes('Đã dừng')) setMsg({ type: 'info', text: p.message })
-    else setMsg({ type: 'success', text: p.message || 'Đồng bộ hoàn tất.' })
+    else setMsg({ type: 'success', text: p.message || 'Đồng bộ hoàn tất' })
     loadRef.current()
   })
 
@@ -103,6 +104,15 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
   // onDone → luôn gọi bản load mới nhất (q/page hiện tại)
   useEffect(() => { loadRef.current = () => { void load(1, q) } })
 
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
+
   const doSync = async () => {
     setBusy('sync')
     setMsg(null)
@@ -132,7 +142,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
       const res = await api('/api/items/sync', { method: 'PATCH' })
       const json: any = await safeJson(res)
       if (res.ok) {
-        setMsg({ type: 'info', text: json?.message ?? 'Đã gửi yêu cầu dừng đồng bộ.' })
+        setMsg({ type: 'info', text: json?.message ?? 'Đã gửi yêu cầu dừng đồng bộ' })
         // Giữ polling cho tới khi server kết thúc lượt (onDone báo "Đã dừng…")
       } else {
         setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status})` : 'Không dừng được đồng bộ') })
@@ -145,13 +155,13 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
   }
 
   const doClear = async () => {
-    if (!window.confirm('Xóa TOÀN BỘ dữ liệu mặt hàng đã đồng bộ trong CSDL local? Danh mục trên SAP B1 không bị ảnh hưởng.')) return
+    setConfirmCfg(null)
     setBusy('clear')
     setMsg(null)
     try {
       const res = await api('/api/items/sync', { method: 'DELETE' })
       const json: any = await safeJson(res)
-      if (res.ok) setMsg({ type: 'success', text: json?.message ?? 'Đã xóa dữ liệu đồng bộ.' })
+      if (res.ok) setMsg({ type: 'success', text: json?.message ?? 'Đã xóa dữ liệu đồng bộ' })
       else setMsg({ type: 'error', text: json?.error ?? (json === undefined ? `Lỗi máy chủ (HTTP ${res.status}) — hãy thử lại hoặc liên hệ quản trị` : 'Không xóa được dữ liệu') })
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
@@ -159,6 +169,16 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
       setBusy(null)
       await load(1, q)
     }
+  }
+
+  const askClear = () => {
+    setConfirmCfg({
+      title: 'Xóa dữ liệu đã đồng bộ',
+      message: 'Xóa TOÀN BỘ dữ liệu mặt hàng đã đồng bộ trong CSDL local? Danh mục trên SAP B1 không bị ảnh hưởng.',
+      confirmLabel: 'Xóa hết',
+      tone: 'danger',
+      run: () => { void doClear() },
+    })
   }
 
   return (
@@ -180,7 +200,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
           <button className="fm-btn fm-btn--secondary" onClick={() => load(1, q)}>
             <RotateCcw size={14} /> Tải lại
           </button>
-          <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={doClear} title="Xóa toàn bộ dữ liệu mặt hàng đã đồng bộ trong CSDL local">
+          <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={askClear} title="Xóa toàn bộ dữ liệu mặt hàng đã đồng bộ trong CSDL local">
             <Trash2 size={14} /> Xóa cache local
           </button>
         </>}
@@ -205,7 +225,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
           <span className={`fm-chip ${st?.configured ? 'fm-chip--sap' : 'fm-chip--overdue'}`} title="Trạng thái kết nối Service Layer">
             {st?.configured ? 'SAP B1 đã kết nối' : 'Chưa cấu hình SAP B1'}
           </span>
-          <span className="fm-chip fm-chip--role"><DatabaseZap size={13} />{st?.count ?? 0} mặt hàng local</span>
+          <span className="fm-chip fm-chip--role"><DatabaseZap size={14} />{st?.count ?? 0} mặt hàng local</span>
           <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
           <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt gia tăng chỉ tải bản ghi mới hơn mốc này">
             Mốc SAP: {fmtWatermark(st?.watermark?.date ?? null, st?.watermark?.time ?? null)}
@@ -228,7 +248,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
             style={{ flex: 1, minWidth: 180 }}
           />
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => load(1, q)}>
-            <Search size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Tìm
+            <Search size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Tìm
           </button>
           <span className="fm-chip fm-chip--role">{total} mặt hàng</span>
         </div>
@@ -281,6 +301,18 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
 
         <FmPagination page={page} totalPages={totalPages} onPage={(p) => load(p, q)} />
       </div>
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
+      )}
     </div>
   )
 }

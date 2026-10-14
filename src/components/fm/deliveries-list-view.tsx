@@ -5,11 +5,12 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw } from 'lucide-react'
+import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw, Plus } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import PageHeader from './page-header'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 
 interface DeliveryLine {
   id: string
@@ -44,6 +45,9 @@ interface Props {
   onGoDetail: (id: string) => void
   onGoOrderDetail: (orderId: string) => void
   refreshKey?: number
+  /** Hiện nút “Tạo đơn hàng” ở empty state khi user có quyền tạo đơn */
+  canCreate?: boolean
+  onGoCreate?: () => void
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -52,7 +56,7 @@ const STATUS_LABEL: Record<string, string> = {
   Cancelled: 'Hủy',
 }
 
-export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refreshKey }: Props) {
+export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refreshKey, canCreate, onGoCreate }: Props) {
   const [rows, setRows] = useState<Delivery[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -100,9 +104,21 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
 
   useEffect(() => { void load() }, [load, refreshKey])
 
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
+
   const doDelete = async (d: Delivery) => {
-    if (!window.confirm(`Xóa phiếu giao hàng #${d.docNum}?`)) return
+    setConfirmCfg(null)
     setBusyId(d.id)
+    // Optimistic UI: gỡ dòng khỏi danh sách ngay, rollback nếu API lỗi
+    const prevRows = rows
+    setRows((rs) => rs.filter((r) => r.id !== d.id))
     try {
       const r = await api(`/api/deliveries/${d.id}`, { method: 'DELETE' })
       const j = await r.json().catch(() => ({}))
@@ -110,9 +126,11 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
         setAlert({ type: 'success', msg: `Đã xóa phiếu #${d.docNum}` })
         void load()
       } else {
+        setRows(prevRows)
         setAlert({ type: 'error', msg: j.error ?? 'Xóa thất bại' })
       }
     } catch {
+      setRows(prevRows)
       setAlert({ type: 'error', msg: 'Không kết nối được máy chủ' })
     } finally {
       setBusyId(null)
@@ -121,7 +139,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
 
   const doPush = async (d: Delivery) => {
     // Đẩy SAP tạo chứng từ THẬT — xác nhận trước khi gọi API
-    if (!window.confirm(`Đẩy phiếu #${d.docNum} sang SAP B1? Thao tác sẽ tạo chứng từ thật trên SAP.`)) return
+    setConfirmCfg(null)
     setBusyId(d.id)
     try {
       const r = await api(`/api/deliveries/${d.id}/push`, { method: 'POST' })
@@ -137,6 +155,31 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
     } finally {
       setBusyId(null)
     }
+  }
+
+  const askDelete = (d: Delivery) => {
+    // Phiếu local ĐÃ đẩy SAP: vẫn cho xóa bản ghi local nhưng phải cảnh báo rõ
+    // bằng dialog tone warning — chứng từ thật vẫn còn trên SAP B1.
+    const synced = d.sapSyncStatus === 'synced'
+    setConfirmCfg({
+      title: synced ? 'Xóa bản ghi local?' : 'Xóa phiếu giao hàng',
+      message: synced
+        ? `Phiếu #${d.docNum} đã đẩy lên SAP B1 — chứng từ thật vẫn còn trên SAP, chỉ xóa bản ghi local.\nHành động không thể hoàn tác.`
+        : `Xóa phiếu giao hàng #${d.docNum}?\nHành động không thể hoàn tác.`,
+      confirmLabel: synced ? 'Chỉ xóa bản ghi local' : 'Xóa',
+      tone: synced ? 'warning' : 'danger',
+      run: () => { void doDelete(d) },
+    })
+  }
+
+  const askPush = (d: Delivery) => {
+    setConfirmCfg({
+      title: 'Đẩy sang SAP B1',
+      message: `Đẩy phiếu #${d.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
+      confirmLabel: 'Đẩy sang SAP',
+      tone: 'warning',
+      run: () => { void doPush(d) },
+    })
   }
 
   return (
@@ -162,7 +205,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
 
       <div className="fm-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <div className="fm-search" style={{ flex: '1 1 220px' }}>
-          <Search size={15} className="fm-search__icon" />
+          <Search size={16} className="fm-search__icon" />
           <input
             className="fm-search__input"
             placeholder="Tìm mã KH, tên KH, số phiếu…"
@@ -202,9 +245,21 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24 }}>Đang tải…</td></tr>
+                <tr><td colSpan={8} style={{ padding: 8 }}>
+                  <div aria-busy="true">
+                    {Array.from({ length: 6 }, (_, i) => (
+                      <div key={i} className="fm-skeleton fm-skeleton--row" />
+                    ))}
+                  </div>
+                </td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8}><div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).</div></td></tr>
+                <tr><td colSpan={8}><div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).
+                  {canCreate && onGoCreate && (
+                    <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
+                      <Plus size={16} /> Tạo đơn hàng
+                    </button>
+                  )}
+                </div></td></tr>
               ) : rows.map((d) => (
                 <tr key={d.id}>
                   <th scope="row"><b>#{d.docNum}</b></th>
@@ -249,30 +304,30 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                         title="Xem chi tiết"
                         aria-label={`Xem chi tiết phiếu ${d.docNum}`}
                       >
-                        <Eye size={15} />
+                        <Eye size={16} />
                       </button>
                       {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                         <button
                           type="button"
                           className="fm-btn fm-btn--ghost fm-btn--sm"
-                          onClick={() => void doPush(d)}
+                          onClick={() => askPush(d)}
                           disabled={busyId === d.id}
                           title="Đẩy sang SAP B1"
                           aria-label={`Đẩy phiếu ${d.docNum} sang SAP`}
                         >
-                          <CloudUpload size={15} />
+                          <CloudUpload size={16} />
                         </button>
                       )}
                       {d.source !== 'sap' && (
                         <button
                           type="button"
                           className="fm-btn fm-btn--ghost fm-btn--sm"
-                          onClick={() => void doDelete(d)}
+                          onClick={() => askDelete(d)}
                           disabled={busyId === d.id}
                           title="Xóa"
                           aria-label={`Xóa phiếu ${d.docNum}`}
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={16} />
                         </button>
                       )}
                     </div>
@@ -286,9 +341,19 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
         {/* Danh sách card (mobile) — thay bảng 8 cột cuộn ngang */}
         <div className="fm-only-mobile">
           {loading ? (
-            <p className="fm-hint" style={{ padding: '16px 4px' }}>Đang tải…</p>
+            <div aria-busy="true" style={{ padding: '8px 4px' }}>
+              {Array.from({ length: 4 }, (_, i) => (
+                <div key={i} className="fm-skeleton fm-skeleton--row" />
+              ))}
+            </div>
           ) : rows.length === 0 ? (
-            <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).</div>
+            <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).
+              {canCreate && onGoCreate && (
+                <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
+                  <Plus size={16} /> Tạo đơn hàng
+                </button>
+              )}
+            </div>
           ) : rows.map((d) => (
             <div
               key={d.id}
@@ -344,7 +409,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       className="fm-ocard__push"
                       title="Đẩy sang SAP B1"
                       aria-label={`Đẩy phiếu ${d.docNum} sang SAP`}
-                      onClick={(e) => { e.stopPropagation(); void doPush(d) }}
+                      onClick={(e) => { e.stopPropagation(); askPush(d) }}
                       onKeyDown={(e) => e.stopPropagation()}
                       disabled={busyId === d.id}
                     >
@@ -358,7 +423,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       className="fm-ocard__del"
                       title="Xóa"
                       aria-label={`Xóa phiếu ${d.docNum}`}
-                      onClick={(e) => { e.stopPropagation(); void doDelete(d) }}
+                      onClick={(e) => { e.stopPropagation(); askDelete(d) }}
                       onKeyDown={(e) => e.stopPropagation()}
                       disabled={busyId === d.id}
                     >
@@ -373,6 +438,18 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
 
         <FmPagination page={page} totalPages={totalPages} onPage={setPage} />
       </div>
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
+      )}
     </div>
   )
 }

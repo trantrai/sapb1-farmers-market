@@ -86,7 +86,7 @@ export default function RelMapModal({ orderId, orderDocNum, onClose, onGoOrder, 
         {error && <div className="fm-alert fm-alert--error" role="alert">{error}</div>}
         {!nodes && !error && (
           <div style={{ textAlign: 'center', padding: 32, color: 'var(--fm-text-2)' }}>
-            <Loader2 size={24} className="fm-spin" /> Đang tải sơ đồ…
+            <Loader2 size={18} className="fm-spin" /> Đang tải sơ đồ…
           </div>
         )}
         {nodes && (

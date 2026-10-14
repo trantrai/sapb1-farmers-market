@@ -378,7 +378,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           autoComplete="off"
           spellCheck={false}
         />
-        <Search size={15} aria-hidden="true" style={{ position: 'absolute', right: 10, top: 9, color: 'var(--fm-text-3)', pointerEvents: 'none' }} />
+        <Search size={16} aria-hidden="true" style={{ position: 'absolute', right: 10, top: 9, color: 'var(--fm-text-3)', pointerEvents: 'none' }} />
         {open && rect && (
           <div
             className="fm-autocomplete__panel fm-scroll"
@@ -435,6 +435,10 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           </div>
         )}
       </div>
+      {/* Thông báo số kết quả cho screen reader (mục 43) */}
+      <span aria-live="polite" role="status" className="fm-sr-only">
+        {open ? (loading ? 'Đang tìm kiếm…' : options.length === 0 ? 'Không tìm thấy kết quả' : `${options.length} kết quả`) : ''}
+      </span>
       {error ? <div id={`${inputId}-err`} className="fm-error-text" role="alert">{error}</div> : null}
     </div>
   )

@@ -272,7 +272,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
           .catch(() => {})
       }
     } catch {
-      if (!signal.cancelled) setError('Không tải được chi tiết đơn hàng.')
+      if (!signal.cancelled) setError('Không tải được chi tiết đơn hàng')
     } finally {
       if (!signal.cancelled) setLoading(false)
     }
@@ -464,7 +464,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
         setEmailResult({ type: 'error', text: json.error ?? 'Gửi email thất bại' })
         return
       }
-      setEmailResult({ type: 'success', text: json.message ?? 'Đã gửi email.' })
+      setEmailResult({ type: 'success', text: json.message ?? 'Đã gửi email' })
     } catch {
       setEmailResult({ type: 'error', text: 'Không thể kết nối máy chủ' })
     } finally {
@@ -480,9 +480,9 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
     return (
       <div>
         <PageHeader breadcrumb={['Chức năng chính', 'Chi tiết đơn hàng']} title="Chi tiết đơn hàng" />
-        <div className="fm-alert fm-alert--error">{error || 'Không tìm thấy đơn hàng.'}</div>
+        <div className="fm-alert fm-alert--error">{error || 'Không tìm thấy đơn hàng'}</div>
         <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
-          <ArrowLeft size={15} /> Quay lại
+          <ArrowLeft size={16} /> Quay lại
         </button>
       </div>
     )
@@ -502,17 +502,17 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
 actions={
           <>
             <button className="fm-btn fm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={15} /> Quay lại
+              <ArrowLeft size={16} /> Quay lại
             </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
-              <Printer size={15} /> In đơn hàng
+              <Printer size={16} /> In đơn hàng
             </button>
             <button className="fm-btn fm-btn--secondary" onClick={openEmail}>
-              <Mail size={15} /> Gửi email
+              <Mail size={16} /> Gửi email
             </button>
             {order.status === 'Open' && (
               <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
-                <Pencil size={15} /> Sửa đơn hàng
+                <Pencil size={16} /> Sửa đơn hàng
               </button>
             )}
             {order.status === 'Open' && (
@@ -522,17 +522,17 @@ actions={
                 disabled={copyDisabled}
                 title={totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở'}
               >
-                <Truck size={15} /> Copy sang Delivery
+                <Truck size={16} /> Copy sang Delivery
               </button>
             )}
             {order.status === 'Open' && (
               <button className="fm-btn fm-btn--secondary" onClick={() => void doCloseOrder()} disabled={actionBusy}>
-                <Lock size={15} /> Đóng đơn
+                <Lock size={16} /> Đóng đơn
               </button>
             )}
             {order.status === 'Open' && (
               <button className="fm-btn fm-btn--danger" onClick={() => void doCancelOrder()} disabled={actionBusy}>
-                <X size={15} /> Hủy đơn
+                <X size={16} /> Hủy đơn
               </button>
             )}
             {order.status === 'Cancelled' && (
@@ -572,7 +572,7 @@ actions={
             <dt>Đồng bộ SAP B1</dt>
             <dd>
               {order.sapSyncStatus === 'synced' ? (
-                <span className="fm-chip fm-chip--sap" title={order.sapSyncedAt ? `Đẩy thành công lúc ${new Date(order.sapSyncedAt).toLocaleString('vi-VN')}` : undefined}>
+                <span className="fm-chip fm-chip--sap" title={order.sapSyncedAt ? `Đẩy thành công lúc ${new Date(order.sapSyncedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}` : undefined}>
                   Đã đẩy{order.sapDocNum ? ` — DocNum ${order.sapDocNum}` : ''}
                 </span>
               ) : order.sapSyncStatus === 'pending' ? (
@@ -749,10 +749,10 @@ actions={
       {order.status !== 'Cancelled' && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
-            <Lock size={15} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
+            <Lock size={16} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
           </button>
           <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
-            <CloudUpload size={15} /> Đẩy sang SAP B1 ngay
+            <CloudUpload size={16} /> Đẩy sang SAP B1 ngay
           </button>
         </div>
       )}
@@ -781,7 +781,7 @@ actions={
                 Đóng
               </button>
               <button className="fm-btn fm-btn--primary" onClick={doPrint}>
-                <Printer size={15} /> In / Xuất PDF
+                <Printer size={16} /> In / Xuất PDF
               </button>
             </div>
             <p style={{ fontSize: 12, color: 'var(--fm-text-2)', marginTop: 12 }} className="fm-print-hide">
@@ -858,7 +858,7 @@ actions={
                 Đóng
               </button>
               <button className="fm-btn fm-btn--primary" onClick={doSendEmail} disabled={emailBusy || !emailTo.trim()}>
-                <Mail size={15} /> {emailBusy ? 'Đang gửi…' : 'Gửi email'}
+                <Mail size={16} /> {emailBusy ? 'Đang gửi…' : 'Gửi email'}
               </button>
             </div>
           </div>
@@ -896,7 +896,7 @@ actions={
             </p>
 
             <div className="fm-table-wrap" style={{ marginBottom: 12 }}>
-              <table className="fm-table">
+              <table className="fm-table fm-stack-table fm-stack-table--form">
                 <thead>
                   <tr>
                     <th>Mã hàng</th>
@@ -910,12 +910,12 @@ actions={
                 <tbody>
                   {copyRows.map((r) => (
                     <tr key={r.orderLineId}>
-                      <td><b>{r.itemCode}</b></td>
-                      <td>{r.itemName}</td>
-                      <td className="fm-num">{r.ordered}</td>
-                      <td className="fm-num">{r.delivered}</td>
-                      <td className="fm-num"><b>{r.openQty}</b></td>
-                      <td className="fm-num">
+                      <td data-label="Mã hàng"><b>{r.itemCode}</b></td>
+                      <td data-label="Tên hàng">{r.itemName}</td>
+                      <td className="fm-num" data-label="SL đặt">{r.ordered}</td>
+                      <td className="fm-num" data-label="Đã giao">{r.delivered}</td>
+                      <td className="fm-num" data-label="Còn mở"><b>{r.openQty}</b></td>
+                      <td className="fm-num" data-label="SL giao đợt này">
                         <input
                           type="number"
                           className="fm-input"
@@ -932,6 +932,12 @@ actions={
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'right' }}>Tổng SL giao đợt này</td>
+                    <td className="fm-num"><b>{copyRows.reduce((s, r) => s + (Number(r.qty) || 0), 0)}</b></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
@@ -946,7 +952,7 @@ actions={
                 Hủy
               </button>
               <button className="fm-btn fm-btn--primary" onClick={() => void doConfirmCopy()} disabled={copyBusy}>
-                <Truck size={15} /> {copyBusy ? 'Đang tạo…' : 'Xác nhận tạo phiếu'}
+                <Truck size={16} /> {copyBusy ? 'Đang tạo…' : 'Xác nhận tạo phiếu'}
               </button>
             </div>
           </div>

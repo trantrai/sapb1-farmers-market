@@ -33,6 +33,7 @@ const PartnersSyncView = dynamic(() => import('./bpartners-sync-view'), { ssr: f
 const ExcelTemplatesView = dynamic(() => import('./excel-templates-view'), { ssr: false, loading: ViewLoading })
 const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
 import type { EditOrderData } from './order-form-view'
+import { toEditData } from './order-form-view'
 
 type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates'
 
@@ -86,7 +87,14 @@ interface Props {
 export default function AppShell({ user, onLogout }: Props) {
   const [view, setView] = useState<ViewKey>('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'error' } | null>(null)
+  /** Toast xếp chồng: toast mới không ghi đè toast cũ (kể cả toast lỗi quan trọng) */
+  const [toasts, setToasts] = useState<{
+    id: number
+    msg: string
+    type: 'success' | 'warning' | 'error'
+    /** Action tùy chọn trong toast (mục 38: “Xem đơn vừa tạo”) */
+    action?: { label: string; onClick: () => void }
+  }[]>([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
@@ -161,11 +169,22 @@ export default function AppShell({ user, onLogout }: Props) {
   const syncMenu = menu.filter((m) => m.group === 'sync')
   const adminMenu = menu.filter((m) => m.group === 'admin')
 
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const showToast = (t: string, type: 'success' | 'warning' | 'error' = 'success') => {
-    setToast({ msg: t, type })
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 5000)
+  const toastSeq = useRef(0)
+  const dismissToast = (id: number) => setToasts((prev) => prev.filter((x) => x.id !== id))
+  const showToast = (t: string, type: 'success' | 'warning' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
+    // error giữ 12s (kịp đọc, vẫn đóng thủ công bằng ×), warning 8s, success 5s như cũ
+    const ms = type === 'error' ? 12000 : type === 'warning' ? 8000 : 5000
+    const id = ++toastSeq.current
+    setToasts((prev) => {
+      const next = [...prev, { id, msg: t, type, action }]
+      // Giới hạn 3 toast: loại toast cũ nhất trước, ưu tiên GIỮ toast lỗi
+      while (next.length > 3) {
+        const i = next.findIndex((x) => x.type !== 'error')
+        next.splice(i === -1 ? 0 : i, 1)
+      }
+      return next
+    })
+    setTimeout(() => dismissToast(id), ms)
   }
 
   const go = (v: ViewKey) => {
@@ -233,7 +252,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
           <button
             className="fm-burger"
-            style={{ background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)', color: '#fff', width: 44, height: 44 }}
+            style={{ background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)', color: 'var(--fm-surface)', width: 44, height: 44 }}
             aria-label="Đóng menu"
             onClick={() => setDrawerOpen(false)}
           >
@@ -275,7 +294,7 @@ export default function AppShell({ user, onLogout }: Props) {
         )}
 
         <div style={{ marginTop: 'auto', paddingTop: 12 }}>
-          <div style={{ padding: '4px 12px 8px', fontSize: 11.5, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>
+          <div style={{ padding: '4px 12px 8px', fontSize: 11, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>
             <div style={{ fontWeight: 600, color: 'rgba(255,255,255,.8)' }}>Phiên làm việc</div>
             <div>{sapStatus === 'ok' ? 'SAP Service — Live' : sapStatus === 'none' ? 'SAP Service — Chưa cấu hình' : 'SAP Service — Lỗi'}</div>
           </div>
@@ -309,7 +328,7 @@ export default function AppShell({ user, onLogout }: Props) {
               aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen(true)}
             >
-              <MenuIcon size={17} />
+              <MenuIcon size={18} />
             </button>
             <div
               className="fm-search fm-search--trigger"
@@ -337,7 +356,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <button className="fm-header__bell" aria-label="Thông báo" title="Chưa có thông báo mới">
-              <Bell size={20} />
+              <Bell size={18} />
             </button>
             <div className="fm-header__user">
               <span className="fm-header__avatar">
@@ -373,24 +392,14 @@ export default function AppShell({ user, onLogout }: Props) {
                 onBack={() => go('orders')}
                 onGoDelivery={(deliveryId) => { setDetailDeliveryId(deliveryId); go('deliveryDetail') }}
                 onEdit={(orderId) => {
-                  // Lấy dữ liệu đơn để sửa — API trả { order } nên phải bóc lớp vỏ
+                  // Lấy dữ liệu đơn để sửa — API trả { order } nên phải bóc lớp vỏ.
+                  // Dùng toEditData DÙNG CHUNG (giống đường vào từ danh sách) để map
+                  // dbId/sapLineNum — thiếu 2 trường này PUT sẽ append trùng dòng trên SAP.
                   api(`/api/orders/${orderId}`).then(async (r) => {
                     if (r.ok) {
                       const j = await r.json()
                       const o = j.order ?? j
-                      setEditOrder({
-                        id: o.id,
-                        docNum: o.docNum,
-                        cardCode: o.cardCode,
-                        cardName: o.cardName,
-                        docDate: o.docDate,
-                        docDueDate: o.docDueDate,
-                        status: o.status,
-                        warehouseCode: o.warehouseCode,
-                        remarks: o.remarks,
-                        headerDiscPct: o.headerDiscPct,
-                        lines: o.lines ?? [],
-                      })
+                      setEditOrder(toEditData(o))
                       go('ordersNew')
                     }
                   })
@@ -402,6 +411,8 @@ export default function AppShell({ user, onLogout }: Props) {
                 onGoDetail={(id) => { setDetailDeliveryId(id); go('deliveryDetail') }}
                 onGoOrderDetail={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
                 refreshKey={refreshKey}
+                canCreate={user.permissions.ordersNew?.create}
+                onGoCreate={() => { setEditOrder(null); go('ordersNew') }}
               />
             )}
             {view === 'deliveryDetail' && detailDeliveryId && (
@@ -414,8 +425,9 @@ export default function AppShell({ user, onLogout }: Props) {
             {view === 'ordersNew' && (
               <OrderFormView
                 editOrder={editOrder}
+                userId={user.id}
                 onCancel={() => { setEditOrder(null); go('orders') }}
-                onSaved={({ docNum, sapStatus, sapDocNum, sapError }) => {
+                onSaved={({ id: orderId, docNum, sapStatus, sapDocNum, sapError }) => {
                   const wasEdit = Boolean(editOrder)
                   setEditOrder(null)
                   let msg = wasEdit
@@ -427,7 +439,13 @@ export default function AppShell({ user, onLogout }: Props) {
                   else if (sapStatus === 'pending')
                     msg += ` Chưa đẩy được sang SAP B1${sapError ? `: ${sapError}` : ''} — bấm "Đẩy lại" trong danh sách đơn.`
                   else if (!wasEdit) msg += ' (chưa cấu hình SAP B1 — đơn chỉ lưu trên hệ thống này)'
-                  showToast(msg)
+                  showToast(
+                    msg,
+                    'success',
+                    !wasEdit && orderId
+                      ? { label: 'Xem đơn vừa tạo', onClick: () => { setDetailOrderId(orderId); go('orderDetail') } }
+                      : undefined,
+                  )
                   setRefreshKey((k) => k + 1)
                   go('orders')
                 }}
@@ -480,11 +498,27 @@ export default function AppShell({ user, onLogout }: Props) {
       )}
 
       {/* Toast */}
-      {toast && (
+      {toasts.length > 0 && (
         <div className="fm-toast-host">
-          <div role="status" className={`fm-alert fm-alert--${toast.type}`} style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto' }}>
-            <div><b>{toast.type === 'success' ? 'Hoàn tất' : toast.type === 'warning' ? 'Lưu ý' : 'Lỗi'}</b>{toast.msg}</div>
-          </div>
+          {toasts.map((toast) => (
+            <div key={toast.id} role="status" className={`fm-alert fm-alert--${toast.type}`} style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <b>{toast.type === 'success' ? 'Hoàn tất' : toast.type === 'warning' ? 'Lưu ý' : 'Lỗi'}</b>{toast.msg}
+                {toast.action && (
+                  <button
+                    type="button"
+                    className="fm-toast__action"
+                    onClick={() => { dismissToast(toast.id); toast.action!.onClick() }}
+                  >
+                    {toast.action.label} →
+                  </button>
+                )}
+              </div>
+              <button type="button" className="fm-icon-btn" style={{ flex: 'none', width: 32, height: 32, minWidth: 32, minHeight: 32 }} aria-label="Đóng thông báo" onClick={() => dismissToast(toast.id)}>
+                <CloseIcon size={14} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

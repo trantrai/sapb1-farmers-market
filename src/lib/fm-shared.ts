@@ -65,12 +65,23 @@ export function formatVND(n: number): string {
 export function formatNum(n: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(n)
 }
+/**
+ * Parse ngày SAP: chuỗi date-only "YYYY-MM-DD" phải parse thành LOCAL date
+ * (new Date(y, m-1, d)) — new Date("YYYY-MM-DD") parse thành UTC midnight
+ * nên lệch 1 ngày ở múi giờ khác (mục 44).
+ */
+export function parseDateOnly(v: string | Date): Date {
+  if (v instanceof Date) return v
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim())
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return new Date(v)
+}
 export function formatDateVN(d: string | Date): string {
-  const dt = typeof d === 'string' ? new Date(d) : d
+  const dt = parseDateOnly(d)
   return dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 export function toInputDate(d: string | Date): string {
-  const dt = typeof d === 'string' ? new Date(d) : d
+  const dt = parseDateOnly(d)
   const y = dt.getFullYear()
   const m = String(dt.getMonth() + 1).padStart(2, '0')
   const day = String(dt.getDate()).padStart(2, '0')
@@ -80,7 +91,7 @@ export const ROLE_OPTIONS = ['Admin', 'KeToan', 'NhanVien'] as const
 
 export function isOverdue(due: string | Date, status: string): boolean {
   if (status !== 'Open') return false
-  const dueDate = new Date(due)
+  const dueDate = parseDateOnly(due)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return dueDate < today
@@ -88,7 +99,7 @@ export function isOverdue(due: string | Date, status: string): boolean {
 
 /** Số ngày đã quá hạn giao (0 nếu chưa quá hạn). Chỉ tính khi due < hôm nay. */
 export function daysOverdue(due: string | Date): number {
-  const dueDate = new Date(due)
+  const dueDate = parseDateOnly(due)
   dueDate.setHours(0, 0, 0, 0)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -97,7 +108,7 @@ export function daysOverdue(due: string | Date): number {
 
 /** Số ngày còn lại đến hạn giao (0 = hôm nay, âm = đã quá hạn). */
 export function daysUntilDue(due: string | Date): number {
-  const dueDate = new Date(due)
+  const dueDate = parseDateOnly(due)
   dueDate.setHours(0, 0, 0, 0)
   const today = new Date()
   today.setHours(0, 0, 0, 0)

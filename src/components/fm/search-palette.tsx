@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Search, ClipboardList, Boxes, Contact, CornerDownLeft, Loader2 } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import { parseDateOnly } from '@/lib/fm-shared'
 import { useFocusTrap } from './use-focus-trap'
 
 // ---------- Kiểu dữ liệu kết quả tìm kiếm ----------
@@ -52,7 +53,7 @@ function formatVND(n: number): string {
   return new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' ₫'
 }
 function formatDate(iso: string): string {
-  const d = new Date(iso)
+  const d = parseDateOnly(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('vi-VN')
 }
 
@@ -212,9 +213,9 @@ export default function SearchPalette({ open, onClose, onSelectOrder, onSelectIt
               <div key={`${entry.kind}-${idx}`}>
                 {showGroup && (
                   <div className="fm-sp__group">
-                    {entry.kind === 'order' && <><ClipboardList size={13} /> Đơn hàng</>}
-                    {entry.kind === 'item' && <><Boxes size={13} /> Mặt hàng</>}
-                    {entry.kind === 'partner' && <><Contact size={13} /> Khách hàng</>}
+                    {entry.kind === 'order' && <><ClipboardList size={14} /> Đơn hàng</>}
+                    {entry.kind === 'item' && <><Boxes size={14} /> Mặt hàng</>}
+                    {entry.kind === 'partner' && <><Contact size={14} /> Khách hàng</>}
                   </div>
                 )}
                 <div

@@ -12,6 +12,7 @@ import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import RelationshipMap, { type RelNode } from './relationship-map'
 import DeliveryPrintView from './delivery-print-view'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 
 interface DeliveryLine {
   id: string
@@ -81,6 +82,15 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
 
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
+
   // Modal sửa SL dòng
   const [showEdit, setShowEdit] = useState(false)
   const [editRows, setEditRows] = useState<EditRow[]>([])
@@ -132,7 +142,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
   const doPush = async () => {
     if (!delivery) return
     // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
-    if (!window.confirm(`Đẩy phiếu giao hàng #${delivery.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`)) return
+    setConfirmCfg(null)
     setActionBusy(true)
     setActionMsg(null)
     try {
@@ -149,6 +159,17 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
     } finally {
       setActionBusy(false)
     }
+  }
+
+  const askPush = () => {
+    if (!delivery) return
+    setConfirmCfg({
+      title: 'Đẩy sang SAP B1',
+      message: `Đẩy phiếu giao hàng #${delivery.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
+      confirmLabel: 'Đẩy sang SAP',
+      tone: 'warning',
+      run: () => { void doPush() },
+    })
   }
 
   const canEdit = delivery !== null && delivery.source !== 'sap' && delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled'
@@ -234,7 +255,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         setActionMsg({ type: 'success', text: `Đã cập nhật số lượng các dòng phiếu #${delivery.docNum}.` })
         void load()
       } else if (r.status === 409 && j.code === 'VERSION_CONFLICT') {
-        setEditError('Phiếu đã bị sửa bởi người khác — vui lòng tải lại rồi thử lại.')
+        setEditError('Phiếu đã bị sửa bởi người khác — vui lòng tải lại rồi thử lại')
       } else {
         setEditError(j.error ?? 'Lưu thất bại')
       }
@@ -263,7 +284,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         setActionMsg({ type: 'success', text: `Đã hủy phiếu giao hàng #${delivery.docNum}.` })
         void load()
       } else if (r.status === 409 && j.code === 'VERSION_CONFLICT') {
-        setActionMsg({ type: 'error', text: 'Phiếu đã bị sửa bởi người khác — vui lòng tải lại rồi thử lại.' })
+        setActionMsg({ type: 'error', text: 'Phiếu đã bị sửa bởi người khác — vui lòng tải lại rồi thử lại' })
         setShowCancel(false)
       } else {
         setActionMsg({ type: 'error', text: j.error ?? 'Hủy phiếu thất bại' })
@@ -281,7 +302,15 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
     return (
       <div>
         <PageHeader breadcrumb={['Chức năng chính', 'Giao hàng', 'Chi tiết']} title="Chi tiết phiếu giao hàng" />
-        <p className="fm-hint">Đang tải…</p>
+        <div className="fm-card">
+          <div aria-busy="true">
+            <div className="fm-skeleton fm-skeleton--text" style={{ width: '45%', marginBottom: 10 }} />
+            <div className="fm-skeleton fm-skeleton--text" style={{ width: '70%', marginBottom: 18 }} />
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="fm-skeleton fm-skeleton--row" />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
@@ -292,7 +321,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         <PageHeader breadcrumb={['Chức năng chính', 'Giao hàng', 'Chi tiết']} title="Chi tiết phiếu giao hàng" />
         <div className="fm-alert fm-alert--error" role="alert">{error || 'Không tìm thấy'}</div>
         <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
-          <ArrowLeft size={15} /> Quay lại
+          <ArrowLeft size={16} /> Quay lại
         </button>
       </div>
     )
@@ -326,10 +355,10 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         actions={
           <>
             <button className="fm-btn fm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={15} /> Quay lại
+              <ArrowLeft size={16} /> Quay lại
             </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
-              <Printer size={15} /> In
+              <Printer size={16} /> In
             </button>
             {canEdit && (
               <>
@@ -338,16 +367,16 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                   onClick={() => void openEditModal()}
                   disabled={actionBusy || editLoading}
                 >
-                  <Pencil size={15} /> {editLoading ? 'Đang tải…' : 'Sửa'}
+                  <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa'}
                 </button>
                 <button className="fm-btn fm-btn--secondary" onClick={() => setShowCancel(true)} disabled={actionBusy}>
-                  <Ban size={15} /> Hủy phiếu
+                  <Ban size={16} /> Hủy phiếu
                 </button>
               </>
             )}
             {delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled' && (
-              <button className="fm-btn fm-btn--primary" onClick={() => void doPush()} disabled={actionBusy}>
-                <CloudUpload size={15} /> {actionBusy ? 'Đang đẩy…' : 'Đẩy sang SAP B1'}
+              <button className="fm-btn fm-btn--primary" onClick={askPush} disabled={actionBusy}>
+                <CloudUpload size={16} /> {actionBusy ? 'Đang đẩy…' : 'Đẩy sang SAP B1'}
               </button>
             )}
           </>
@@ -389,7 +418,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
           </div>
           {delivery.sourceOrder && (
             <button className="fm-btn fm-btn--secondary" onClick={() => onGoOrder(delivery.sourceOrder!.id)}>
-              <ArrowLeft size={15} style={{ transform: 'rotate(180deg)' }} /> Xem đơn nguồn
+              <ArrowLeft size={16} style={{ transform: 'rotate(180deg)' }} /> Xem đơn nguồn
             </button>
           )}
         </div>
@@ -486,7 +515,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 <td colSpan={3} />
               </tr>
               <tr>
-                <td colSpan={6} style={{ textAlign: 'right', fontSize: 15 }}><b>TỔNG CỘNG:</b></td>
+                <td colSpan={6} style={{ textAlign: 'right', fontSize: 16 }}><b>TỔNG CỘNG:</b></td>
                 <td className="fm-num" style={{ fontSize: 17, color: 'var(--fm-navy)' }}><b>{formatVND(delivery.grandTotal)}</b></td>
               </tr>
             </tfoot>
@@ -580,7 +609,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             </p>
 
             <div className="fm-table-wrap" style={{ marginBottom: 12 }}>
-              <table className="fm-table">
+              <table className="fm-table fm-stack-table fm-stack-table--form">
                 <thead>
                   <tr>
                     <th>Mã hàng</th>
@@ -592,10 +621,10 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 <tbody>
                   {editRows.map((r) => (
                     <tr key={r.id}>
-                      <td><b>{r.itemCode}</b></td>
-                      <td>{r.itemName}</td>
-                      <td className="fm-num">{r.oldQuantity}</td>
-                      <td className="fm-num">
+                      <td data-label="Mã hàng"><b>{r.itemCode}</b></td>
+                      <td data-label="Tên hàng">{r.itemName}</td>
+                      <td className="fm-num" data-label="SL cũ">{r.oldQuantity}</td>
+                      <td className="fm-num" data-label="SL mới">
                         <input
                           type="number"
                           className="fm-input"
@@ -628,7 +657,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 Hủy
               </button>
               <button className="fm-btn fm-btn--primary" onClick={() => void doSaveEdit()} disabled={editBusy}>
-                <Pencil size={15} /> {editBusy ? 'Đang lưu…' : 'Lưu'}
+                <Pencil size={16} /> {editBusy ? 'Đang lưu…' : 'Lưu'}
               </button>
             </div>
           </div>
@@ -666,7 +695,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 Giữ phiếu
               </button>
               <button className="fm-btn fm-btn--primary" onClick={() => void doCancel()} disabled={cancelBusy}>
-                <Ban size={15} /> {cancelBusy ? 'Đang hủy…' : 'Xác nhận hủy phiếu'}
+                <Ban size={16} /> {cancelBusy ? 'Đang hủy…' : 'Xác nhận hủy phiếu'}
               </button>
             </div>
           </div>
@@ -697,7 +726,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 Đóng
               </button>
               <button className="fm-btn fm-btn--primary" onClick={doPrint}>
-                <Printer size={15} /> In / Xuất PDF
+                <Printer size={16} /> In / Xuất PDF
               </button>
             </div>
             <p style={{ fontSize: 12, color: 'var(--fm-text-2)', marginTop: 12 }} className="fm-print-hide">
@@ -705,6 +734,18 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             </p>
           </div>
         </div>
+      )}
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
       )}
     </div>
   )

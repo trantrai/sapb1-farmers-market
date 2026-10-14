@@ -135,19 +135,19 @@ actions={<>
       {/* Thống kê nhanh */}
       <div className="fm-stats">
         <div className="fm-stat">
-          <div className="fm-stat__icon"><UsersRound size={17} /></div>
+          <div className="fm-stat__icon"><UsersRound size={18} /></div>
           <div className="fm-stat__label">Tổng người dùng</div>
           <div className="fm-stat__value">{users.length}</div>
           <div className="fm-stat__meta">Tài khoản truy cập hệ thống</div>
         </div>
         <div className="fm-stat fm-stat--green">
-          <div className="fm-stat__icon" style={{ background: 'var(--fm-green-soft)', color: 'var(--fm-green)' }}><ShieldCheck size={17} /></div>
+          <div className="fm-stat__icon" style={{ background: 'var(--fm-green-soft)', color: 'var(--fm-green)' }}><ShieldCheck size={18} /></div>
           <div className="fm-stat__label">Đang hoạt động</div>
           <div className="fm-stat__value">{nActive}</div>
           <div className="fm-stat__meta">Được phép đăng nhập</div>
         </div>
         <div className="fm-stat fm-stat--red">
-          <div className="fm-stat__icon" style={{ background: 'var(--fm-red-soft)', color: 'var(--fm-red)' }}><KeyRound size={17} /></div>
+          <div className="fm-stat__icon" style={{ background: 'var(--fm-red-soft)', color: 'var(--fm-red)' }}><KeyRound size={18} /></div>
           <div className="fm-stat__label">Bị vô hiệu hóa</div>
           <div className="fm-stat__value">{nLocked}</div>
           <div className="fm-stat__meta">Không thể đăng nhập</div>
@@ -158,7 +158,7 @@ actions={<>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}>
-              <UserPlus size={15} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm người dùng
+              <UserPlus size={16} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm người dùng
             </button>
           )}
         </div>
@@ -233,7 +233,7 @@ actions={<>
                             />
                             <span className="track" />
                           </label>{' '}
-                          <span style={{ fontSize: 11.5, color: u.active ? 'var(--fm-green)' : 'var(--fm-red)', fontWeight: 600 }}>
+                          <span style={{ fontSize: 11, color: u.active ? 'var(--fm-green)' : 'var(--fm-red)', fontWeight: 600 }}>
                             {u.active ? 'Hoạt động' : 'Vô hiệu'}
                           </span>
                         </td>
@@ -283,12 +283,12 @@ actions={<>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                         {canEdit && (
                           <button className="fm-row-del fm-row-edit" title="Sửa người dùng" aria-label={`Sửa người dùng @${u.username}`} onClick={() => setModal({ mode: 'edit', u })}>
-                            <Pencil size={15} />
+                            <Pencil size={16} />
                           </button>
                         )}
                         {canDelete && !isMe && (
                           <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => removeUser(u)}>
-                            <Trash2 size={15} />
+                            <Trash2 size={16} />
                           </button>
                         )}
                       </div>
@@ -350,11 +350,17 @@ function UserModal({  mode,
   const [role, setRole] = useState(initial?.role ?? (roles[0]?.name ?? 'NhanVien'))
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
+  const [fieldErr, setFieldErr] = useState<string | null>(null) // field lỗi trong modal user (mục 45)
   // Focus trap + Escape đóng + trả focus về nút đã mở (chuẩn chung, thay handler Escape tự viết)
   const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
 
   const submit = async () => {
     setErr('')
+    setFieldErr(null)
+    // Validate client cơ bản để gắn aria-invalid đúng ô lỗi
+    if (!username.trim()) { setFieldErr('username'); setErr('Vui lòng nhập tên đăng nhập'); return }
+    if (!fullName.trim()) { setFieldErr('fullName'); setErr('Vui lòng nhập họ và tên'); return }
+    if (mode === 'create' && password.length < 8) { setFieldErr('password'); setErr('Mật khẩu tối thiểu 8 ký tự'); return }
     setBusy(true)
     try {
       if (mode === 'create') {
@@ -396,7 +402,7 @@ function UserModal({  mode,
         </div>
 
         {err && (
-          <div className="fm-alert fm-alert--error" role="alert">
+          <div id="um-err" className="fm-alert fm-alert--error" role="alert">
             <div><b>Lỗi</b>{err}</div>
           </div>
         )}
@@ -405,18 +411,28 @@ function UserModal({  mode,
           <label className="fm-label" htmlFor="um-username">Tên đăng nhập <span className="fm-label__req">*</span></label>
           <input
             id="um-username"
-            className="fm-input"
+            className={`fm-input${fieldErr === 'username' ? ' is-error' : ''}`}
             placeholder="vd: nhanvien2"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => { setFieldErr(null); setUsername(e.target.value) }}
             disabled={mode === 'edit'}
             autoComplete="off"
+            aria-invalid={fieldErr === 'username' ? true : undefined}
+            aria-describedby={err ? 'um-err' : undefined}
           />
         </div>
 
         <div className="fm-field">
           <label className="fm-label" htmlFor="um-fullname">Họ và tên <span className="fm-label__req">*</span></label>
-          <input id="um-fullname" className="fm-input" placeholder="vd: Nguyễn Thị Hoa" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <input
+            id="um-fullname"
+            className={`fm-input${fieldErr === 'fullName' ? ' is-error' : ''}`}
+            placeholder="vd: Nguyễn Thị Hoa"
+            value={fullName}
+            onChange={(e) => { setFieldErr(null); setFullName(e.target.value) }}
+            aria-invalid={fieldErr === 'fullName' ? true : undefined}
+            aria-describedby={err ? 'um-err' : undefined}
+          />
         </div>
 
         <div className="fm-field">
@@ -448,11 +464,13 @@ function UserModal({  mode,
           <input
             id="um-password"
             type="password"
-            className="fm-input"
+            className={`fm-input${fieldErr === 'password' ? ' is-error' : ''}`}
             placeholder={mode === 'create' ? 'Tối thiểu 8 ký tự' : 'Bỏ trống nếu giữ nguyên mật khẩu cũ'}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setFieldErr(null); setPassword(e.target.value) }}
             autoComplete="new-password"
+            aria-invalid={fieldErr === 'password' ? true : undefined}
+            aria-describedby={err ? 'um-err' : undefined}
           />
         </div>
 

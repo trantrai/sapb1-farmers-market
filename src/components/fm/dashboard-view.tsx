@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle, BarChart3 } from 'lucide-react'
+import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle, Plus, BarChart3 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   PieChart, Pie, Legend,
@@ -106,7 +106,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
         actions={
           <>
             <button type="button" className="fm-btn fm-btn--secondary" onClick={load}>
-              <RefreshCw size={15} /> Tải lại số liệu
+              <RefreshCw size={16} /> Tải lại số liệu
             </button>
             <button type="button" className="fm-btn fm-btn--primary" onClick={onGoCreate}>
               <PlusCircle size={16} /> Tạo Sale Order mới
@@ -132,34 +132,34 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
         ) : (
           <>
             <div className="fm-stat">
-              <div className="fm-stat__icon"><ClipboardList size={17} /></div>
+              <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><ClipboardList size={18} /></div>
               <div className="fm-stat__label">Tổng đơn hàng</div>
               <div className="fm-stat__value">{stats.totalOrders}</div>
               <div className="fm-stat__meta">Tất cả Sale Order trong hệ thống</div>
             </div>
             <div className="fm-stat fm-stat--navy">
-              <div className="fm-stat__icon" style={{ background: 'var(--fm-navy-soft)' }}><FolderOpen size={17} /></div>
+              <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><FolderOpen size={18} /></div>
               <div className="fm-stat__label">Đang mở (Open)</div>
               <div className="fm-stat__value">{stats.openOrders}</div>
               <div className="fm-stat__meta">Chưa hoàn tất / chờ giao</div>
             </div>
             <div className="fm-stat fm-stat--green">
-              <div className="fm-stat__icon" style={{ background: 'var(--fm-green-soft)', color: 'var(--fm-green)' }}><FolderCheck size={17} /></div>
-              <div className="fm-stat__label">Đã đóng (Closed)</div>
+              <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><FolderCheck size={18} /></div>
+              <div className="fm-stat__label">Đã đóng</div>
               <div className="fm-stat__value">{stats.closedOrders}</div>
               <div className="fm-stat__meta">Hoàn tất chứng từ</div>
             </div>
             <div className="fm-stat fm-stat--red">
-              <div className="fm-stat__icon" style={{ background: 'var(--fm-red-soft)', color: 'var(--fm-red)' }}><AlarmClock size={17} /></div>
+              <div className="fm-stat__icon" style={{ background: 'var(--fm-coral-soft)', color: 'var(--fm-coral-deep)' }}><AlarmClock size={18} /></div>
               <div className="fm-stat__label">Quá hạn giao</div>
               <div className="fm-stat__value">{stats.overdueOrders}</div>
               <div className="fm-stat__meta">Open nhưng đã quá DocDueDate</div>
             </div>
             <div className="fm-stat fm-stat--navy">
-              <div className="fm-stat__icon" style={{ background: 'var(--fm-yellow-soft)' }}><Wallet size={17} /></div>
+              <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><Wallet size={18} /></div>
               <div className="fm-stat__label">Doanh thu đơn đã đóng</div>
               <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(stats.revenueClosed)}</div>
-              <div className="fm-stat__meta">Tổng giá trị đơn Closed (đã VAT)</div>
+              <div className="fm-stat__meta">Tổng giá trị đơn đã đóng (đã VAT)</div>
             </div>
           </>
         )}
@@ -376,7 +376,12 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             </div>
           )
         ) : stats.recent.length === 0 ? (
-          <div className="fm-empty">Chưa có đơn hàng nào</div>
+          <div className="fm-empty">
+            Chưa có đơn hàng nào
+            <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
+              <Plus size={16} /> Tạo đơn hàng
+            </button>
+          </div>
         ) : (
           <>
             <div className="fm-table-wrap fm-scroll fm-only-desktop" style={{ overflowX: 'auto' }}>
@@ -406,7 +411,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                       ) : o.status === 'Open' ? (
                         <span className="fm-chip fm-chip--open">Open</span>
                       ) : (
-                        <span className="fm-chip fm-chip--closed">Closed</span>
+                        <span className="fm-chip fm-chip--closed">Đã đóng</span>
                       )}
                     </td>
                     <td className="fm-num">{formatVND(o.grandTotal)}</td>
@@ -429,7 +434,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                   ) : o.status === 'Open' ? (
                     <span className="fm-chip fm-chip--open">Open</span>
                   ) : (
-                    <span className="fm-chip fm-chip--closed">Closed</span>
+                    <span className="fm-chip fm-chip--closed">Đã đóng</span>
                   )}
                 </div>
                 <div className="fm-ocard__name">{o.cardName}</div>
