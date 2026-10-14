@@ -6,11 +6,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X } from 'lucide-react'
+import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, FileText } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import RelationshipMap, { type RelNode } from './relationship-map'
+import DeliveryPrintView from './delivery-print-view'
 
 interface DeliveryLine {
   id: string
@@ -33,8 +34,13 @@ interface Delivery {
   status: string
   remarks?: string | null
   grandTotal: number
+  /** Người tạo phiếu (user id) */
+  createdBy: string
+  createdAt: string
+  updatedAt: string
   /** Optimistic locking version */
   version?: number
+  sapSyncedAt?: string | null
   sapDocEntry?: number | null
   sapDocNum?: number | null
   sapSyncStatus?: string
@@ -89,6 +95,11 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
   const cancelTrapRef = useFocusTrap<HTMLDivElement>(showCancel, () => {
     if (!cancelBusy) setShowCancel(false)
   })
+
+  // Xem trước bản in
+  const [showPrint, setShowPrint] = useState(false)
+  const printTrapRef = useFocusTrap<HTMLDivElement>(showPrint, () => setShowPrint(false))
+  const doPrint = () => window.print()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -309,6 +320,9 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             <button className="fm-btn fm-btn--secondary" onClick={onBack}>
               <ArrowLeft size={15} /> Quay lại
             </button>
+            <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
+              <Printer size={15} /> In
+            </button>
             {canEdit && (
               <>
                 <button
@@ -344,6 +358,33 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         </div>
       )}
 
+      {/* Đơn nguồn */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <FileText size={18} style={{ color: 'var(--fm-navy)' }} />
+            <div>
+              <div className="fm-hint">Đơn nguồn</div>
+              {delivery.sourceOrder ? (
+                <div>
+                  <b>SO #{delivery.sourceOrder.docNum}</b>
+                  {' '}· {delivery.sourceOrder.cardCode} — {delivery.sourceOrder.cardName}
+                  {' '}· Ngày {formatDateVN(delivery.sourceOrder.docDate)}
+                  {' '}<span className={`fm-chip fm-chip--${(delivery.sourceOrder.status ?? 'Open').toLowerCase()}`}>{STATUS_LABEL[delivery.sourceOrder.status] ?? delivery.sourceOrder.status}</span>
+                </div>
+              ) : (
+                <div>Tạo thủ công (không từ đơn hàng)</div>
+              )}
+            </div>
+          </div>
+          {delivery.sourceOrder && (
+            <button className="fm-btn fm-btn--secondary" onClick={() => onGoOrder(delivery.sourceOrder!.id)}>
+              <ArrowLeft size={15} style={{ transform: 'rotate(180deg)' }} /> Xem đơn nguồn
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="fm-card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, padding: 16 }}>
           <div>
@@ -369,6 +410,22 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 <span className="fm-hint">Chưa đẩy</span>
               )}
             </div>
+          </div>
+          <div>
+            <div className="fm-hint">Người tạo</div>
+            <div>{delivery.createdBy}</div>
+          </div>
+          <div>
+            <div className="fm-hint">Ngày tạo</div>
+            <div>{formatDateVN(delivery.createdAt)}</div>
+          </div>
+          <div>
+            <div className="fm-hint">Cập nhật cuối</div>
+            <div>{formatDateVN(delivery.updatedAt)}</div>
+          </div>
+          <div>
+            <div className="fm-hint">Version</div>
+            <div>v{delivery.version ?? 0}</div>
           </div>
           {delivery.remarks && (
             <div style={{ gridColumn: '1 / -1' }}>
@@ -408,8 +465,13 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={6} style={{ textAlign: 'right' }}><b>TỔNG CỘNG:</b></td>
-                <td className="fm-num"><b>{formatVND(delivery.grandTotal)}</b></td>
+                <td colSpan={3} style={{ textAlign: 'right' }}><b>Tổng SL:</b></td>
+                <td className="fm-num"><b>{delivery.lines.reduce((s, l) => s + (l.quantity || 0), 0)}</b></td>
+                <td colSpan={3} />
+              </tr>
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'right', fontSize: 15 }}><b>TỔNG CỘNG:</b></td>
+                <td className="fm-num" style={{ fontSize: 17, color: 'var(--fm-navy)' }}><b>{formatVND(delivery.grandTotal)}</b></td>
               </tr>
             </tfoot>
           </table>
@@ -437,6 +499,44 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
           </div>
         </div>
       </div>
+
+      {/* Lịch sử thao tác — suy ra từ các mốc thời gian của phiếu */}
+      {(() => {
+        const events: { label: string; time: string; tone: string }[] = [
+          { label: 'Tạo phiếu', time: delivery.createdAt, tone: 'var(--fm-navy)' },
+        ]
+        if (delivery.updatedAt && delivery.updatedAt !== delivery.createdAt) {
+          events.push({ label: 'Cập nhật', time: delivery.updatedAt, tone: 'var(--fm-text-2)' })
+        }
+        if (delivery.sapSyncedAt) {
+          events.push({ label: 'Đẩy sang SAP B1', time: delivery.sapSyncedAt, tone: 'var(--fm-green)' })
+        }
+        if (delivery.status === 'Cancelled') {
+          events.push({ label: 'Hủy phiếu', time: delivery.updatedAt, tone: 'var(--fm-coral)' })
+        }
+        return (
+          <div className="fm-card" style={{ marginTop: 16 }}>
+            <div style={{ padding: '12px 16px 4px', fontWeight: 600 }}>Lịch sử thao tác</div>
+            <ul style={{ listStyle: 'none', margin: 0, padding: '0 16px 16px' }}>
+              {events.map((e, i) => (
+                <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '6px 0' }}>
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 10, height: 10, borderRadius: '50%', background: e.tone,
+                      marginTop: 5, flexShrink: 0,
+                    }}
+                  />
+                  <div>
+                    <div><b>{e.label}</b></div>
+                    <div className="fm-hint">{formatDateVN(e.time)}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })()}
 
       {/* Modal sửa số lượng dòng */}
       {showEdit && delivery && (
@@ -553,6 +653,40 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 <Ban size={15} /> {cancelBusy ? 'Đang hủy…' : 'Xác nhận hủy phiếu'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dialog xem trước bản in */}
+      {showPrint && delivery && (
+        <div className="fm-backdrop fm-print-hide" onClick={() => setShowPrint(false)}>
+          <div
+            ref={printTrapRef}
+            className="fm-modal fm-modal--wide fm-print-preview"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Xem trước bản in"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }} className="fm-print-hide">
+              <h3 className="fm-modal__title">Xem trước bản in</h3>
+              <button className="fm-icon-btn" onClick={() => setShowPrint(false)} aria-label="Đóng">
+                <X size={16} />
+              </button>
+            </div>
+            <DeliveryPrintView delivery={delivery} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }} className="fm-print-hide">
+              <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(false)}>
+                Đóng
+              </button>
+              <button className="fm-btn fm-btn--primary" onClick={doPrint}>
+                <Printer size={15} /> In / Xuất PDF
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--fm-text-2)', marginTop: 12 }} className="fm-print-hide">
+              Bấm "In / Xuất PDF" rồi chọn máy in hoặc "Save as PDF" trong hộp thoại in của trình duyệt.
+            </p>
           </div>
         </div>
       )}
