@@ -552,6 +552,73 @@ export async function sapPatch<T = unknown>(c: SapConfig, path: string, body: un
   }
 }
 
+/**
+ * POST action không body lên Service Layer (vd /Orders(123)/Close, /Orders(123)/Cancel).
+ * SL trả 204 No Content khi thành công. Luôn ghi audit.
+ */
+export async function sapPostAction(
+  c: SapConfig,
+  path: string,
+  opts: SapCallOpts = {},
+): Promise<SapCallResult<null>> {
+  const base = c.serviceLayerUrl.replace(/\/+$/, '')
+  const cleanPath = path.startsWith('/') ? path : `/${path}`
+  let session = sessions.get(sessionKey(c))
+  if (!session || session.expiresAt < Date.now()) {
+    try {
+      session = await sapLogin(c)
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, error, retryOf: opts.retryOf })
+      return { ok: false, status: 0, error }
+    }
+  }
+  const startedAt = Date.now()
+  try {
+    const res = await sslFetch(
+      `${base}${cleanPath}`,
+      {
+        method: 'POST',
+        headers: { Cookie: session.cookie, Accept: 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        cache: 'no-store',
+      },
+      c.sslSkipVerify,
+    )
+    if (!res.ok) {
+      const error = sapErrorVN(res.status, await safeJson(res))
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
+      return { ok: false, status: res.status, error }
+    }
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, resultSummary: `Action thành công — HTTP ${res.status}`, retryOf: opts.retryOf })
+    return { ok: true, status: res.status, data: null }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
+    return { ok: false, status: 0, error }
+  }
+}
+
+/**
+ * Đóng Sale Order trên SAP B1: POST /Orders({docEntry})/Close
+ */
+export async function sapCloseOrder(c: SapConfig, docEntry: number): Promise<SapCallResult<null>> {
+  if (!Number.isInteger(docEntry) || docEntry <= 0) {
+    return { ok: false, status: 400, error: 'DocEntry không hợp lệ' }
+  }
+  return sapPostAction(c, `/Orders(${docEntry})/Close`)
+}
+
+/**
+ * Hủy Sale Order trên SAP B1: POST /Orders({docEntry})/Cancel
+ */
+export async function sapCancelOrder(c: SapConfig, docEntry: number): Promise<SapCallResult<null>> {
+  if (!Number.isInteger(docEntry) || docEntry <= 0) {
+    return { ok: false, status: 400, error: 'DocEntry không hợp lệ' }
+  }
+  return sapPostAction(c, `/Orders(${docEntry})/Cancel`)
+}
+
 /** Thử đăng nhập Service Layer — dùng cho "Kiểm tra kết nối". Ghi audit (che mật khẩu) */
 export async function sapTestLogin(
   c: SapConfig,
