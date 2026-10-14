@@ -7,6 +7,7 @@ import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import OrderPrintView from './order-print-view'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 
 interface OrderLine {
   id: string
@@ -84,6 +85,15 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   const [emailResult, setEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: ReactNode } | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
+
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
 
   // Modal "Copy sang Delivery": liệt kê SL đặt / đã giao / còn mở, cho phép
   // chỉnh SL giao đợt này (≤ OpenQty)
@@ -270,115 +280,154 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   }, [loadOrder])
 
   // Đóng / mở lại đơn hàng
-  const toggleClose = async () => {
+  const toggleClose = () => {
     if (!order || actionBusy) return
     if (order.status === 'Cancelled') {
       setActionMsg({ type: 'error', text: 'Không thể mở lại đơn hàng đã hủy' })
       return
     }
     const next = order.status === 'Open' ? 'Closed' : 'Open'
-    if (!window.confirm(next === 'Closed' ? `Đóng đơn hàng #${order.docNum}? Đơn đã đóng sẽ không sửa được.` : `Mở lại đơn hàng #${order.docNum}?`)) return
-    setActionBusy(true)
-    try {
-      const res = await api(`/api/orders/${order.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setActionMsg({ type: 'error', text: json.error ?? 'Không thể cập nhật trạng thái đơn hàng' })
-        return
+    const closing = next === 'Closed'
+    const run = async () => {
+      setConfirmCfg(null)
+      setActionBusy(true)
+      try {
+        const res = await api(`/api/orders/${order.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: next }),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setActionMsg({ type: 'error', text: json.error ?? 'Không thể cập nhật trạng thái đơn hàng' })
+          return
+        }
+        setActionMsg({ type: 'success', text: closing ? `Đã đóng đơn hàng #${order.docNum}.` : `Đã mở lại đơn hàng #${order.docNum}.` })
+        await loadOrder({ cancelled: false })
+      } catch {
+        setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+      } finally {
+        setActionBusy(false)
       }
-      setActionMsg({ type: 'success', text: next === 'Closed' ? `Đã đóng đơn hàng #${order.docNum}.` : `Đã mở lại đơn hàng #${order.docNum}.` })
-      await loadOrder({ cancelled: false })
-    } catch {
-      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
-    } finally {
-      setActionBusy(false)
     }
+    setConfirmCfg({
+      title: closing ? 'Đóng đơn hàng' : 'Mở lại đơn hàng',
+      message: closing
+        ? `Đóng đơn hàng #${order.docNum}?\nĐơn đã đóng sẽ không sửa được.`
+        : `Mở lại đơn hàng #${order.docNum}?`,
+      confirmLabel: closing ? 'Đóng đơn' : 'Mở lại',
+      tone: closing ? 'warning' : 'primary',
+      run: () => void run(),
+    })
   }
 
   // Hủy đơn hàng (chỉ khi Open; đơn đã hủy thì không sửa/copy/đẩy được)
   // Nếu đơn đã đẩy SAP: gọi POST /Orders({docEntry})/Cancel trên Service Layer
-  const doCancelOrder = async () => {
+  const doCancelOrder = () => {
     if (!order || actionBusy) return
     const msg = order.sapSyncStatus === 'synced'
       ? `Hủy Sale Order #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi hủy chứng từ trên SAP B1 trước.`
-      : `Hủy Sale Order #${order.docNum}? Đơn đã hủy sẽ không sửa, không copy delivery và không đẩy SAP được.`
-    if (!window.confirm(msg)) return
-    setActionBusy(true)
-    setActionMsg(null)
-    try {
-      const res = await api(`/api/orders/${order.id}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: order.version }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || !json.ok) {
-        setActionMsg({ type: 'error', text: json.error ?? 'Không thể hủy đơn hàng' })
-        return
+      : `Hủy Sale Order #${order.docNum}?\nĐơn đã hủy sẽ không sửa, không copy delivery và không đẩy SAP được.`
+    const run = async () => {
+      setConfirmCfg(null)
+      setActionBusy(true)
+      setActionMsg(null)
+      try {
+        const res = await api(`/api/orders/${order.id}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version: order.version }),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || !json.ok) {
+          setActionMsg({ type: 'error', text: json.error ?? 'Không thể hủy đơn hàng' })
+          return
+        }
+        setActionMsg({ type: 'success', text: `Đã hủy đơn hàng #${order.docNum}.` })
+        await loadOrder({ cancelled: false })
+      } catch {
+        setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+      } finally {
+        setActionBusy(false)
       }
-      setActionMsg({ type: 'success', text: `Đã hủy đơn hàng #${order.docNum}.` })
-      await loadOrder({ cancelled: false })
-    } catch {
-      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
-    } finally {
-      setActionBusy(false)
     }
+    setConfirmCfg({
+      title: 'Hủy đơn hàng',
+      message: msg,
+      confirmLabel: 'Hủy đơn',
+      tone: 'danger',
+      run: () => void run(),
+    })
   }
 
   // Đóng đơn hàng (chỉ khi Open)
   // Nếu đơn đã đẩy SAP: gọi POST /Orders({docEntry})/Close trên Service Layer
-  const doCloseOrder = async () => {
+  const doCloseOrder = () => {
     if (!order || actionBusy) return
     const msg = order.sapSyncStatus === 'synced'
       ? `Đóng Sale Order #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi đóng chứng từ trên SAP B1 trước.`
-      : `Đóng Sale Order #${order.docNum}? Đơn đã đóng sẽ không sửa được nữa.`
-    if (!window.confirm(msg)) return
-    setActionBusy(true)
-    setActionMsg(null)
-    try {
-      const res = await api(`/api/orders/${order.id}/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: order.version }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || !json.ok) {
-        setActionMsg({ type: 'error', text: json.error ?? 'Không thể đóng đơn hàng' })
-        return
+      : `Đóng Sale Order #${order.docNum}?\nĐơn đã đóng sẽ không sửa được nữa.`
+    const run = async () => {
+      setConfirmCfg(null)
+      setActionBusy(true)
+      setActionMsg(null)
+      try {
+        const res = await api(`/api/orders/${order.id}/close`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version: order.version }),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || !json.ok) {
+          setActionMsg({ type: 'error', text: json.error ?? 'Không thể đóng đơn hàng' })
+          return
+        }
+        setActionMsg({ type: 'success', text: `Đã đóng đơn hàng #${order.docNum}.` })
+        await loadOrder({ cancelled: false })
+      } catch {
+        setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+      } finally {
+        setActionBusy(false)
       }
-      setActionMsg({ type: 'success', text: `Đã đóng đơn hàng #${order.docNum}.` })
-      await loadOrder({ cancelled: false })
-    } catch {
-      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
-    } finally {
-      setActionBusy(false)
     }
+    setConfirmCfg({
+      title: 'Đóng đơn hàng',
+      message: msg,
+      confirmLabel: 'Đóng đơn',
+      tone: 'warning',
+      run: () => void run(),
+    })
   }
 
   // Đẩy đơn sang SAP B1 ngay
-  const syncNow = async () => {
+  const syncNow = () => {
     if (!order || actionBusy) return
     // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
-    if (!window.confirm(`Đẩy Sale Order #${order.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`)) return
-    setActionBusy(true)
-    try {
-      const res = await api(`/api/orders/${order.id}/sync`, { method: 'POST' })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || !json.ok) {
-        setActionMsg({ type: 'error', text: json.error ?? json.sap?.error ?? 'Không thể đẩy đơn sang SAP B1' })
-        return
+    const run = async () => {
+      setConfirmCfg(null)
+      setActionBusy(true)
+      try {
+        const res = await api(`/api/orders/${order.id}/sync`, { method: 'POST' })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || !json.ok) {
+          setActionMsg({ type: 'error', text: json.error ?? json.sap?.error ?? 'Không thể đẩy đơn sang SAP B1' })
+          return
+        }
+        setActionMsg({ type: 'success', text: `Đã đẩy đơn #${order.docNum} sang SAP B1 — DocNum ${json.order?.sapDocNum ?? json.sap?.DocNum ?? '?'}.` })
+        await loadOrder({ cancelled: false })
+      } catch {
+        setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+      } finally {
+        setActionBusy(false)
       }
-      setActionMsg({ type: 'success', text: `Đã đẩy đơn #${order.docNum} sang SAP B1 — DocNum ${json.order?.sapDocNum ?? json.sap?.DocNum ?? '?'}.` })
-      await loadOrder({ cancelled: false })
-    } catch {
-      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
-    } finally {
-      setActionBusy(false)
     }
+    setConfirmCfg({
+      title: 'Đẩy sang SAP B1',
+      message: `Đẩy Sale Order #${order.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
+      confirmLabel: 'Đẩy ngay',
+      tone: 'primary',
+      run: () => void run(),
+    })
   }
 
   const openEmail = () => {
@@ -897,6 +946,18 @@ actions={
             </div>
           </div>
         </div>
+      )}
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
       )}
     </div>
   )
