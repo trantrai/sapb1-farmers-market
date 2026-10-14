@@ -3,6 +3,8 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { fetchSapOrderDetail, type SapOrderLineRow } from '@/lib/sap-orders'
 
 // POST /api/deliveries/from-order — tạo Delivery từ Sale Order
 export async function POST(req: NextRequest) {
@@ -30,25 +32,6 @@ export async function POST(req: NextRequest) {
   const orderId = String(body.orderId ?? '').trim()
   if (!orderId) return NextResponse.json({ error: 'Thiếu orderId' }, { status: 400 })
 
-  const order = await prisma.salesOrder.findUnique({
-    where: { id: orderId },
-    include: { lines: { orderBy: { lineNum: 'asc' } } },
-  })
-  if (!order) {
-    // Đơn SAP trực tiếp (sap-*) chưa có bản ghi local → hướng dẫn rõ
-    if (orderId.startsWith('sap-')) {
-      return NextResponse.json({ error: 'Đơn từ SAP B1 chưa có bản ghi local — vui lòng đồng bộ hoặc tạo đơn local trước khi copy delivery' }, { status: 404 })
-    }
-    return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
-  }
-  // B1: cách ly DB
-  if (user.databaseId && order.sapDatabaseId !== user.databaseId) {
-    return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
-  }
-  if (order.status === 'Cancelled') {
-    return NextResponse.json({ error: 'Không thể tạo phiếu giao hàng từ đơn đã hủy' }, { status: 400 })
-  }
-
   // Giới hạn 200 dòng / phiếu (chế độ chỉ định)
   if (Array.isArray(body.lines) && body.lines.length > 200) {
     return NextResponse.json({ error: 'Phiếu giao hàng tối đa 200 dòng' }, { status: 400 })
@@ -69,6 +52,158 @@ export async function POST(req: NextRequest) {
         .join(',')
     : 'auto'
   const dedupeKey = `delivery:from-order:${user.id}:${orderId}:${fpLines}`
+
+  // ================= ĐƠN SAP B1 TRỰC TIẾP (id 'sap-<DocEntry>') =================
+  // Lấy header + lines từ Service Layer, tạo delivery local (không có bản ghi
+  // SalesOrder local). OpenQty từng dòng = SL còn mở theo SAP trừ SL đã giao
+  // qua các delivery local trước đó (nhận diện bằng sapSourceDocEntry).
+  if (orderId.startsWith('sap-')) {
+    const docEntry = Number(orderId.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: 'DocEntry đơn SAP không hợp lệ' }, { status: 400 })
+    }
+    const s = await loadSapSettings(user.databaseId)
+    if (!isSapConfigured(s)) {
+      return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+    }
+    const cur = await fetchSapOrderDetail(s, docEntry)
+    if (!cur.ok || !cur.order) {
+      return NextResponse.json(
+        { error: `Không đọc được đơn hàng từ SAP B1 — ${cur.error ?? 'lỗi không rõ'}` },
+        { status: 502 },
+      )
+    }
+    const sapOrder = cur.order
+    if (sapOrder.status === 'Closed') {
+      return NextResponse.json({ error: 'Đơn SAP đã đóng (Closed) — không thể tạo phiếu giao hàng' }, { status: 400 })
+    }
+    if (sapOrder.status === 'Cancelled') {
+      return NextResponse.json({ error: 'Không thể tạo phiếu giao hàng từ đơn đã hủy' }, { status: 400 })
+    }
+
+    const runSap = async (): Promise<{ body: unknown; status: number }> => {
+      // SL đã giao qua các delivery local trước (trừ phiếu đã hủy)
+      const existingDeliveries = await prisma.delivery.findMany({
+        where: { sapSourceDocEntry: docEntry, status: { not: 'Cancelled' } },
+        include: { lines: { select: { sourceOrderLineId: true, quantity: true } } },
+      })
+      const deliveredByLine = new Map<string, number>()
+      for (const d of existingDeliveries) {
+        for (const dl of d.lines) {
+          if (!dl.sourceOrderLineId) continue
+          deliveredByLine.set(dl.sourceOrderLineId, (deliveredByLine.get(dl.sourceOrderLineId) ?? 0) + dl.quantity)
+        }
+      }
+      const openQtyOf = (line: SapOrderLineRow) => {
+        const sapOpen = line.sapOpenQty ?? line.quantity
+        const delivered = deliveredByLine.get(line.id) ?? 0
+        return round3(sapOpen - delivered)
+      }
+
+      let picked: Array<{ line: SapOrderLineRow; qty: number }>
+      if (Array.isArray(body.lines)) {
+        const byId = new Map(sapOrder.lines.map((l) => [l.id, l]))
+        picked = []
+        for (const reqLine of body.lines) {
+          if (!reqLine || typeof reqLine !== 'object') continue
+          const lineId = String(reqLine.sourceOrderLineId ?? '').trim()
+          const qty = Number(reqLine.quantity)
+          if (!lineId || !Number.isFinite(qty) || qty <= 0) continue
+          const line = byId.get(lineId)
+          if (!line) {
+            return { body: { error: `Dòng đơn hàng không hợp lệ: ${lineId}` }, status: 400 }
+          }
+          const openQty = openQtyOf(line)
+          if (gtEps(qty, openQty)) {
+            return {
+              body: { error: `SL giao (${qty}) vượt quá SL còn mở (${openQty}) của mặt hàng ${line.itemCode}` },
+              status: 400,
+            }
+          }
+          picked.push({ line, qty })
+        }
+        if (picked.length === 0) {
+          return { body: { error: 'Chưa chọn dòng nào để giao (SL giao phải > 0)' }, status: 400 }
+        }
+      } else {
+        picked = sapOrder.lines
+          .map((l) => ({ line: l, qty: openQtyOf(l) }))
+          .filter((x) => x.qty > 0)
+        if (picked.length === 0) {
+          return { body: { error: 'Đơn SAP không còn dòng nào mở (OpenQty = 0) để giao' }, status: 400 }
+        }
+      }
+
+      const lineTotals = picked.map((x) => Math.round(x.line.unitPrice * x.qty))
+      const grandTotal = lineTotals.reduce((sum, t) => sum + t, 0)
+
+      let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
+      for (let attempt = 0; attempt < 5 && !delivery; attempt++) {
+        try {
+          const last = await prisma.delivery.findFirst({ orderBy: { docNum: 'desc' } })
+          const docNum = (last?.docNum ?? 0) + 1
+          delivery = await prisma.delivery.create({
+            data: {
+              docNum,
+              cardCode: sapOrder.cardCode,
+              cardName: sapOrder.cardName,
+              remarks: `Copy từ Sale Order SAP #${sapOrder.docNum}`,
+              sourceOrderId: null,
+              sapSourceDocEntry: docEntry,
+              sapDatabaseId: user.databaseId ?? null,
+              grandTotal,
+              createdBy: user.id,
+              lines: {
+                create: picked.map((x, i) => ({
+                  lineNum: i + 1,
+                  itemCode: x.line.itemCode,
+                  itemName: x.line.itemName,
+                  quantity: x.qty,
+                  uom: x.line.uom || '',
+                  unitPrice: x.line.unitPrice,
+                  lineTotal: lineTotals[i],
+                  sourceOrderLineId: x.line.id,
+                })),
+              },
+            },
+            include: { lines: true },
+          })
+        } catch (e) {
+          if ((e as { code?: string })?.code !== 'P2002') throw e
+          console.warn(`[deliveries/from-order] docNum conflict (SAP), retry ${attempt + 1}/5`)
+        }
+      }
+      if (!delivery) return { body: { error: 'Không thể cấp số phiếu' }, status: 500 }
+      return { body: { ok: true, delivery }, status: 201 }
+    }
+
+    // Lock per-order (dùng orderId 'sap-<DocEntry>' làm khóa)
+    if (!acquireOrderLock(orderId)) {
+      return NextResponse.json({ error: 'Đơn này đang được tạo phiếu giao hàng ở một phiên khác — vui lòng đợi' }, { status: 409 })
+    }
+    try {
+      const { result, replayed } = await dedupeRequest(dedupeKey, runSap)
+      return NextResponse.json(result.body, { status: replayed ? 200 : result.status })
+    } finally {
+      releaseOrderLock(orderId)
+    }
+  }
+
+  // ================= ĐƠN LOCAL =================
+  const order = await prisma.salesOrder.findUnique({
+    where: { id: orderId },
+    include: { lines: { orderBy: { lineNum: 'asc' } } },
+  })
+  if (!order) {
+    return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  }
+  // B1: cách ly DB
+  if (user.databaseId && order.sapDatabaseId !== user.databaseId) {
+    return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  }
+  if (order.status === 'Cancelled') {
+    return NextResponse.json({ error: 'Không thể tạo phiếu giao hàng từ đơn đã hủy' }, { status: 400 })
+  }
 
   const run = async (): Promise<{ body: unknown; status: number }> => {
     // Tính OpenQty từng dòng SAU khi đã giữ order lock — không tính trước

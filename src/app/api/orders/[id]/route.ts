@@ -37,7 +37,22 @@ export async function GET(req: NextRequest, ctx: Ctx) {
         { status: 502 },
       )
     }
-    return NextResponse.json({ order: cur.order })
+    // Gộp các delivery local đã tạo từ đơn SAP này (nhận diện bằng
+    // sapSourceDocEntry) để UI tính SL đã giao / còn mở từng dòng
+    const localDeliveries = await prisma.delivery.findMany({
+      where: { sapSourceDocEntry: docEntry, status: { not: 'Cancelled' } },
+      select: {
+        id: true,
+        docNum: true,
+        docDate: true,
+        status: true,
+        grandTotal: true,
+        sapSyncStatus: true,
+        lines: { select: { sourceOrderLineId: true, quantity: true } },
+      },
+      orderBy: { docNum: 'asc' },
+    })
+    return NextResponse.json({ order: { ...cur.order, deliveries: localDeliveries } })
   }
 
   const order = await prisma.salesOrder.findUnique({

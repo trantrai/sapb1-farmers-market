@@ -24,6 +24,8 @@ interface OrderLine {
   bomGroupKey?: string | null
   bomEditable?: boolean
   bomType?: string
+  /** SL còn mở theo SAP (chỉ có với đơn SAP trực tiếp) */
+  sapOpenQty?: number
 }
 
 interface OrderDeliveryLine {
@@ -131,11 +133,14 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   /** Các dòng có thể giao (bỏ dòng con BOM) kèm SL còn mở */
   const buildOpenLines = useCallback((o: Order) => {
     const deliveredByLine = buildDeliveredByLine(o)
+    const isSapOrder = o.id.startsWith('sap-')
     return o.lines
       .filter((l) => !l.isBomChild)
       .map((l) => {
         const delivered = deliveredByLine.get(l.id) ?? 0
-        const openQty = Math.max(0, Math.round((l.quantity - delivered) * 1000) / 1000)
+        // Đơn SAP: SL mở theo SAP (RemainingOpenQuantity) trừ SL đã giao local
+        const baseOpen = isSapOrder && typeof l.sapOpenQty === 'number' ? l.sapOpenQty : l.quantity
+        const openQty = Math.max(0, Math.round((baseOpen - delivered) * 1000) / 1000)
         return { line: l, delivered: Math.round(delivered * 1000) / 1000, openQty }
       })
   }, [buildDeliveredByLine])
@@ -510,7 +515,7 @@ actions={
                 <Pencil size={15} /> Sửa đơn hàng
               </button>
             )}
-            {order.status === 'Open' && !order.id.startsWith('sap-') && (
+            {order.status === 'Open' && (
               <button
                 className="fm-btn fm-btn--secondary"
                 onClick={openCopyModal}

@@ -141,6 +141,9 @@ model Delivery {
   // Liên kết đơn hàng nguồn (1 đơn có thể có nhiều delivery)
   sourceOrderId String?
   sourceOrder   SalesOrder? @relation(fields: [sourceOrderId], references: [id])
+  // Đơn SAP B1 trực tiếp (id 'sap-<DocEntry>', chưa có bản ghi local):
+  // lưu DocEntry đơn nguồn để tính OpenQty và liên kết
+  sapSourceDocEntry Int?
   // Đồng bộ SAP B1 (POST /DeliveryNotes → ODLN)
   sapDocEntry   Int?
   sapDocNum     Int?
@@ -156,6 +159,7 @@ model Delivery {
 
   @@index([sapDatabaseId, status])
   @@index([sourceOrderId])
+  @@index([sapSourceDocEntry])
   @@index([cardCode, docDate])
   @@index([cardName]) // tìm kiếm/lọc theo tên khách hàng trên danh sách Giao hàng
 }

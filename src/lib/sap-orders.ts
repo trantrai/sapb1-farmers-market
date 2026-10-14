@@ -41,6 +41,10 @@ interface SapOrderLine {
   VatSum?: number | string
   WarehouseCode?: string
   WhsCode?: string
+  /** SL còn mở trên SAP (DocumentLine.RemainingOpenQuantity) */
+  RemainingOpenQuantity?: number | string
+  /** SL đã giao trên SAP (DocumentLine.DeliveredQuantity) */
+  DeliveredQuantity?: number | string
 }
 
 // ---------- Kiểu dữ liệu UI (khớp Order trong orders-list-view) ----------
@@ -94,6 +98,8 @@ export interface SapOrderLineRow {
   grandTotal: number
   /** Mã nhóm thuế (VatGroup/TaxCode) của dòng trên SAP — dùng khi sửa đơn */
   taxCode?: string
+  /** SL còn mở theo SAP (RemainingOpenQuantity, hoặc Quantity - DeliveredQuantity) */
+  sapOpenQty?: number
 }
 
 /**
@@ -167,6 +173,10 @@ function mapLine(l: SapOrderLine, idx: number, ctx: MapLineCtx): SapOrderLineRow
     const denom = ctx.headerPct > 0 ? afterDisc * (1 - ctx.headerPct / 100) : afterDisc
     vatPct = denom > 0 ? Math.round((vatAmt / denom) * 1000) / 10 : 0
   }
+  // SL còn mở theo SAP: ưu tiên RemainingOpenQuantity, fallback Quantity - DeliveredQuantity
+  const remOpen = l.RemainingOpenQuantity !== undefined && l.RemainingOpenQuantity !== null && l.RemainingOpenQuantity !== ''
+    ? num(l.RemainingOpenQuantity)
+    : Math.max(0, qty - num(l.DeliveredQuantity))
   return {
     id: `sap-${l.LineNum ?? idx}`,
     lineNum: typeof l.LineNum === 'number' ? l.LineNum : idx + 1,
@@ -184,6 +194,7 @@ function mapLine(l: SapOrderLine, idx: number, ctx: MapLineCtx): SapOrderLineRow
     vatAmt: Math.round(vatAmt),
     vatAmtFromSap,
     grandTotal: Math.round(afterDisc + vatAmt),
+    sapOpenQty: Math.round(remOpen * 1000) / 1000,
   }
 }
 
