@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { fetchSapDeliveries, clearSapDeliveriesCache, type SapDeliveryRow } from '@/lib/sap-deliveries'
 
 // GET /api/deliveries — danh sách (filter: q, status, page, pageSize)
+// Khi đã cấu hình SAP B1 → lấy TOÀN BỘ phiếu TRỰC TIẾP từ Service Layer
+// (GET /DeliveryNotes) rồi gộp với các phiếu local CHƯA đẩy sang SAP
+// (pending/none). Phiếu local đã synced bị ẩn nếu SAP đã có chứng từ cùng DocEntry.
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -17,9 +22,52 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10) || 1)
   const pageSize = Math.min(50, Math.max(5, parseInt(sp.get('pageSize') ?? '10', 10) || 10))
 
+  // ---------- 1) Chứng từ từ SAP B1 (nếu đã cấu hình) ----------
+  // Phiếu lấy từ đúng database đã chọn khi đăng nhập.
+  // 'Cancelled' là trạng thái local — SAP chỉ có Open/Closed nên không tải.
+  const s = await loadSapSettings(user.databaseId)
+  const dbId = s?.dbId ?? user.databaseId ?? null
+  let sapRows: SapDeliveryRow[] = []
+  let warning = ''
+  let source: 'sap' | 'local' = 'local'
+  // fresh=1 (nút "Tải lại") → bỏ qua cache 45s, tải mới trực tiếp từ SAP B1
+  if (isSapConfigured(s) && status !== 'Cancelled' && sp.get('fresh') === '1') {
+    clearSapDeliveriesCache()
+  }
+  if (isSapConfigured(s) && status !== 'Cancelled') {
+    const live = await fetchSapDeliveries(s, { q, status })
+    if (live.ok && live.data) {
+      sapRows = live.data
+      source = 'sap'
+      if (live.warning) warning = live.warning
+    } else {
+      // SAP lỗi → vẫn hiển thị phiếu local, kèm cảnh báo
+      warning = `Không truy vấn được SAP B1 (${live.error ?? 'lỗi không rõ'}) — đang hiển thị phiếu local`
+    }
+  }
+
+  // ---------- 1b) Phiếu SAP nào có bản ghi local? (để mở chi tiết local) ----------
+  const sapEntries = sapRows.map((r) => r.sapDocEntry).filter((x): x is number => x != null)
+  const localByEntry = new Map<number, string>()
+  if (sapEntries.length > 0) {
+    const syncedLocals = await prisma.delivery.findMany({
+      where: {
+        sapSyncStatus: 'synced',
+        sapDocEntry: { in: sapEntries },
+        ...(dbId ? { sapDatabaseId: dbId } : {}),
+      },
+      select: { id: true, sapDocEntry: true },
+    })
+    for (const d of syncedLocals) if (d.sapDocEntry != null) localByEntry.set(d.sapDocEntry, d.id)
+  }
+  if (sapRows.length > 0) {
+    sapRows = sapRows.map((r) => ({ ...r, localId: (r.sapDocEntry != null ? localByEntry.get(r.sapDocEntry) : null) ?? null }))
+  }
+
+  // ---------- 2) Phiếu local (gộp: các phiếu chưa đẩy / SAP không còn) ----------
   const where: Record<string, unknown> = {}
   // B1: cách ly DB
-  if (user.databaseId) where.sapDatabaseId = user.databaseId
+  if (dbId) where.sapDatabaseId = dbId
   if (q) {
     where.OR = [
       { cardCode: { contains: q } },
@@ -29,24 +77,34 @@ export async function GET(req: NextRequest) {
   }
   if (['Open', 'Closed', 'Cancelled'].includes(status)) where.status = status
 
-  const [total, rows] = await Promise.all([
-    prisma.delivery.count({ where }),
-    prisma.delivery.findMany({
-      where,
-      orderBy: { docNum: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      include: {
-        lines: { orderBy: { lineNum: 'asc' } },
-        sourceOrder: { select: { id: true, docNum: true } },
-      },
-    }),
-  ])
+  const localRows = await prisma.delivery.findMany({
+    where,
+    orderBy: { docNum: 'desc' },
+    include: {
+      lines: { orderBy: { lineNum: 'asc' } },
+      sourceOrder: { select: { id: true, docNum: true } },
+    },
+  })
+  const slEntries = new Set(sapRows.map((r) => r.sapDocEntry))
+  const localOnly = localRows.filter(
+    (o) => !(o.sapSyncStatus === 'synced' && o.sapDocEntry != null && slEntries.has(o.sapDocEntry)),
+  )
+
+  // ---------- 3) Gộp + sắp xếp + phân trang trên máy chủ ----------
+  const merged = [
+    ...sapRows,
+    ...localOnly.map((o) => ({ ...o, source: 'local' as const })),
+  ].sort((a, b) => b.docNum - a.docNum)
+
+  const total = merged.length
+  const data = merged.slice((page - 1) * pageSize, page * pageSize)
 
   return NextResponse.json({
     ok: true,
-    data: rows,
-    pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    data,
+    pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    source,
+    ...(warning ? { warning } : {}),
   })
 }
 

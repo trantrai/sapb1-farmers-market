@@ -4,6 +4,7 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { acquirePushLock, releasePushLock } from '@/lib/order-push-lock'
 import { pushDeliveryToSap } from '@/lib/sap-push-delivery'
+import { clearSapDeliveriesCache } from '@/lib/sap-deliveries'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -83,6 +84,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     })
 
     if (result.status === 'synced') {
+      // Xóa cache danh sách SAP để lần tải sau thấy chứng từ mới trên SAP,
+      // bản ghi local đã synced sẽ bị ẩn (tránh trùng)
+      clearSapDeliveriesCache()
       return NextResponse.json({ ok: true, message: `Đã đẩy sang SAP B1 — DocNum ${result.docNum ?? ''}`, delivery: updated })
     }
     return NextResponse.json(

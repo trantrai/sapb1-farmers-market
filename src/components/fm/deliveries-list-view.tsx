@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Search, Truck, Trash2, CloudUpload, Eye } from 'lucide-react'
+import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
@@ -32,6 +32,10 @@ interface Delivery {
   grandTotal: number
   sapDocNum?: number | null
   sapSyncStatus?: string
+  /** 'sap' = từ SAP B1 (GET /DeliveryNotes), 'local' = bản ghi local */
+  source?: 'sap' | 'local'
+  /** id bản ghi local tương ứng (nếu phiếu SAP có bản ghi local) */
+  localId?: string | null
   sourceOrder?: { id: string; docNum: number } | null
   lines: DeliveryLine[]
 }
@@ -59,6 +63,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
   const [status, setStatus] = useState('')
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [source, setSource] = useState('')
+  const [sapWarn, setSapWarn] = useState('')
 
   // Scroll tới alert khi có thông báo mới (mobile không bỏ sót thông báo)
   const alertRef = useRef<HTMLDivElement | null>(null)
@@ -66,18 +72,22 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
     if (alert) alertRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [alert])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true)
     try {
       const p = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
       if (q.trim()) p.set('q', q.trim())
       if (status) p.set('status', status)
+      // fresh = bỏ qua cache 45s phía server, tải mới trực tiếp từ SAP B1
+      if (fresh) p.set('fresh', '1')
       const r = await api(`/api/deliveries?${p}`)
       const j = await r.json()
       if (r.ok && j.ok) {
         setRows(j.data ?? [])
         setTotal(j.pagination?.total ?? 0)
         setTotalPages(j.pagination?.totalPages ?? 1)
+        setSource(j.source ?? '')
+        setSapWarn(j.warning ?? '')
       } else {
         setAlert({ type: 'error', msg: j.error ?? 'Không tải được danh sách' })
       }
@@ -134,10 +144,15 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       <PageHeader
         breadcrumb={['Chức năng chính', 'Giao hàng']}
         title="Quản lý giao hàng"
-        actions={
-          <span className="fm-hint">{total} phiếu</span>
-        }
+        actions={<>
+          <button className="fm-btn fm-btn--secondary" onClick={() => void load(true)}><RefreshCw size={14} /> Tải lại</button>
+          <span className="fm-hint">{total} phiếu{source === 'sap' ? ' · từ SAP B1' : ''}</span>
+        </>}
       />
+
+      {sapWarn && (
+        <div className="fm-hint" style={{ color: 'var(--fm-red)', marginBottom: 8 }} role="alert">⚠ {sapWarn}</div>
+      )}
 
       {alert && (
         <div ref={alertRef} className={`fm-alert fm-alert--${alert.type === 'success' ? 'success' : 'error'}`} role="alert" style={{ marginBottom: 12 }}>
@@ -147,9 +162,9 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
 
       <div className="fm-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <div className="fm-search" style={{ flex: '1 1 220px' }}>
-          <Search size={15} />
+          <Search size={15} className="fm-search__icon" />
           <input
-            className="fm-input"
+            className="fm-search__input"
             placeholder="Tìm mã KH, tên KH, số phiếu…"
             value={q}
             onChange={(e) => { setQ(e.target.value); setPage(1) }}
@@ -214,7 +229,9 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                     <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>
                   </td>
                   <td>
-                    {d.sapSyncStatus === 'synced' ? (
+                    {d.source === 'sap' ? (
+                      <span className="fm-chip fm-chip--sap" title={`DocEntry ${d.id.replace('sap-', '')} — từ SAP B1`}>SAP B1</span>
+                    ) : d.sapSyncStatus === 'synced' ? (
                       <span className="fm-chip fm-chip--sap" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
                     ) : d.sapSyncStatus === 'pending' ? (
                       <span className="fm-chip fm-chip--error">Lỗi đẩy</span>
@@ -225,15 +242,27 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   <td className="fm-num"><b>{formatVND(d.grandTotal)}</b></td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button
-                        type="button"
-                        className="fm-btn fm-btn--ghost fm-btn--sm"
-                        onClick={() => onGoDetail(d.id)}
-                        title="Xem chi tiết"
-                        aria-label={`Xem chi tiết phiếu ${d.docNum}`}
-                      >
-                        <Eye size={15} />
-                      </button>
+                      {d.source !== 'sap' ? (
+                        <button
+                          type="button"
+                          className="fm-btn fm-btn--ghost fm-btn--sm"
+                          onClick={() => onGoDetail(d.id)}
+                          title="Xem chi tiết"
+                          aria-label={`Xem chi tiết phiếu ${d.docNum}`}
+                        >
+                          <Eye size={15} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="fm-btn fm-btn--ghost fm-btn--sm"
+                          disabled
+                          title="Phiếu từ SAP B1 — chỉ xem trên danh sách"
+                          aria-label={`Phiếu ${d.docNum} từ SAP B1`}
+                        >
+                          <Eye size={15} />
+                        </button>
+                      )}
                       {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                         <button
                           type="button"
@@ -246,16 +275,18 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                           <CloudUpload size={15} />
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="fm-btn fm-btn--ghost fm-btn--sm"
-                        onClick={() => void doDelete(d)}
-                        disabled={busyId === d.id}
-                        title="Xóa"
-                        aria-label={`Xóa phiếu ${d.docNum}`}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      {d.source !== 'sap' && (
+                        <button
+                          type="button"
+                          className="fm-btn fm-btn--ghost fm-btn--sm"
+                          onClick={() => void doDelete(d)}
+                          disabled={busyId === d.id}
+                          title="Xóa"
+                          aria-label={`Xóa phiếu ${d.docNum}`}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -279,7 +310,9 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               <div className="fm-ocard__top">
                 <span className="fm-ocard__num">#{d.docNum}</span>
                 <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>
-                {d.sapSyncStatus === 'synced' ? (
+                {d.source === 'sap' ? (
+                  <span className="fm-chip fm-chip--sap">SAP B1</span>
+                ) : d.sapSyncStatus === 'synced' ? (
                   <span className="fm-chip fm-chip--sap" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
                 ) : d.sapSyncStatus === 'pending' ? (
                   <span className="fm-chip fm-chip--error">Lỗi đẩy</span>
@@ -298,15 +331,17 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               <div className="fm-ocard__bottom">
                 <span className="fm-ocard__total">{formatVND(d.grandTotal)}</span>
                 <span style={{ display: 'flex', gap: 4 }}>
-                  <button
-                    type="button"
-                    className="fm-ocard__more"
-                    title="Xem chi tiết"
-                    aria-label={`Xem chi tiết phiếu ${d.docNum}`}
-                    onClick={() => onGoDetail(d.id)}
-                  >
-                    <Eye size={16} />
-                  </button>
+                  {d.source !== 'sap' && (
+                    <button
+                      type="button"
+                      className="fm-ocard__more"
+                      title="Xem chi tiết"
+                      aria-label={`Xem chi tiết phiếu ${d.docNum}`}
+                      onClick={() => onGoDetail(d.id)}
+                    >
+                      <Eye size={16} />
+                    </button>
+                  )}
                   {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                     <button
                       type="button"
@@ -320,16 +355,18 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       <span>Đẩy</span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="fm-ocard__del"
-                    title="Xóa"
-                    aria-label={`Xóa phiếu ${d.docNum}`}
-                    onClick={() => void doDelete(d)}
-                    disabled={busyId === d.id}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {d.source !== 'sap' && (
+                    <button
+                      type="button"
+                      className="fm-ocard__del"
+                      title="Xóa"
+                      aria-label={`Xóa phiếu ${d.docNum}`}
+                      onClick={() => void doDelete(d)}
+                      disabled={busyId === d.id}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </span>
               </div>
             </article>
