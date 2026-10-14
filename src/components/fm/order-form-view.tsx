@@ -74,6 +74,8 @@ export interface EditOrderData {
   /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
   headerDiscPct?: number
   sapSyncStatus?: string
+  /** Optimistic locking: version lúc mở form */
+  version?: number
   lines: EditOrderLine[]
 }
 
@@ -865,6 +867,7 @@ export default function OrderFormView({
         remarks,
         warehouseCode: headerWh || undefined,
         headerDiscPct: clampPct(headerDiscPct),
+        ...(isEdit && typeof editOrder!.version === 'number' ? { version: editOrder!.version } : {}),
         lines: valid.map((l) => ({
           ...(isEdit ? { dbId: l.dbId, sapLineNum: l.sapLineNum } : {}),
           itemCode: l.item!.code,
@@ -889,7 +892,12 @@ export default function OrderFormView({
       })
       const json = await res.json()
       if (!res.ok) {
-        setError(json.error ?? (isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể tạo đơn hàng'))
+        // 409 VERSION_CONFLICT: đơn đã bị sửa bởi người khác
+        if (res.status === 409 && json.code === 'VERSION_CONFLICT') {
+          setError('Đơn hàng đã bị sửa bởi người khác — vui lòng tải lại đơn hàng rồi thử lại.')
+        } else {
+          setError(json.error ?? (isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể tạo đơn hàng'))
+        }
         return
       }
       const o = json.order

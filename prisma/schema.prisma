@@ -96,7 +96,8 @@ model SalesOrder {
   cardName        String
   docDate         DateTime
   docDueDate      DateTime
-  status          String           @default("Open") // Open | Closed
+  status          String           @default("Open") // Open | Closed | Cancelled
+  version         Int              @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
   warehouseCode   String?          // Kho hàng xuất bán mặc định áp dụng cho các dòng hàng (WarehouseCode)
   totalBeforeDisc Float            @default(0) // Tổng trước chiết khấu (sum lineTotal)
@@ -135,6 +136,7 @@ model Delivery {
   cardCode      String
   cardName      String
   status        String    @default("Open") // Open | Closed | Cancelled
+  version       Int       @default(0) // Optimistic locking: tăng mỗi lần update
   remarks       String?
   // Liên kết đơn hàng nguồn (1 đơn có thể có nhiều delivery)
   sourceOrderId String?
@@ -155,6 +157,7 @@ model Delivery {
   @@index([sapDatabaseId, status])
   @@index([sourceOrderId])
   @@index([cardCode, docDate])
+  @@index([cardName]) // tìm kiếm/lọc theo tên khách hàng trên danh sách Giao hàng
 }
 
 model DeliveryLine {

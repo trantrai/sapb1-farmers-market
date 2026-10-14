@@ -33,6 +33,8 @@ interface Delivery {
   status: string
   remarks?: string | null
   grandTotal: number
+  /** Optimistic locking version */
+  version?: number
   sapDocEntry?: number | null
   sapDocNum?: number | null
   sapSyncStatus?: string
@@ -202,13 +204,18 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
       const r = await api(`/api/deliveries/${delivery.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines: payload }),
+        body: JSON.stringify({
+          lines: payload,
+          ...(typeof delivery.version === 'number' ? { version: delivery.version } : {}),
+        }),
       })
       const j = await r.json().catch(() => ({}))
       if (r.ok && j.ok) {
         setShowEdit(false)
         setActionMsg({ type: 'success', text: `Đã cập nhật số lượng các dòng phiếu #${delivery.docNum}.` })
         void load()
+      } else if (r.status === 409 && j.code === 'VERSION_CONFLICT') {
+        setEditError('Phiếu đã bị sửa bởi người khác — vui lòng tải lại rồi thử lại.')
       } else {
         setEditError(j.error ?? 'Lưu thất bại')
       }
@@ -226,13 +233,19 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
       const r = await api(`/api/deliveries/${delivery.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Cancelled' }),
+        body: JSON.stringify({
+          status: 'Cancelled',
+          ...(typeof delivery.version === 'number' ? { version: delivery.version } : {}),
+        }),
       })
       const j = await r.json().catch(() => ({}))
       if (r.ok && j.ok) {
         setShowCancel(false)
         setActionMsg({ type: 'success', text: `Đã hủy phiếu giao hàng #${delivery.docNum}.` })
         void load()
+      } else if (r.status === 409 && j.code === 'VERSION_CONFLICT') {
+        setActionMsg({ type: 'error', text: 'Phiếu đã bị sửa bởi người khác — vui lòng tải lại rồi thử lại.' })
+        setShowCancel(false)
       } else {
         setActionMsg({ type: 'error', text: j.error ?? 'Hủy phiếu thất bại' })
         setShowCancel(false)
@@ -349,9 +362,9 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             <div className="fm-hint">SAP B1</div>
             <div>
               {delivery.sapSyncStatus === 'synced' ? (
-                <span className="fm-chip fm-chip--synced">Đã đẩy — DocNum {delivery.sapDocNum}</span>
+                <span className="fm-chip fm-chip--sap">Đã đẩy — DocNum {delivery.sapDocNum}</span>
               ) : delivery.sapSyncStatus === 'pending' ? (
-                <span className="fm-chip fm-chip--pending" title={delivery.sapSyncError ?? ''}>Đẩy lỗi</span>
+                <span className="fm-chip fm-chip--error" title={delivery.sapSyncError ?? ''}>Đẩy lỗi</span>
               ) : (
                 <span className="fm-hint">Chưa đẩy</span>
               )}

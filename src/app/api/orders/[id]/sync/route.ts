@@ -22,6 +22,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     include: { lines: { orderBy: { lineNum: 'asc' } } },
   })
   if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+  if (order.status === 'Cancelled') {
+    return NextResponse.json({ error: 'Không thể đẩy đơn đã hủy sang SAP B1' }, { status: 400 })
+  }
   if (order.sapSyncStatus === 'synced') {
     return NextResponse.json(
       { error: `Đơn này đã được đẩy sang SAP B1 (DocNum ${order.sapDocNum ?? '?'})` },

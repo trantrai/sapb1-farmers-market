@@ -24,7 +24,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params
   const delivery = await prisma.delivery.findUnique({
     where: { id },
-    include: { lines: { orderBy: { lineNum: 'asc' } } },
+    include: {
+      lines: { orderBy: { lineNum: 'asc' } },
+      sourceOrder: { select: { status: true } },
+    },
   })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   // B1: cách ly DB
@@ -36,6 +39,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
   if (delivery.status === 'Cancelled') {
     return NextResponse.json({ error: 'Phiếu đã hủy — không thể đẩy sang SAP' }, { status: 400 })
+  }
+  // Chặn khi đơn nguồn đã hủy
+  if (delivery.sourceOrder?.status === 'Cancelled') {
+    return NextResponse.json(
+      { error: 'Đơn nguồn đã bị hủy — không thể sửa/đẩy phiếu giao hàng' },
+      { status: 400 },
+    )
   }
 
   // Khóa chống 2 lượt đẩy đồng thời tạo trùng chứng từ trên SAP

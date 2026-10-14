@@ -56,6 +56,8 @@ interface Order {
   source?: string
   /** id bản ghi local tương ứng (đơn SAP có bản ghi local → SỬA được) */
   localId?: string | null
+  /** Optimistic locking version */
+  version?: number
   lines: Line[]
 }
 
@@ -363,6 +365,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     warehouseCode: (o as { warehouseCode?: string | null }).warehouseCode ?? null,
     headerDiscPct: o.headerDiscPct ?? 0,
     sapSyncStatus: o.sapSyncStatus ?? (o.source === 'sap' ? 'synced' : 'none'),
+    version: o.version,
     lines: o.lines.map((l) => ({
       dbId: o.source === 'sap' ? undefined : l.id,
       sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
@@ -460,6 +463,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
             <option value="">Tất cả trạng thái</option>
             <option value="Open">Open</option>
             <option value="Closed">Closed</option>
+            <option value="Cancelled">Đã hủy</option>
           </select>
           <input type="date" className="fm-datepicker" title="Từ ngày" aria-label="Lọc từ ngày" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
           <input type="date" className="fm-datepicker" title="Đến ngày" aria-label="Lọc đến ngày" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
@@ -548,6 +552,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                         ) : o.status === 'Open' ? (
                           <span className="fm-chip fm-chip--open">Open</span>
+                        ) : o.status === 'Cancelled' ? (
+                          <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
                         ) : (
                           <span className="fm-chip fm-chip--closed">Closed</span>
                         )}
@@ -596,6 +602,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                     ) : o.status === 'Open' ? (
                       <span className="fm-chip fm-chip--open">Open</span>
+                    ) : o.status === 'Cancelled' ? (
+                      <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
                     ) : (
                       <span className="fm-chip fm-chip--closed">Closed</span>
                     )}

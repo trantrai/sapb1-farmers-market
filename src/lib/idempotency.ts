@@ -10,6 +10,17 @@
 // - Đây KHÔNG thay thế idempotency-key phía DB/client cho các hệ
 //   phân tán — chỉ chống double-click trên cùng 1 instance.
 // ============================================================
+// GIỚI HẠN MULTI-INSTANCE:
+// dedupeRequest, acquireOrderLock/releaseOrderLock và rate-limit
+// in-memory trong file này CHỈ có hiệu lực trên single-instance
+// (một process Node duy nhất).
+// Khi deploy multi-instance — PM2 cluster, nhiều container, Vercel
+// lambda — mỗi instance có một bộ nhớ riêng: lock/dedupe không thấy
+// nhau, nên có thể xảy ra tạo TRÙNG delivery từ cùng 1 đơn (vượt
+// OpenQty) hoặc ĐẨY TRÙNG chứng từ sang SAP B1.
+// Khi đó cần chuyển sang lock phân tán dùng chung (Redis SET NX với
+// TTL, hoặc hàng khóa trong DB), và giữ idempotency-key phía client/DB.
+// ============================================================
 
 const TTL_MS = 30_000
 const MAX_ENTRIES = 1000

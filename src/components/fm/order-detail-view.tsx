@@ -270,6 +270,10 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   // Đóng / mở lại đơn hàng
   const toggleClose = async () => {
     if (!order || actionBusy) return
+    if (order.status === 'Cancelled') {
+      setActionMsg({ type: 'error', text: 'Không thể mở lại đơn hàng đã hủy' })
+      return
+    }
     const next = order.status === 'Open' ? 'Closed' : 'Open'
     if (!window.confirm(next === 'Closed' ? `Đóng đơn hàng #${order.docNum}? Đơn đã đóng sẽ không sửa được.` : `Mở lại đơn hàng #${order.docNum}?`)) return
     setActionBusy(true)
@@ -285,6 +289,34 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
         return
       }
       setActionMsg({ type: 'success', text: next === 'Closed' ? `Đã đóng đơn hàng #${order.docNum}.` : `Đã mở lại đơn hàng #${order.docNum}.` })
+      await loadOrder({ cancelled: false })
+    } catch {
+      setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  // Hủy đơn hàng (chỉ khi Open; đơn đã hủy thì không sửa/copy/đẩy được)
+  const doCancelOrder = async () => {
+    if (!order || actionBusy) return
+    const msg = order.sapSyncStatus === 'synced'
+      ? `Hủy Sale Order #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — việc hủy chỉ áp dụng trên hệ thống local, cần hủy thủ công chứng từ trên SAP B1.`
+      : `Hủy Sale Order #${order.docNum}? Đơn đã hủy sẽ không sửa, không copy delivery và không đẩy SAP được.`
+    if (!window.confirm(msg)) return
+    setActionBusy(true)
+    setActionMsg(null)
+    try {
+      const res = await api(`/api/orders/${order.id}/cancel`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.ok) {
+        setActionMsg({ type: 'error', text: json.error ?? 'Không thể hủy đơn hàng' })
+        return
+      }
+      setActionMsg({
+        type: 'success',
+        text: `Đã hủy đơn hàng #${order.docNum}.${json.warning ? ` ${json.warning}` : ''}`,
+      })
       await loadOrder({ cancelled: false })
     } catch {
       setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
@@ -395,17 +427,33 @@ actions={
                 <Pencil size={15} /> Sửa đơn hàng
               </button>
             )}
-            <button
-              className="fm-btn fm-btn--secondary"
-              onClick={openCopyModal}
-              disabled={copyDisabled}
-              title={totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở'}
-            >
-              <Truck size={15} /> Copy sang Delivery
-            </button>
+            {order.status === 'Open' && (
+              <button
+                className="fm-btn fm-btn--secondary"
+                onClick={openCopyModal}
+                disabled={copyDisabled}
+                title={totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở'}
+              >
+                <Truck size={15} /> Copy sang Delivery
+              </button>
+            )}
+            {order.status === 'Open' && (
+              <button className="fm-btn fm-btn--danger" onClick={() => void doCancelOrder()} disabled={actionBusy}>
+                <X size={15} /> Hủy đơn
+              </button>
+            )}
+            {order.status === 'Cancelled' && (
+              <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
+            )}
           </>
         }
       />
+
+      {order.status === 'Cancelled' && (
+        <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }}>
+          Đơn hàng đã bị hủy — không thể sửa, copy sang Delivery hoặc đẩy lên SAP B1.
+        </div>
+      )}
 
       {overdue && (
         <div className="fm-alert fm-alert--error" style={{ marginBottom: 16 }}>
@@ -425,7 +473,7 @@ actions={
           <div><dt>Ngày giao hàng</dt><dd>{formatDateVN(order.docDueDate)}</dd></div>
           <div><dt>Kho xuất</dt><dd>{order.warehouseCode || '—'}</dd></div>
           <div><dt>Người tạo</dt><dd>{order.createdBy}</dd></div>
-          <div><dt>Trạng thái</dt><dd>{order.status === 'Open' ? 'Đang mở' : 'Đã đóng'}</dd></div>
+          <div><dt>Trạng thái</dt><dd>{order.status === 'Open' ? 'Đang mở' : order.status === 'Cancelled' ? 'Đã hủy' : 'Đã đóng'}</dd></div>
           <div><dt>Chiết khấu đầu chứng từ</dt><dd>{order.headerDiscPct > 0 ? `${order.headerDiscPct}% (${formatVND(order.headerDiscAmt)})` : '—'}</dd></div>
           <div>
             <dt>Đồng bộ SAP B1</dt>
@@ -605,14 +653,16 @@ actions={
       )}
       {/* Nút thao tác — chỉ giữ các hành động KHÔNG có trên thanh header:
           Đóng/Mở đơn và Đẩy SAP. (Sửa/In/Gửi email đã có ở header → không lặp) */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
-          <Lock size={15} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
-        </button>
-        <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
-          <CloudUpload size={15} /> Đẩy sang SAP B1 ngay
-        </button>
-      </div>
+      {order.status !== 'Cancelled' && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
+            <Lock size={15} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
+          </button>
+          <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
+            <CloudUpload size={15} /> Đẩy sang SAP B1 ngay
+          </button>
+        </div>
+      )}
 
       {/* Dialog xem trước bản in */}
       {showPrint && (

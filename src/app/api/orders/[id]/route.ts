@@ -107,12 +107,15 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     cardCode, cardName, docDate, docDueDate, remarks, warehouseCode,
     headerDiscPct,
     lines,
+    version,
   } = (body ?? {}) as {
     cardCode?: string; cardName?: string; docDate?: string; docDueDate?: string
     remarks?: string
     warehouseCode?: string
     /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
     headerDiscPct?: number
+    /** Optimistic locking: version client đọc được khi mở form */
+    version?: number
     lines?: Array<{
       dbId?: string; sapLineNum?: number
       itemCode: string; itemName: string; uom: string; quantity: number
@@ -240,6 +243,13 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (order.status !== 'Open') {
     return NextResponse.json({ error: 'Chỉ có thể sửa đơn hàng đang ở trạng thái Open' }, { status: 400 })
   }
+  // Optimistic locking: client phải gửi đúng version đã đọc khi mở form
+  if (typeof version === 'number' && version !== order.version) {
+    return NextResponse.json(
+      { error: 'Dữ liệu đã bị thay đổi bởi người khác — vui lòng tải lại đơn hàng', code: 'VERSION_CONFLICT' },
+      { status: 409 },
+    )
+  }
 
   // ---------- 1) Đơn đã synced → PATCH lên Service Layer trước ----------
   let patchedInSap = false
@@ -322,6 +332,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         headerDiscAmt,
         vatAmt,
         grandTotal,
+        version: { increment: 1 }, // Optimistic locking: tăng version mỗi lần sửa
         ...(patchedInSap ? { sapSyncedAt: new Date(), sapSyncError: null } : {}),
         lines: {
           create: calcLines.map((l, i) => ({
@@ -366,7 +377,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params
   const body = await req.json().catch(() => ({}))
   const status = (body as { status?: string }).status
-  if (status !== 'Open' && status !== 'Closed') {
+  if (status !== 'Open' && status !== 'Closed' && status !== 'Cancelled') {
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
   }
 
@@ -377,7 +388,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   if (user.databaseId && order.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
-  const updated = await prisma.salesOrder.update({ where: { id }, data: { status } })
+  const updated = await prisma.salesOrder.update({ where: { id }, data: { status, version: { increment: 1 } } })
   clearSapOrdersCache() // trạng thái đơn đổi → danh sách phải tải lại
   return NextResponse.json({ ok: true, order: updated })
 }

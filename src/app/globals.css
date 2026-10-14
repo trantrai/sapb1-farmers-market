@@ -650,7 +650,9 @@
 .fm-statusbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .fm-chip--open    { background: var(--fm-yellow-soft); color: var(--fm-primary-text); }  /* Document Status: Open */
 .fm-chip--closed  { background: #F5F5F5; color: var(--fm-text-2); }                     /* Document Status: Closed */
+.fm-chip--cancelled { background: #EDEBE9; color: var(--fm-text-2); }                  /* Document Status: Cancelled */
 .fm-chip--overdue { background: var(--fm-coral-soft);  color: #B73A1F; }
+.fm-chip--error   { background: var(--fm-coral-soft);  color: #B73A1F; }  /* Lỗi (đẩy SAP thất bại...) — tông đỏ/coral */
 .fm-chip--warn    { background: #ffddb8; color: #855300; }  /* Sắp đến hạn giao */
 
 /* Lọc nhanh theo hạn giao (danh sách đơn hàng) */
@@ -1156,6 +1158,17 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
     min-width: 44px; min-height: 44px; /* vùng chạm ≥44px */
   }
   .fm-ocard__del:active { background: var(--fm-red-soft); }
+  /* Nút "Đẩy" (đẩy delivery sang SAP) trên mobile card — nhất quán kích thước
+     với .fm-ocard__del nhưng dùng màu navy thay vì đỏ */
+  .fm-ocard__push {
+    background: var(--fm-primary); border: none; color: #fff; cursor: pointer;
+    padding: 8px 14px; border-radius: var(--fm-r-sm); display: inline-flex;
+    align-items: center; justify-content: center; gap: 6px;
+    font-size: 13px; font-weight: 700;
+    min-width: 44px; min-height: 44px; /* vùng chạm ≥44px */
+  }
+  .fm-ocard__push:active { background: var(--fm-primary-text); }
+  .fm-ocard__push:disabled { opacity: .55; cursor: not-allowed; }
   /* Nút ⋯ mở bottom-sheet thao tác (mobile không có right-click) — vùng chạm ≥44px */
   .fm-ocard__more {
     margin-left: auto; flex: none;
@@ -1310,7 +1323,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 
 /* (e) Vùng chạm & phản hồi bấm trên cảm ứng */
 .fm-btn, .fm-menu-item, .fm-ocard, .fm-page-btn, .fm-bottomnav__item,
-.fm-demo-chip, .fm-ucard .fm-row-del, .fm-ocard__del, .fm-ocard__more {
+.fm-demo-chip, .fm-ucard .fm-row-del, .fm-ocard__del, .fm-ocard__more, .fm-ocard__push {
   -webkit-tap-highlight-color: transparent;
 }
 @media (max-width: 640px) {

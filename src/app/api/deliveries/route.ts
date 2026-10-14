@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
   let body: {
     cardCode?: string; cardName?: string; docDate?: string; remarks?: string
     sourceOrderId?: string
-    lines?: Array<{ itemCode: string; itemName: string; quantity: number; uom?: string; unitPrice?: number }>
+    lines?: Array<{ itemCode: string; itemName: string; quantity: number; uom?: string; unitPrice?: number; sourceOrderLineId?: string }>
   }
   try {
     body = await req.json()
@@ -77,8 +77,23 @@ export async function POST(req: NextRequest) {
   if (!cardCode || !cardName) {
     return NextResponse.json({ error: 'Vui lòng nhập mã và tên khách hàng' }, { status: 400 })
   }
+  // Giới hạn 200 dòng / phiếu
+  if (Array.isArray(body.lines) && body.lines.length > 200) {
+    return NextResponse.json({ error: 'Phiếu giao hàng tối đa 200 dòng' }, { status: 400 })
+  }
+  // Validate đơn nguồn (nếu có): phải tồn tại và cùng database với user (cách ly DB)
+  const sourceOrderId = String(body.sourceOrderId ?? '').trim() || null
+  if (sourceOrderId) {
+    const sourceOrder = await prisma.salesOrder.findUnique({
+      where: { id: sourceOrderId },
+      select: { id: true, sapDatabaseId: true },
+    })
+    if (!sourceOrder || sourceOrder.sapDatabaseId !== user.databaseId) {
+      return NextResponse.json({ error: 'Đơn nguồn không hợp lệ' }, { status: 400 })
+    }
+  }
   // Ép kiểu + validate từng dòng: quantity phải là số hữu hạn > 0,
-  // unitPrice phải là số hữu hạn (tránh string lọt vào Prisma gây 500).
+  // unitPrice phải là số hữu hạn và >= 0 (tránh string lọt vào Prisma gây 500).
   const lines = (Array.isArray(body.lines) ? body.lines : [])
     .map((l) => ({
       itemCode: String(l?.itemCode ?? '').trim(),
@@ -86,13 +101,16 @@ export async function POST(req: NextRequest) {
       quantity: Number(l?.quantity),
       uom: String(l?.uom ?? ''),
       unitPrice: Number(l?.unitPrice ?? 0),
+      sourceOrderLineId: String(l?.sourceOrderLineId ?? '').trim() || null,
+      lineTotal: 0,
     }))
     .filter(
       (l) =>
         l.itemCode.length > 0 &&
         Number.isFinite(l.quantity) && l.quantity > 0 &&
-        Number.isFinite(l.unitPrice),
+        Number.isFinite(l.unitPrice) && l.unitPrice >= 0,
     )
+    .map((l) => ({ ...l, lineTotal: Math.round(l.quantity * l.unitPrice) }))
   if (lines.length === 0) {
     return NextResponse.json({ error: 'Phiếu giao hàng cần ít nhất 1 dòng' }, { status: 400 })
   }
@@ -105,9 +123,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const grandTotal = lines.reduce((s, l) => s + l.quantity * (l.unitPrice ?? 0), 0)
+  // grandTotal = tổng các lineTotal đã round (không tính lại từ unitPrice*qty)
+  const grandTotal = lines.reduce((s, l) => s + l.lineTotal, 0)
   let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
-  for (let attempt = 0; attempt < 3 && !delivery; attempt++) {
+  for (let attempt = 0; attempt < 5 && !delivery; attempt++) {
     try {
       const last = await prisma.delivery.findFirst({ orderBy: { docNum: 'desc' } })
       const docNum = (last?.docNum ?? 0) + 1
@@ -116,28 +135,30 @@ export async function POST(req: NextRequest) {
           docNum,
           cardCode,
           cardName,
-      docDate,
-      remarks: body.remarks?.trim() || null,
-      sourceOrderId: body.sourceOrderId || null,
-      sapDatabaseId: user.databaseId,
-      grandTotal: Math.round(grandTotal),
-      createdBy: user.id,
-      lines: {
-        create: lines.map((l, i) => ({
-          lineNum: i + 1,
-          itemCode: l.itemCode.trim(),
-          itemName: (l.itemName || l.itemCode).trim(),
-          quantity: l.quantity,
-          uom: l.uom || '',
-          unitPrice: l.unitPrice ?? 0,
-          lineTotal: Math.round(l.quantity * (l.unitPrice ?? 0)),
-        })),
-      },
-    },
-      include: { lines: true },
+          docDate,
+          remarks: String(body.remarks ?? '').trim() || null,
+          sourceOrderId,
+          sapDatabaseId: user.databaseId,
+          grandTotal,
+          createdBy: user.id,
+          lines: {
+            create: lines.map((l, i) => ({
+              lineNum: i + 1,
+              itemCode: l.itemCode.trim(),
+              itemName: (l.itemName || l.itemCode).trim(),
+              quantity: l.quantity,
+              uom: l.uom || '',
+              unitPrice: l.unitPrice ?? 0,
+              lineTotal: l.lineTotal,
+              sourceOrderLineId: l.sourceOrderLineId,
+            })),
+          },
+        },
+        include: { lines: true },
       })
     } catch (e) {
       if ((e as { code?: string })?.code !== 'P2002') throw e
+      console.warn(`[deliveries] docNum conflict, retry ${attempt + 1}/5`)
     }
   }
   if (!delivery) return NextResponse.json({ error: 'Không thể cấp số phiếu' }, { status: 500 })

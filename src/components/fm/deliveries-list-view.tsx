@@ -4,8 +4,8 @@
 // DANH SÁCH DELIVERY (phiếu giao hàng)
 // ============================================================
 
-import { useCallback, useEffect, useState } from 'react'
-import { Search, Truck, Plus, Trash2, CloudUpload, Eye } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Search, Truck, Trash2, CloudUpload, Eye } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
@@ -60,6 +60,12 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
+  // Scroll tới alert khi có thông báo mới (mobile không bỏ sót thông báo)
+  const alertRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (alert) alertRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [alert])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -104,6 +110,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
   }
 
   const doPush = async (d: Delivery) => {
+    // Đẩy SAP tạo chứng từ THẬT — xác nhận trước khi gọi API
+    if (!window.confirm(`Đẩy phiếu #${d.docNum} sang SAP B1? Thao tác sẽ tạo chứng từ thật trên SAP.`)) return
     setBusyId(d.id)
     try {
       const r = await api(`/api/deliveries/${d.id}/push`, { method: 'POST' })
@@ -132,7 +140,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       />
 
       {alert && (
-        <div className={`fm-alert fm-alert--${alert.type === 'success' ? 'success' : 'error'}`} role="alert" style={{ marginBottom: 12 }}>
+        <div ref={alertRef} className={`fm-alert fm-alert--${alert.type === 'success' ? 'success' : 'error'}`} role="alert" style={{ marginBottom: 12 }}>
           {alert.msg}
         </div>
       )}
@@ -181,7 +189,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               {loading ? (
                 <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24 }}>Đang tải…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24 }}>Chưa có phiếu giao hàng nào</td></tr>
+                <tr><td colSpan={8}><div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).</div></td></tr>
               ) : rows.map((d) => (
                 <tr key={d.id}>
                   <th scope="row"><b>#{d.docNum}</b></th>
@@ -207,9 +215,9 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   </td>
                   <td>
                     {d.sapSyncStatus === 'synced' ? (
-                      <span className="fm-chip fm-chip--synced" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
+                      <span className="fm-chip fm-chip--sap" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
                     ) : d.sapSyncStatus === 'pending' ? (
-                      <span className="fm-chip fm-chip--pending">Lỗi đẩy</span>
+                      <span className="fm-chip fm-chip--error">Lỗi đẩy</span>
                     ) : (
                       <span className="fm-hint">Chưa đẩy</span>
                     )}
@@ -261,29 +269,20 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
           {loading ? (
             <p className="fm-hint" style={{ padding: '16px 4px' }}>Đang tải…</p>
           ) : rows.length === 0 ? (
-            <p className="fm-hint" style={{ padding: '16px 4px' }}>Chưa có phiếu giao hàng nào</p>
+            <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).</div>
           ) : rows.map((d) => (
-            <div
+            <article
               key={d.id}
               className="fm-ocard"
-              role="button"
-              tabIndex={0}
-              aria-label={`Xem chi tiết phiếu giao hàng #${d.docNum} — ${d.cardName}`}
-              onClick={() => onGoDetail(d.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onGoDetail(d.id)
-                }
-              }}
+              aria-label={`Phiếu giao hàng #${d.docNum} — ${d.cardName}`}
             >
               <div className="fm-ocard__top">
                 <span className="fm-ocard__num">#{d.docNum}</span>
                 <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>
                 {d.sapSyncStatus === 'synced' ? (
-                  <span className="fm-chip fm-chip--synced" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
+                  <span className="fm-chip fm-chip--sap" title={`DocNum ${d.sapDocNum}`}>Đã đẩy</span>
                 ) : d.sapSyncStatus === 'pending' ? (
-                  <span className="fm-chip fm-chip--pending">Lỗi đẩy</span>
+                  <span className="fm-chip fm-chip--error">Lỗi đẩy</span>
                 ) : (
                   <span className="fm-hint">Chưa đẩy</span>
                 )}
@@ -299,18 +298,26 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               <div className="fm-ocard__bottom">
                 <span className="fm-ocard__total">{formatVND(d.grandTotal)}</span>
                 <span style={{ display: 'flex', gap: 4 }}>
+                  <button
+                    type="button"
+                    className="fm-ocard__more"
+                    title="Xem chi tiết"
+                    aria-label={`Xem chi tiết phiếu ${d.docNum}`}
+                    onClick={() => onGoDetail(d.id)}
+                  >
+                    <Eye size={16} />
+                  </button>
                   {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                     <button
                       type="button"
-                      className="fm-ocard__del"
+                      className="fm-ocard__push"
                       title="Đẩy sang SAP B1"
                       aria-label={`Đẩy phiếu ${d.docNum} sang SAP`}
-                      onClick={(e) => { e.stopPropagation(); void doPush(d) }}
-                      // Chặn keydown bubble lên card cha (tránh mở chi tiết khi nhấn Enter trên nút)
-                      onKeyDown={(e) => e.stopPropagation()}
+                      onClick={() => void doPush(d)}
                       disabled={busyId === d.id}
                     >
                       <CloudUpload size={16} />
+                      <span>Đẩy</span>
                     </button>
                   )}
                   <button
@@ -318,15 +325,14 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                     className="fm-ocard__del"
                     title="Xóa"
                     aria-label={`Xóa phiếu ${d.docNum}`}
-                    onClick={(e) => { e.stopPropagation(); void doDelete(d) }}
-                    onKeyDown={(e) => e.stopPropagation()}
+                    onClick={() => void doDelete(d)}
                     disabled={busyId === d.id}
                   >
                     <Trash2 size={16} />
                   </button>
                 </span>
               </div>
-            </div>
+            </article>
           ))}
         </div>
 
