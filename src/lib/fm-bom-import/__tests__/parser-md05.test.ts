@@ -46,6 +46,28 @@ describe('parseMd05Workbook — nhận diện cấu trúc', () => {
     expect(parents[0].formulas?.q).toBe('R7/1.05')
     expect(parents[0].formulas?.r).toBe('T7')
   })
+
+  it('dòng header trống (blankrows:false loại bỏ) → vẫn parse đủ 2 cha (regression: từng mất cha đầu)', () => {
+    // Mô phỏng file thật: trong 6 dòng đầu có dòng hoàn toàn trống;
+    // sheet_to_json blankrows:false loại bỏ nó nên dữ liệu bắt đầu ở index 5,
+    // không phải 6 như hằng số HEADER_ROWS cũ (bug: chỉ parse được cha sau cùng).
+    const wb = buildMd05Fixture()
+    const ws = wb.Sheets['Template IT up hệ thống']
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }) as unknown[][]
+    // rows[0..5] = 6 dòng header, rows[6] = cha 1
+    rows[1] = [] // dòng header trống → sẽ bị loại bỏ khi parse
+    const lastHeader = [...(rows[5] as unknown[])]
+    lastHeader[4] = 'Item name' // template thật: ô E dòng header cột = "Item name"
+    rows[5] = lastHeader
+    const ws2 = XLSX.utils.aoa_to_sheet(rows)
+    const wb2 = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb2, ws2, 'Template IT up hệ thống')
+    const { parents } = parseMd05Workbook(wb2)
+    expect(parents).toHaveLength(2)
+    expect(parents[0].itemName).toBe('PHẦN QUÀ TEST 01')
+    expect(parents[1].itemName).toBe('COMBO QUÀ TEST 02')
+    expect(parents[0].components).toHaveLength(4)
+  })
 })
 
 describe('T1 — chuẩn hóa text', () => {

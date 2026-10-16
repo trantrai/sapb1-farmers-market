@@ -51,6 +51,23 @@ const HEADER_ROWS = 6
 export const MD05_SHEET_NAME = 'Template IT up hệ thống'
 
 /**
+ * Tìm chỉ số dòng bắt đầu dữ liệu (động, không dùng số cứng).
+ * sheet_to_json với blankrows:false đã loại bỏ các dòng trống của Excel,
+ * nên chỉ số mảng lệch so với số dòng Excel gốc — file thật bắt đầu dữ liệu
+ * ở index 5 chứ không phải 6 (bug: từng làm mất mã cha đầu tiên, chỉ parse
+ * được mã cha sau cùng).
+ * Quy tắc: dòng header cột là dòng có ô E = "Item name" (không phân biệt
+ * hoa/thường); dữ liệu bắt đầu ngay dòng sau. Không tìm thấy → fallback
+ * HEADER_ROWS của template chuẩn.
+ */
+function findDataStart(rows: unknown[][]): number {
+  const idx = rows.findIndex(
+    (r) => normText((r || [])[C.itemName])?.toUpperCase() === 'ITEM NAME',
+  )
+  return idx >= 0 ? idx + 1 : HEADER_ROWS
+}
+
+/**
  * Suất VAT theo mã P0–P4/S0–S4.
  * Mặc định theo file thật đã verify (S2=5%, S4=8% — quirk Q3);
  * BẮT BUỘC đối chiếu lại với VatGroups trên SAP B1 trước khi dùng
@@ -184,7 +201,9 @@ export function parseMd05Workbook(
   }
 
   // Pass 2 — formulas được đọc trực tiếp từ ws qua cellFormula() khi cần
-  for (let i = HEADER_ROWS; i < rows.length; i++) {
+  // (dataStart tìm động vì blankrows:false làm lệch chỉ số mảng)
+  const dataStart = findDataStart(rows)
+  for (let i = dataStart; i < rows.length; i++) {
     const row = rows[i] || []
     const rowNo = i + 1 // 1-based như Excel
     const itemName = normText(row[C.itemName])
@@ -270,7 +289,7 @@ export function parseMd05Workbook(
   }
   if (current) pushParent(current)
 
-  return { parents, sheetUsed, dataRows: Math.max(0, rows.length - HEADER_ROWS) }
+  return { parents, sheetUsed, dataRows: Math.max(0, rows.length - dataStart) }
 
   /** Cộng dồn Z × X cho costTotal */
   function accumulateCost(row: unknown[]): void {
