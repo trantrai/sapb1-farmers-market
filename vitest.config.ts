@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/lib/fm-bom-import/__tests__/**/*.test.ts'],
+    include: ['src/lib/**/__tests__/**/*.test.ts'],
     testTimeout: 15000,
   },
 })

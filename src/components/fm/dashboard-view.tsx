@@ -17,7 +17,7 @@ interface RecentOrder {
   docDate: string
   status: string
   grandTotal: number
-  docDueDate: string
+  docDueDate: string | null
 }
 
 interface AttentionOrder {
@@ -39,6 +39,8 @@ interface Stats {
   revenueClosed: number
   recent: RecentOrder[]
   attention: AttentionOrder[]
+  sources: { sap: boolean }
+  warning?: string
 }
 
 interface ChartStats {
@@ -46,6 +48,8 @@ interface ChartStats {
   revenueByDay: { day: string; total: number }[]
   topCustomers: { cardCode: string; cardName: string; total: number; orderCount: number }[]
   topItems: { itemCode: string; itemName: string; quantity: number; total: number }[]
+  sources: { sap: boolean }
+  warning?: string
 }
 
 // Palette biểu đồ map về token theme (globals.css): gold / navy / green / red / coral / navy-deep
@@ -56,6 +60,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   const [loadError, setLoadError] = useState(false)
   const [chartRange, setChartRange] = useState<7 | 30>(7)
   const [charts, setCharts] = useState<ChartStats | null>(null)
+  const [chartError, setChartError] = useState(false)
 
   // setState chỉ nằm trong callback .then/.catch (bất đồng bộ) để qua rule react-hooks/set-state-in-effect
   const load = useCallback(() => {
@@ -78,17 +83,47 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
     load()
   }, [load])
 
-  // Biểu đồ: tải lại khi đổi khoảng thời gian
-  useEffect(() => {
+  // Biểu đồ: tải lại khi đổi khoảng thời gian (lỗi hiện rõ thay vì treo skeleton)
+  const loadCharts = useCallback((range: 7 | 30) => {
     let cancelled = false
-    api(`/api/dashboard/stats?range=${chartRange}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: ChartStats | null) => {
-        if (!cancelled && j) setCharts(j)
+    api(`/api/dashboard/stats?range=${range}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
       })
-      .catch(() => {})
+      .then((j: ChartStats) => {
+        if (!cancelled) {
+          setCharts(j)
+          setChartError(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setChartError(true)
+      })
     return () => { cancelled = true }
-  }, [chartRange])
+  }, [])
+
+  useEffect(() => loadCharts(chartRange), [loadCharts, chartRange])
+
+  const retryCharts = () => {
+    setCharts(null)
+    setChartError(false)
+    loadCharts(chartRange)
+  }
+
+  const chartFailed = chartError && !charts
+  const chartLoadBox = chartFailed ? (
+    <div className="fm-empty">
+      Không tải được biểu đồ.
+      <div>
+        <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={retryCharts}>
+          Thử lại
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className="fm-skeleton" style={{ height: 280 }} />
+  )
 
   const loadFailed = loadError && !stats
 
@@ -120,6 +155,16 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
           <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={retry}>
             Thử lại
           </button>
+        </div>
+      )}
+      {(stats?.warning || (!stats && charts?.warning)) && (
+        <div className="fm-alert fm-alert--warning" role="alert" style={{ marginBottom: 12 }}>
+          {stats?.warning ?? charts?.warning}
+        </div>
+      )}
+      {stats?.sources.sap && (
+        <div style={{ marginBottom: 12 }}>
+          <span className="fm-chip fm-chip--open">Gồm đơn SAP B1 live</span>
         </div>
       )}
       <div className="fm-stats" aria-busy={!stats && !loadError}>
@@ -275,9 +320,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
           role="img"
           aria-label={charts ? `Biểu đồ cột doanh số ${chartRange} ngày qua. ` + charts.revenueByDay.filter((d) => d.total > 0).map((d) => `${d.day}: ${formatVND(d.total)}`).join('; ') : 'Đang tải biểu đồ doanh số'}
         >
-          {!charts ? (
-            <div className="fm-skeleton" style={{ height: 280 }} />
-          ) : charts.revenueByDay.every((d) => d.total === 0) ? (
+          {!charts ? chartLoadBox : charts.revenueByDay.every((d) => d.total === 0) ? (
             <div className="fm-empty">Chưa có doanh số trong {chartRange} ngày qua</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -301,9 +344,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             role="img"
             aria-label={charts ? 'Biểu đồ tròn top khách hàng. ' + charts.topCustomers.map((c) => `${c.cardName}: ${formatVND(c.total)}`).join('; ') : 'Đang tải biểu đồ'}
           >
-            {!charts ? (
-              <div className="fm-skeleton" style={{ height: 280 }} />
-            ) : charts.topCustomers.length === 0 ? (
+            {!charts ? chartLoadBox : charts.topCustomers.length === 0 ? (
               <div className="fm-empty">Chưa có dữ liệu</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -338,9 +379,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             role="img"
             aria-label={charts ? 'Biểu đồ cột top mặt hàng bán chạy. ' + charts.topItems.map((it) => `${it.itemName}: ${it.quantity} — ${formatVND(it.total)}`).join('; ') : 'Đang tải biểu đồ'}
           >
-            {!charts ? (
-              <div className="fm-skeleton" style={{ height: 280 }} />
-            ) : charts.topItems.length === 0 ? (
+            {!charts ? chartLoadBox : charts.topItems.length === 0 ? (
               <div className="fm-empty">Chưa có dữ liệu</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -402,11 +441,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                     <th scope="row"><b>#{o.docNum}</b></th>
                     <td>{o.cardName}</td>
                     <td>{formatDateVN(o.docDate)}</td>
-                    <td>{formatDateVN(o.docDueDate)}</td>
+                    <td>{o.docDueDate ? formatDateVN(o.docDueDate) : <span style={{ color: 'var(--fm-text-2)' }}>—</span>}</td>
                     <td>
-                      {isOverdue(o.docDueDate, o.status) ? (
+                      {o.docDueDate && isOverdue(o.docDueDate, o.status) ? (
                         <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
-                      ) : isDueSoon(o.docDueDate, o.status) ? (
+                      ) : o.docDueDate && isDueSoon(o.docDueDate, o.status) ? (
                         <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                       ) : o.status === 'Open' ? (
                         <span className="fm-chip fm-chip--open">Open</span>
@@ -427,9 +466,9 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <div key={o.id} className="fm-ocard" style={{ cursor: 'default' }}>
                 <div className="fm-ocard__top">
                   <span className="fm-ocard__num">#{o.docNum}</span>
-                  {isOverdue(o.docDueDate, o.status) ? (
+                  {o.docDueDate && isOverdue(o.docDueDate, o.status) ? (
                     <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
-                  ) : isDueSoon(o.docDueDate, o.status) ? (
+                  ) : o.docDueDate && isDueSoon(o.docDueDate, o.status) ? (
                     <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                   ) : o.status === 'Open' ? (
                     <span className="fm-chip fm-chip--open">Open</span>
@@ -438,7 +477,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                   )}
                 </div>
                 <div className="fm-ocard__name">{o.cardName}</div>
-                <div className="fm-ocard__meta">Ngày CT {formatDateVN(o.docDate)} · Hạn giao {formatDateVN(o.docDueDate)}</div>
+                <div className="fm-ocard__meta">Ngày CT {formatDateVN(o.docDate)} · Hạn giao {o.docDueDate ? formatDateVN(o.docDueDate) : '—'}</div>
                 <div className="fm-ocard__bottom">
                   <span className="fm-ocard__total">{formatVND(o.grandTotal)}</span>
                 </div>

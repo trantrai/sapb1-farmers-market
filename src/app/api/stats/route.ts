@@ -1,34 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { fetchSapOrders, type SapOrderRow } from '@/lib/sap-orders'
+import { mergeOrders, computeStats, type LocalOrderInput } from '@/lib/fm-dashboard-merge'
 
-// GET /api/stats — số liệu dashboard
+// GET /api/stats — số liệu dashboard.
+// Gộp đơn SAP B1 live + đơn local (khử trùng theo DocEntry: đơn local đã synced
+// mà SAP vẫn còn thì giữ bản SAP — giống trang Đơn hàng). SAP lỗi → fallback
+// local-only kèm warning (không chặn hiển thị).
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
 
-  // B1: cách ly DB
+  // B1: cách ly DB (giống trang Đơn hàng)
+  const s = await loadSapSettings(user.databaseId)
   const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
-  const [totalOrders, openOrders, closedOrders, overdueOrders, revenueAgg] = await Promise.all([
-    prisma.salesOrder.count({ where: dbScope }),
-    prisma.salesOrder.count({ where: { ...dbScope, status: 'Open' } }),
-    prisma.salesOrder.count({ where: { ...dbScope, status: 'Closed' } }),
-    prisma.salesOrder.findMany({ where: { ...dbScope, status: 'Open' }, select: { docDueDate: true } }),
-    prisma.salesOrder.aggregate({ _sum: { grandTotal: true }, where: { ...dbScope, status: 'Closed' } }),
-  ])
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const overdue = overdueOrders.filter((o) => new Date(o.docDueDate) < today).length
-
-  // Đơn cần chú ý: Open + (quá hạn hoặc hạn trong 3 ngày tới), quá hạn nhất lên trước
-  const soonEnd = new Date(today)
-  soonEnd.setDate(soonEnd.getDate() + 3)
-  soonEnd.setHours(23, 59, 59, 999)
-  const attention = await prisma.salesOrder.findMany({
-    where: { status: 'Open', docDueDate: { lte: soonEnd } },
-    orderBy: { docDueDate: 'asc' },
-    take: 5,
+  const localOrders = await prisma.salesOrder.findMany({
+    where: dbScope,
     select: {
       id: true,
       docNum: true,
@@ -38,21 +28,31 @@ export async function GET(req: NextRequest) {
       docDueDate: true,
       status: true,
       grandTotal: true,
+      sapSyncStatus: true,
+      sapDocEntry: true,
     },
   })
 
-  const recent = await prisma.salesOrder.findMany({
-    orderBy: { docNum: 'desc' },
-    take: 5,
-  })
+  let sapRows: SapOrderRow[] = []
+  let sapUsed = false
+  let warning: string | undefined
+  if (isSapConfigured(s)) {
+    // Tận dụng cache 45s của fetchSapOrders (trang Đơn hàng cũng dùng chung)
+    const live = await fetchSapOrders(s, {})
+    if (live.ok && live.data) {
+      sapRows = live.data
+      sapUsed = true
+    } else {
+      warning = `Không truy vấn được SAP B1 (${live.error ?? 'lỗi không rõ'}) — đang hiển thị số liệu local`
+    }
+  }
+
+  const merged = mergeOrders(sapRows, localOrders as unknown as LocalOrderInput[])
+  const stats = computeStats(merged)
 
   return NextResponse.json({
-    totalOrders,
-    openOrders,
-    closedOrders,
-    overdueOrders: overdue,
-    revenueClosed: revenueAgg._sum.grandTotal ?? 0,
-    recent,
-    attention,
+    ...stats,
+    sources: { sap: sapUsed },
+    ...(warning ? { warning } : {}),
   })
 }
