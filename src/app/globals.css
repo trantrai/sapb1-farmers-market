@@ -588,6 +588,14 @@
 }
 .fm-card__title { font-size: var(--fm-fs-lg); font-weight: 700; color: var(--fm-text); margin: 0 0 4px; }
 .fm-card__desc  { font-size: var(--fm-fs-sm); color: var(--fm-text-2); margin: 0 0 16px; }
+/* Header card: icon + tiêu đề + (chip/nút action) — dùng chung cho các màn hình */
+.fm-card__head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: var(--fm-fs-lg); font-weight: 700; color: var(--fm-text);
+  margin: 0 0 12px;
+}
+.fm-card__head svg { flex-shrink: 0; }
+.fm-card__body { min-width: 0; }
 
 .fm-field { margin-bottom: 14px; }
 .fm-label { display: block; font-size: var(--fm-fs-sm); font-weight: 600; color: var(--fm-text); margin-bottom: 5px; }

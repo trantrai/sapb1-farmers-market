@@ -274,9 +274,12 @@ const fmtDate = (iso: string) => {
   }
 }
 
-// Minor #7 — cột sticky khi scroll ngang bảng Preview (17 cột).
-// Độ rộng cố định: Duyệt 36 + mở rộng 40 + Dòng 56 = 132; Mã cha 150; Tên 200.
+// Cột sticky khi scroll ngang bảng Preview (17 cột) — 5 cột đầu dính liền nhau
+// thành một khối: Duyệt 36 | mở rộng 40 | Dòng 56 | Mã cha 150 | Tên 200.
+// (Trước đây chỉ 3 cột sticky, 2 cột giữa trôi đi gây hở khoảng 96px khi scroll.)
 const STICKY_DUYET: CSSProperties = { position: 'sticky', left: 0, zIndex: 3, background: NAVY, width: 36 }
+const STICKY_EXPAND_TH: CSSProperties = { position: 'sticky', left: 36, zIndex: 3, background: NAVY, width: 40 }
+const STICKY_DONG_TH: CSSProperties = { position: 'sticky', left: 76, zIndex: 3, background: NAVY, width: 56 }
 const STICKY_MACHA_TH: CSSProperties = { position: 'sticky', left: 132, zIndex: 3, background: NAVY, width: 150 }
 const STICKY_TEN_TH: CSSProperties = { position: 'sticky', left: 282, zIndex: 3, background: NAVY, minWidth: 200 }
 const stickyTd = (left: number, bg: string): CSSProperties => ({
@@ -713,14 +716,14 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           className={`fm-btn ${tab === 'runs' ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
           onClick={() => setTab('runs')}
         >
-          <FileSpreadsheet size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+          <FileSpreadsheet size={16}  />
           Lượt chạy
         </button>
         <button
           className={`fm-btn ${tab === 'decisions' ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
           onClick={() => setTab('decisions')}
         >
-          <ListChecks size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+          <ListChecks size={16}  />
           Quyết định{decisions.length > 0 ? ` (${decisions.length})` : ''}
         </button>
       </div>
@@ -794,7 +797,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                   onClick={() => startIngest()}
                   disabled={busy || !canCreate || !jobId.trim()}
                 >
-                  <Download size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                  <Download size={16}  />
                   {busy ? 'Đang tải…' : 'Tải file từ Base'}
                 </button>
                 {!canCreate && <span className="fm-hint">Bạn chỉ có quyền xem (cần quyền Tạo để ingest).</span>}
@@ -841,11 +844,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   <button className="fm-btn fm-btn--primary" onClick={() => doConfirm('confirm')} disabled={busy || !canCreate}>
-                    <CheckCircle2 size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                    <CheckCircle2 size={16}  />
                     Xác nhận & tiếp tục parse
                   </button>
                   <button className="fm-btn fm-btn--secondary" onClick={() => doConfirm('cancel')} disabled={busy || !canCreate}>
-                    <Ban size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                    <Ban size={16}  />
                     Hủy run
                   </button>
                 </div>
@@ -868,7 +871,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                   onClick={() => doParse(run.id)}
                   disabled={busy || !canCreate}
                 >
-                  <RefreshCw size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                  <RefreshCw size={16}  />
                   {busy ? 'Đang parse…' : 'Parse lại'}
                 </button>
                 {!canCreate && <span className="fm-hint" style={{ marginLeft: 8 }}>Bạn chỉ có quyền xem (cần quyền Tạo để parse).</span>}
@@ -1007,7 +1010,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                   onClick={() => loadPreview(run.id)}
                   disabled={previewBusy}
                 >
-                  <RefreshCw size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
+                  <RefreshCw size={14}  />
                   {previewBusy ? 'Đang tải…' : 'Tải preview'}
                 </button>
               </div>
@@ -1051,7 +1054,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         disabled={previewBusy || Object.keys(preview.generatedCodes ?? {}).length === 0}
                         title="Tải file Excel BOM gốc đã điền mã cha vào cột D (Mã hàng)"
                       >
-                        <Download size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                        <Download size={16}  />
                         Xuất Excel điền mã cha
                       </button>
                       <span className="fm-hint" style={{ flexBasis: '100%' }}>
@@ -1072,8 +1075,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         <thead>
                           <tr>
                             <th style={STICKY_DUYET}>Duyệt</th>
-                            <th style={{ width: 40 }}></th>
-                            <th style={{ width: 56 }}>Dòng</th>
+                            <th style={STICKY_EXPAND_TH}></th>
+                            <th style={STICKY_DONG_TH}>Dòng</th>
                             <th style={STICKY_MACHA_TH}>Mã cha</th>
                             <th style={STICKY_TEN_TH}>Tên</th>
                             <th>Loại</th>
@@ -1110,7 +1113,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                       aria-label={`Duyệt mã cha dòng ${p.rowNo}`}
                                     />
                                   </td>
-                                  <td>
+                                  <td style={{ ...stickyTd(36, stickyBg) }}>
                                     <button
                                       className="fm-btn fm-btn--ghost fm-btn--sm"
                                       onClick={() => toggleExpand(p.rowNo)}
@@ -1119,7 +1122,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                       {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                     </button>
                                   </td>
-                                  <td style={{ fontFamily: 'monospace', width: 56 }}>{p.rowNo}</td>
+                                  <td style={{ fontFamily: 'monospace', ...stickyTd(76, stickyBg) }}>{p.rowNo}</td>
                                   <td style={{ fontFamily: 'monospace', ...stickyTd(132, stickyBg) }}>
                                     {p.itemCode ?? <em style={{ color: '#94A3B8' }}>(chờ nhập)</em>}
                                   </td>
