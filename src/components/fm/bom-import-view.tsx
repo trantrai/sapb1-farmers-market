@@ -101,6 +101,13 @@ interface PreviewParent {
   primaryBarcode: string | null
   priceExVat: number | null
   marginPct: number | null
+  categoryLevel7: string | null
+  uomPurchase: string | null
+  uomSales: string | null
+  uomInventory: string | null
+  warehouse: string | null
+  taxIn: string | null
+  taxOut: string | null
   components: PreviewComponent[]
   linkedSet: string | null
   linkAuto: boolean
@@ -774,6 +781,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                             <th>Mã cha</th>
                             <th>Tên</th>
                             <th>Loại</th>
+                            <th>Name Level 7</th>
+                            <th>ĐVT đầu vào</th>
+                            <th>ĐVT bán ra</th>
+                            <th>ĐVT tồn kho</th>
+                            <th>Kho TP</th>
+                            <th>VAT IN (P)</th>
+                            <th>VAT OUT (S)</th>
                             <th>Link set báo giá (NQ4)</th>
                             <th>Giá MD_05</th>
                             <th>Subtotal set</th>
@@ -812,6 +826,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                   </td>
                                   <td>{p.itemName}</td>
                                   <td>{p.bomKind === 'BOM_PRODUCT' ? 'BOM' : p.bomKind === 'BOM_ASSEMBLY' ? 'COMBO' : '?'}</td>
+                                  <td style={{ fontSize: 12 }} title={p.categoryLevel7 ?? undefined}>{p.categoryLevel7 ?? '—'}</td>
+                                  <td>{p.uomPurchase ?? '—'}</td>
+                                  <td>{p.uomSales ?? '—'}</td>
+                                  <td>{p.uomInventory ?? '—'}</td>
+                                  <td style={{ fontFamily: 'monospace' }}>{p.warehouse ?? '—'}</td>
+                                  <td style={{ fontFamily: 'monospace' }}>{p.taxIn ?? '—'}</td>
+                                  <td style={{ fontFamily: 'monospace' }}>{p.taxOut ?? '—'}</td>
                                   <td>
                                     <select
                                       className="fm-input"
@@ -854,7 +875,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                 </tr>
                                 {isOpen && (
                                   <tr>
-                                    <td colSpan={10} style={{ background: '#F8FAFC', padding: '8px 12px' }}>
+                                    <td colSpan={17} style={{ background: '#F8FAFC', padding: '8px 12px' }}>
                                       <strong style={{ fontSize: 13 }}>Thành phần con ({p.components.length}):</strong>
                                       <table className="fm-table" style={{ marginTop: 6 }}>
                                         <thead>

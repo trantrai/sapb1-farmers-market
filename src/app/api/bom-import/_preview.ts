@@ -24,6 +24,14 @@ export interface PreviewParent {
   primaryBarcode: string | null
   priceExVat: number | null
   marginPct: number | null
+  /** Sprint 2.1 — trường cha bổ sung theo yêu cầu (ảnh header template) */
+  categoryLevel7: string | null
+  uomPurchase: string | null
+  uomSales: string | null
+  uomInventory: string | null
+  warehouse: string | null
+  taxIn: string | null
+  taxOut: string | null
   components: {
     rowNo: number
     childCode: string
@@ -101,6 +109,13 @@ export function buildPreviewPayload(sidecar: RunSidecar): PreviewPayload {
       primaryBarcode: p.primaryBarcode,
       priceExVat: p.priceExVat,
       marginPct: p.mdChecks.marginPct,
+      categoryLevel7: p.categoryLevel7,
+      uomPurchase: p.uom.purchase,
+      uomSales: p.uom.sales,
+      uomInventory: p.uom.inventory,
+      warehouse: p.warehouse,
+      taxIn: p.taxIn,
+      taxOut: p.taxOut,
       components: p.components.map((c) => ({
         rowNo: c.rowNo,
         childCode: c.childCode,
