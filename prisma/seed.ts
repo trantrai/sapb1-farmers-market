@@ -50,6 +50,7 @@ async function main() {
     roles: { view: true, create: true, edit: true, delete: true },
     excelTemplates: { view: true, create: true, edit: true, delete: true },
     orderTemplates: { view: true, create: true, edit: true, delete: true },
+    bomImport: { view: true, create: true, edit: true, delete: true },
   })
   const accPerm = JSON.stringify({
     orders: { view: true, create: true, edit: true, delete: false },
@@ -60,6 +61,7 @@ async function main() {
     roles: { view: false, create: false, edit: false, delete: false },
     excelTemplates: { view: true, create: true, edit: true, delete: false },
     orderTemplates: { view: true, create: true, edit: false, delete: false },
+    bomImport: { view: true, create: true, edit: false, delete: false },
   })
   const staffPerm = JSON.stringify({
     orders: { view: true, create: true, edit: false, delete: false },
@@ -70,6 +72,7 @@ async function main() {
     roles: { view: false, create: false, edit: false, delete: false },
     excelTemplates: { view: true, create: false, edit: false, delete: false },
     orderTemplates: { view: true, create: false, edit: false, delete: false },
+    bomImport: { view: true, create: false, edit: false, delete: false },
   })
   await prisma.role.createMany({
     data: [

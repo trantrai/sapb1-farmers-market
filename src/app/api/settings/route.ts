@@ -14,15 +14,17 @@ export async function GET(req: NextRequest) {
   if (!s) {
     s = await prisma.appSettings.create({ data: { id: 'main' } })
   }
-  // Che mật khẩu SMTP. Kết nối SAP B1 giờ quản lý theo database riêng
+  // Che mật khẩu SMTP và Base token. Kết nối SAP B1 giờ quản lý theo database riêng
   // ở /api/sap-databases — các field SAP singleton cũ không còn dùng.
-  const { serviceLayerUrl: _u, companyDb: _d, sapUser: _su, sapPassword: _sp, sslSkipVerify: _sv, connected: _c, lastSyncAt: _ls, ...rest } = s
+  const { serviceLayerUrl: _u, companyDb: _d, sapUser: _su, sapPassword: _sp, sslSkipVerify: _sv, connected: _c, lastSyncAt: _ls, baseTokenEnc: _bt, ...rest } = s
   return NextResponse.json({
     settings: {
       ...rest,
       smtpPass: s.smtpPass ? '••••••••' : '',
+      baseToken: s.baseTokenEnc ? '••••••••' : '',
     },
     hasSmtpPass: Boolean(s.smtpPass),
+    hasBaseToken: Boolean(s.baseTokenEnc),
   })
 }
 
@@ -64,6 +66,11 @@ export async function PUT(req: NextRequest) {
           : encryptSecret(body.smtpPass as string),
       smtpFromEmail: (body.smtpFromEmail as string | undefined) ?? existing?.smtpFromEmail ?? '',
       smtpFromName: (body.smtpFromName as string | undefined) ?? existing?.smtpFromName ?? '',
+      // Base Workflow Access Token v2 (module Import BOM) — mã hóa AES-GCM
+      baseTokenEnc:
+        !(body.baseToken as string | undefined) || (body.baseToken as string).includes('•')
+          ? existing?.baseTokenEnc ?? ''
+          : encryptSecret(body.baseToken as string),
     }
 
     const saved = await prisma.appSettings.upsert({
@@ -72,13 +79,15 @@ export async function PUT(req: NextRequest) {
       create: { id: 'main', ...data },
     })
 
-    const { serviceLayerUrl: _u2, companyDb: _d2, sapUser: _su2, sapPassword: _sp2, sslSkipVerify: _sv2, connected: _c2, lastSyncAt: _ls2, ...savedRest } = saved
+    const { serviceLayerUrl: _u2, companyDb: _d2, sapUser: _su2, sapPassword: _sp2, sslSkipVerify: _sv2, connected: _c2, lastSyncAt: _ls2, baseTokenEnc: _bt2, ...savedRest } = saved
     return NextResponse.json({
       ok: true,
       settings: {
         ...savedRest,
         smtpPass: saved.smtpPass ? '••••••••' : '',
+        baseToken: saved.baseTokenEnc ? '••••••••' : '',
       },
+      hasBaseToken: Boolean(saved.baseTokenEnc),
     })
   } catch (e) {
     console.error('PUT /api/settings', e)

@@ -16,6 +16,8 @@ interface SettingsData {
   hasSmtpPass: boolean
   smtpFromEmail: string
   smtpFromName: string
+  baseToken: string // Base Workflow Access Token v2 — luôn rỗng khi load
+  hasBaseToken: boolean
 }
 
 interface SapDb {
@@ -69,6 +71,8 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       ...json.settings,
       smtpPass: '',
       hasSmtpPass: Boolean(json.hasSmtpPass),
+      baseToken: '',
+      hasBaseToken: Boolean(json.hasBaseToken),
     })
   }
   const loadDbs = async () => {
@@ -98,7 +102,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         setMsg({ type: 'error', text: json.error ?? 'Không thể lưu cài đặt' })
         return
       }
-      setS({ ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass) })
+      setS({ ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass), baseToken: '', hasBaseToken: Boolean(json.hasBaseToken) })
       setMsg({ type: 'success', text: 'Đã lưu cài đặt' })
     } finally {
       setBusy(false)
@@ -486,6 +490,33 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               Vai trò của bạn chỉ được xem cài đặt
             </span>
           )}
+        </div>
+      </div>
+
+      {/* Base Workflow API — dùng cho module Import BOM */}
+      <div className="fm-card">
+        <div className="fm-card__head">
+          <PlugZap size={18} /> Base Workflow API
+          {s.hasBaseToken && <span className="fm-chip fm-chip--ok">Đã cấu hình</span>}
+        </div>
+        <div className="fm-card__body">
+          <p className="fm-hint">
+            Access Token v2 của Base Workflow — dùng để tải file BOM/báo giá từ job
+            (module Import BOM). Token được mã hóa AES-256-GCM trước khi lưu.
+          </p>
+          <div className="fm-field" style={{ maxWidth: 520 }}>
+            <label className="fm-label" htmlFor="fm-base-token">Access Token v2</label>
+            <input
+              id="fm-base-token"
+              type="password"
+              className="fm-input"
+              autoComplete="new-password"
+              placeholder={s.hasBaseToken ? '••••••••  (để trống = giữ token cũ)' : 'Dán Access Token v2 của Base vào đây'}
+              value={s.baseToken ?? ''}
+              onChange={(e) => update({ baseToken: e.target.value })}
+              disabled={!canEdit}
+            />
+          </div>
         </div>
       </div>
     </div>

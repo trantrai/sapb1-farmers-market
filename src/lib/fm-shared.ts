@@ -2,7 +2,7 @@
 // FARMERS MARKET — Shared types & helpers (client + server safe)
 // ============================================================
 
-export type ModuleKey = 'orders' | 'ordersNew' | 'deliveries' | 'users' | 'settings' | 'roles' | 'excelTemplates' | 'orderTemplates'
+export type ModuleKey = 'orders' | 'ordersNew' | 'deliveries' | 'users' | 'settings' | 'roles' | 'excelTemplates' | 'orderTemplates' | 'bomImport'
 export type ActionKey = 'view' | 'create' | 'edit' | 'delete'
 
 export type PermMap = Record<ModuleKey, Record<ActionKey, boolean>>
@@ -28,6 +28,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   roles: 'Phân quyền (RBAC)',
   excelTemplates: 'Mẫu Excel',
   orderTemplates: 'Đơn hàng mẫu',
+  bomImport: 'Import BOM/Combo',
 }
 
 export const ACTION_LABELS: Record<ActionKey, string> = {
@@ -39,7 +40,7 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
 
 export function emptyPerm(): PermMap {
   const mk = (): Record<ActionKey, boolean> => ({ view: false, create: false, edit: false, delete: false })
-  return { orders: mk(), ordersNew: mk(), deliveries: mk(), users: mk(), settings: mk(), roles: mk(), excelTemplates: mk(), orderTemplates: mk() }
+  return { orders: mk(), ordersNew: mk(), deliveries: mk(), users: mk(), settings: mk(), roles: mk(), excelTemplates: mk(), orderTemplates: mk(), bomImport: mk() }
 }
 
 export function parsePerm(json: string | null | undefined): PermMap {

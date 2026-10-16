@@ -54,3 +54,6 @@ server.log
 /skills/
 # Demo data script (local only, không commit)
 prisma/mock-demo.ts
+
+# File BOM tải từ Base Workflow (dữ liệu thật công ty — không commit)
+/data/

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
-  Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck,
+  Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -31,11 +31,12 @@ const ItemsSyncView = dynamic(() => import('./items-sync-view'), { ssr: false, l
 const VatGroupsSyncView = dynamic(() => import('./vatgroups-sync-view'), { ssr: false, loading: ViewLoading })
 const PartnersSyncView = dynamic(() => import('./bpartners-sync-view'), { ssr: false, loading: ViewLoading })
 const ExcelTemplatesView = dynamic(() => import('./excel-templates-view'), { ssr: false, loading: ViewLoading })
+const BomImportView = dynamic(() => import('./bom-import-view'), { ssr: false, loading: ViewLoading })
 const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
 import type { EditOrderData } from './order-form-view'
 import { toEditData } from './order-form-view'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates' | 'bomImport'
 
 interface MenuItem {
   key: ViewKey
@@ -56,6 +57,7 @@ const MENU: MenuItem[] = [
   { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
   { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
   { key: 'partners', module: 'settings', label: 'Đồng bộ Khách hàng', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
+  { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync', badge: 'BOM' },
   { key: 'users', module: 'users', label: 'Quản lý người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
   { key: 'roles', module: 'roles', label: 'Phân quyền RBAC', short: 'Phân quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
   { key: 'settings', module: 'settings', label: 'Cài đặt SAP B1', short: 'Cài đặt', icon: <Settings size={16} />, group: 'admin' },
@@ -77,6 +79,7 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   partners: 'Quản lý đồng bộ Khách hàng',
   roles: 'Phân quyền (RBAC)',
   excelTemplates: 'Quản lý Template Excel',
+  bomImport: 'Import BOM/Combo từ Base Workflow',
 }
 
 interface Props {
@@ -459,6 +462,7 @@ export default function AppShell({ user, onLogout }: Props) {
             {view === 'partners' && <PartnersSyncView key={`partners-${prefillFor('partners') ?? ''}`} initialQuery={prefillFor('partners')} />}
             {view === 'roles' && <RolesView user={user} onGoUsers={() => go('users')} />}
             {view === 'excelTemplates' && <ExcelTemplatesView />}
+            {view === 'bomImport' && <BomImportView user={user} />}
           </div>
         </main>
       </div>
