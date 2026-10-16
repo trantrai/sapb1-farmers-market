@@ -211,7 +211,7 @@
   --fm-shadow-pop: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11);
 
   /* ---------- Layout ---------- */
-  --fm-sidebar-w: 268px;
+  --fm-sidebar-w: 304px;
 
   /* ---------- Motion (O1) ---------- */
   /* easing entrance chuẩn toàn app — cubic-bezier(.22,.8,.36,1) là easing đang dùng phổ biến nhất */
@@ -281,7 +281,7 @@
 
 .fm-menu-group { font-size: 10px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: rgba(255,255,255,.55); padding: 16px 12px 6px; } /* header nhóm hiện đại: nhỏ, cách chữ rộng */
 .fm-menu-item {
-  padding: 10px 12px; border-radius: var(--fm-r-md);
+  padding: 10px; border-radius: var(--fm-r-md);
   color: rgba(255,255,255,.85); font-size: 14px; cursor: pointer;
   border-left: 3px solid transparent; margin-bottom: 3px;
   transition: background var(--fm-dur-fast), color var(--fm-dur-fast); display: flex; align-items: center; gap: 10px;
