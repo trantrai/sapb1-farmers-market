@@ -238,12 +238,12 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       )}
 
       {alert && (
-        <div ref={alertRef} className={`fm-alert fm-alert--${alert.type === 'success' ? 'success' : 'error'}`} role="alert" style={{ marginBottom: 12 }}>
+        <div ref={alertRef} className={`fm-alert fm-alert--${alert.type === 'success' ? 'success' : 'error'}`} role={alert.type === 'error' ? 'alert' : 'status'} style={{ marginBottom: 12 }}>
           {alert.msg}
         </div>
       )}
 
-      <div className="fm-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div className="fm-filters">
         <div className="fm-search" style={{ flex: '1 1 220px' }}>
           <Search size={16} className="fm-search__icon" />
           <input

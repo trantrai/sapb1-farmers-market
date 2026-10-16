@@ -135,9 +135,9 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   return (
     <div>
       <PageHeader
-        breadcrumb={['Bảng điều khiển', 'Tổng quan hệ thống']}
+        breadcrumb={['Chức năng chính', 'Tổng quan hệ thống']}
         title="Tổng quan hệ thống"
-        badge="Cập nhật tức thời"
+        badge="Tự động làm mới"
         actions={
           <>
             <button type="button" className="fm-btn fm-btn--secondary" onClick={load}>
@@ -213,7 +213,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
       {/* Đơn cần chú ý: quá hạn / sắp đến hạn */}
       <div className="fm-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+          <h2 className="fm-card__title fm-row" style={{ alignItems: 'center', margin: 0 }}>
             <AlarmClock size={18} /> Đơn cần chú ý
           </h2>
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={onGoOrders}>
@@ -299,7 +299,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
 
       <div className="fm-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-          <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+          <h2 className="fm-card__title fm-row" style={{ alignItems: 'center', margin: 0 }}>
             <BarChart3 size={18} /> Doanh số theo ngày
           </h2>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -325,11 +325,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={charts.revenueByDay} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--fm-line)" />
                 <XAxis dataKey="day" tick={{ fontSize: 11 }} interval={chartRange === 30 ? 2 : 0} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => (v >= 1000000 ? `${Math.round(v / 1000000)}M` : v >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`)} />
                 <Tooltip formatter={(v) => [formatVND(Number(v)), 'Doanh số']} labelFormatter={(l) => `Ngày ${l}`} />
-                <Bar dataKey="total" fill="#fea619" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="total" fill="var(--fm-gold)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -384,11 +384,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={charts.topItems} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--fm-line)" />
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="itemCode" tick={{ fontSize: 11 }} width={90} />
                   <Tooltip formatter={(v, name) => (name === 'quantity' ? [`${v}`, 'Số lượng'] : [formatVND(Number(v)), 'Doanh số'])} />
-                  <Bar dataKey="quantity" fill="#0e1c2f" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="quantity" fill="var(--fm-navy-deep)" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -437,7 +437,20 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               </thead>
               <tbody>
                 {stats.recent.map((o) => (
-                  <tr key={o.id}>
+                  <tr
+                    key={o.id}
+                    style={{ cursor: 'pointer' }}
+                    tabIndex={0}
+                    title="Xem chi tiết đơn"
+                    aria-label={`Xem chi tiết đơn #${o.docNum} — ${o.cardName}`}
+                    onClick={() => onGoOrderDetail(o.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onGoOrderDetail(o.id)
+                      }
+                    }}
+                  >
                     <th scope="row"><b>#{o.docNum}</b></th>
                     <td>{o.cardName}</td>
                     <td>{formatDateVN(o.docDate)}</td>
@@ -463,7 +476,22 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             {/* Card (mobile) */}
             <div className="fm-only-mobile">
             {stats.recent.map((o) => (
-              <div key={o.id} className="fm-ocard" style={{ cursor: 'default' }}>
+              <div
+                key={o.id}
+                className="fm-ocard"
+                style={{ cursor: 'pointer' }}
+                tabIndex={0}
+                role="button"
+                title="Xem chi tiết đơn"
+                aria-label={`Xem chi tiết đơn #${o.docNum} — ${o.cardName}`}
+                onClick={() => onGoOrderDetail(o.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onGoOrderDetail(o.id)
+                  }
+                }}
+              >
                 <div className="fm-ocard__top">
                   <span className="fm-ocard__num">#{o.docNum}</span>
                   {o.docDueDate && isOverdue(o.docDueDate, o.status) ? (

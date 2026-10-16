@@ -164,6 +164,11 @@ export default function AppShell({ user, onLogout }: Props) {
     return () => { cancelled = true }
   }, [refreshKey])
 
+  // document.title đổi theo màn hình đang xem (a11y: screen reader & tab trình duyệt)
+  useEffect(() => {
+    document.title = `${VIEW_TITLES[view]} — Farmers Market`
+  }, [view])
+
   const menu = useMemo(
     () => MENU.filter((m) => user.permissions?.[m.module]?.view),
     [user],
@@ -358,7 +363,7 @@ export default function AppShell({ user, onLogout }: Props) {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <button className="fm-header__bell" aria-label="Thông báo" title="Chưa có thông báo mới">
+            <button className="fm-header__bell" aria-label="Thông báo" title="Chưa có thông báo mới" onClick={() => showToast('Chưa có thông báo mới', 'success')}>
               <Bell size={18} />
             </button>
             <div className="fm-header__user">
@@ -505,9 +510,9 @@ export default function AppShell({ user, onLogout }: Props) {
       {toasts.length > 0 && (
         <div className="fm-toast-host">
           {toasts.map((toast) => (
-            <div key={toast.id} role="status" className={`fm-alert fm-alert--${toast.type}`} style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <div key={toast.id} role={toast.type === 'error' ? 'alert' : 'status'} className={`fm-alert fm-alert--${toast.type}`} style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
               <div style={{ flex: 1 }}>
-                <b>{toast.type === 'success' ? 'Hoàn tất' : toast.type === 'warning' ? 'Lưu ý' : 'Lỗi'}</b>{toast.msg}
+                <b>{toast.type === 'success' ? 'Hoàn tất' : toast.type === 'warning' ? 'Lưu ý' : 'Lỗi'}</b>{' '}{toast.msg}
                 {toast.action && (
                   <button
                     type="button"

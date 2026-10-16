@@ -5,6 +5,7 @@ import { UsersRound, UserPlus, Pencil, Trash2, Search, Inbox, ShieldCheck, KeyRo
 import type { SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { useFocusTrap } from './use-focus-trap'
 
 interface UserRow {
@@ -38,6 +39,15 @@ export default function UsersView({ user }: Props) {
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [busy, setBusy] = useState(false)
+
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
 
   const canCreate = Boolean(user.permissions.users?.create)
   const canEdit = Boolean(user.permissions.users?.edit)
@@ -82,9 +92,20 @@ export default function UsersView({ user }: Props) {
   const nActive = users.filter((u) => u.active).length
   const nLocked = users.length - nActive
 
-  const toggleActive = async (u: UserRow) => {
+  const askToggleActive = (u: UserRow) => {
     // Vô hiệu hóa tài khoản đang hoạt động cần xác nhận — tránh khóa nhầm người đang làm việc
-    if (u.active && !window.confirm(`Vô hiệu hóa tài khoản @${u.username} — ${u.fullName}? Người dùng này sẽ không thể đăng nhập.`)) return
+    if (!u.active) { void toggleActive(u); return }
+    setConfirmCfg({
+      title: 'Vô hiệu hóa tài khoản',
+      message: `Vô hiệu hóa tài khoản @${u.username} — ${u.fullName}? Người dùng này sẽ không thể đăng nhập.`,
+      confirmLabel: 'Vô hiệu hóa',
+      tone: 'warning',
+      run: () => { void toggleActive(u) },
+    })
+  }
+
+  const toggleActive = async (u: UserRow) => {
+    setConfirmCfg(null)
     const res = await api(`/api/users/${u.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -104,8 +125,18 @@ export default function UsersView({ user }: Props) {
     load()
   }
 
+  const askRemoveUser = (u: UserRow) => {
+    setConfirmCfg({
+      title: 'Xóa người dùng',
+      message: `Xóa người dùng @${u.username} — ${u.fullName}? Hành động không thể hoàn tác.`,
+      confirmLabel: 'Xóa',
+      tone: 'danger',
+      run: () => { void removeUser(u) },
+    })
+  }
+
   const removeUser = async (u: UserRow) => {
-    if (!window.confirm(`Xóa người dùng @${u.username} — ${u.fullName}? Hành động không thể hoàn tác.`)) return
+    setConfirmCfg(null)
     const res = await api(`/api/users/${u.id}`, { method: 'DELETE' })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -122,12 +153,14 @@ export default function UsersView({ user }: Props) {
         breadcrumb={['Quản trị & Hệ thống', 'Quản lý người dùng']}
         title="Quản lý người dùng"
 actions={<>
-          <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}><UserPlus size={14} /> Thêm người dùng mới</button>
+          {canCreate && (
+            <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}><UserPlus size={14} /> Thêm người dùng mới</button>
+          )}
         </>}
       />
       {alert && (
         <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
-          <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{alert.msg}</div>
+          <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{' '}{alert.msg}</div>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setAlert(null)}>✕</button>
         </div>
       )}
@@ -228,7 +261,7 @@ actions={<>
                               type="checkbox"
                               checked={u.active}
                               disabled={!canEdit || isMe}
-                              onChange={() => toggleActive(u)}
+                              onChange={() => askToggleActive(u)}
                               aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`}
                             />
                             <span className="track" />
@@ -246,7 +279,7 @@ actions={<>
                               </button>
                             )}
                             {canDelete && !isMe && (
-                              <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => removeUser(u)}>
+                              <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => askRemoveUser(u)}>
                                 <Trash2 size={14} />
                               </button>
                             )}
@@ -274,7 +307,7 @@ actions={<>
                     </div>
                     <div className="fm-ucard__foot">
                       <label className="fm-switch" title={u.active ? 'Vô hiệu hóa' : 'Kích hoạt lại'}>
-                        <input type="checkbox" checked={u.active} disabled={!canEdit || isMe} onChange={() => toggleActive(u)} aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`} />
+                        <input type="checkbox" checked={u.active} disabled={!canEdit || isMe} onChange={() => askToggleActive(u)} aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`} />
                         <span className="track" />
                       </label>
                       <span style={{ fontSize: 12, fontWeight: 600, color: u.active ? 'var(--fm-green)' : 'var(--fm-red)' }}>
@@ -287,7 +320,7 @@ actions={<>
                           </button>
                         )}
                         {canDelete && !isMe && (
-                          <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => removeUser(u)}>
+                          <button className="fm-row-del" title="Xóa người dùng" aria-label={`Xóa người dùng @${u.username}`} onClick={() => askRemoveUser(u)}>
                             <Trash2 size={16} />
                           </button>
                         )}
@@ -317,6 +350,19 @@ actions={<>
             load()
           }}
           setBusy={setBusy}
+        />
+      )}
+
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
         />
       )}
     </div>
@@ -403,7 +449,7 @@ function UserModal({  mode,
 
         {err && (
           <div id="um-err" className="fm-alert fm-alert--error" role="alert">
-            <div><b>Lỗi</b>{err}</div>
+            <div><b>Lỗi</b>{' '}{err}</div>
           </div>
         )}
 

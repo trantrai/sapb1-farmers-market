@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
 import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PageHeader from './page-header'
 
 interface SettingsData {
@@ -60,6 +61,15 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
 
   // Focus trap + Escape cho modal database
   const formTrapRef = useFocusTrap<HTMLDivElement>(!!form, () => setForm(null))
+
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
 
   const load = async () => {
     const res = await api('/api/settings')
@@ -185,8 +195,18 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
     }
   }
 
-  const deleteDb = async (d: SapDb) => {
-    if (!window.confirm(`Xóa database “${d.label}” (${d.companyDb})?\nDữ liệu đã đồng bộ của database này sẽ được giữ lại.`)) return
+  const askDeleteDb = (d: SapDb) => {
+    setConfirmCfg({
+      title: 'Xóa database',
+      message: `Xóa database “${d.label}” (${d.companyDb})?\nDữ liệu đã đồng bộ của database này sẽ được giữ lại.`,
+      confirmLabel: 'Xóa',
+      tone: 'danger',
+      run: () => { void doDeleteDb(d) },
+    })
+  }
+
+  const doDeleteDb = async (d: SapDb) => {
+    setConfirmCfg(null)
     setDbBusy(d.id)
     setMsg(null)
     try {
@@ -223,7 +243,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
 
       {msg && (
         <div id="db-form-msg" className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
-          <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>
+          <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{' '}{msg.text}</div>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
@@ -277,7 +297,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                             <Star size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt mặc định
                           </button>
                         )}
-                        <button className="fm-btn fm-btn--ghost fm-btn--sm fm-btn--danger" onClick={() => deleteDb(d)} disabled={dbBusy !== null} aria-label={`Xóa ${d.label}`}>
+                        <button className="fm-btn fm-btn--ghost fm-btn--sm fm-btn--danger" onClick={() => askDeleteDb(d)} disabled={dbBusy !== null} aria-label={`Xóa ${d.label}`}>
                           <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa
                         </button>
                       </>
@@ -343,6 +363,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               <div className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input id="db-ssl" type="checkbox" checked={form.sslSkipVerify} onChange={(e) => updateForm({ sslSkipVerify: e.target.checked })} style={{ width: 16, height: 16, accentColor: 'var(--fm-primary)' }} />
                 <label className="fm-label" htmlFor="db-ssl" style={{ margin: 0 }}>Bỏ qua xác thực SSL</label>
+                <span className="fm-hint" style={{ color: 'var(--fm-coral)' }}>Chỉ dùng khi test nội bộ — tắt xác thực SSL khiến kết nối dễ bị nghe lén.</span>
               </div>
             </div>
             <label className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 12 }}>
@@ -517,8 +538,32 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               disabled={!canEdit}
             />
           </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+            <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy}>
+              <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+              {busy ? 'Đang lưu…' : 'Lưu'}
+            </button>
+            {!canEdit && (
+              <span className="fm-chip fm-chip--role" style={{ alignSelf: 'center' }}>
+                Vai trò của bạn chỉ được xem cài đặt
+              </span>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
+      )}
     </div>
   )
 }

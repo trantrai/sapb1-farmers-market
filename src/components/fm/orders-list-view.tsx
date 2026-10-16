@@ -9,6 +9,7 @@ import FmPagination from './fm-pagination'
 import type { EditOrderData } from './order-form-view'
 import { toEditData } from './order-form-view'
 import PageHeader from './page-header'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { Network } from 'lucide-react'
 import RelMapModal from './relmap-modal'
 import { useFocusTrap } from './use-focus-trap'
@@ -243,7 +244,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   }
 
   const deleteOrder = async (o: Order) => {
-    if (!window.confirm(`Xóa đơn hàng #${o.docNum} — ${o.cardName}? Hành động không thể hoàn tác.`)) return
+    setConfirmCfg(null)
     // Optimistic UI: gỡ dòng khỏi danh sách ngay, rollback nếu API lỗi
     const prevOrders = orders
     setOrders((os) => os.filter((x) => x.id !== o.id))
@@ -256,6 +257,16 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     }
     setAlert({ type: 'success', msg: `Đã xóa đơn hàng #${o.docNum}` })
     load()
+  }
+
+  const askDelete = (o: Order) => {
+    setConfirmCfg({
+      title: 'Xóa đơn hàng',
+      message: `Xóa đơn hàng #${o.docNum} — ${o.cardName}?\nHành động không thể hoàn tác.`,
+      confirmLabel: 'Xóa đơn hàng',
+      tone: 'danger',
+      run: () => { void deleteOrder(o) },
+    })
   }
 
   /** Xuất Excel danh sách đơn hàng theo bộ lọc hiện tại */
@@ -340,6 +351,14 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [relMapOrder, setRelMapOrder] = useState<{ id: string; docNum: number } | null>(null)
   /** Bottom-sheet thao tác trên card mobile (#8) */
   const [sheetOrder, setSheetOrder] = useState<Order | null>(null)
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action (pattern deliveries-list-view)
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   /** Phần tử đã mở context menu (dòng) — trả focus về khi đóng bằng Escape */
   const openerRef = useRef<HTMLElement | null>(null)
@@ -388,8 +407,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
   // Đẩy lại đơn sang SAP B1 (đơn đang 'pending' sau khi lưu)
   const syncOrder = async (o: Order) => {
-    // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
-    if (!window.confirm(`Đẩy lại Sale Order #${o.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`)) return
+    // Đẩy SAP tạo chứng từ THẬT — đã xác nhận trước 1-click qua ConfirmDialog
+    setConfirmCfg(null)
     setSyncingId(o.id)
     try {
       const res = await api(`/api/orders/${o.id}/sync`, { method: 'POST' })
@@ -405,6 +424,16 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     }
   }
 
+  const askSync = (o: Order) => {
+    setConfirmCfg({
+      title: 'Đẩy lại đơn sang SAP B1',
+      message: `Đẩy lại Sale Order #${o.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
+      confirmLabel: 'Đẩy sang SAP',
+      tone: 'danger',
+      run: () => { void syncOrder(o) },
+    })
+  }
+
   return (
     <div>
       <PageHeader
@@ -418,7 +447,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       />
       {alert && (
         <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
-          <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{alert.msg}</div>
+          <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{' '}{alert.msg}</div>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setAlert(null)}>✕</button>
         </div>
       )}
@@ -481,7 +510,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
         {/* Cảnh báo SAP lỗi khi load danh sách */}
         {sapWarn && (
-          <div className="fm-hint" style={{ color: 'var(--fm-red)', marginBottom: 8 }}>⚠ {sapWarn}</div>
+          <div className="fm-hint" style={{ color: 'var(--fm-red)', marginBottom: 8 }} role="alert">⚠ {sapWarn}</div>
         )}
 
         {/* Bảng dữ liệu */}
@@ -568,7 +597,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           <span className="fm-chip fm-chip--closed">Closed</span>
                         )}
                       </td>
-                      <td>{sapChip(o, canCreate, syncingId === o.id, () => syncOrder(o))}</td>
+                      <td>{sapChip(o, canCreate, syncingId === o.id, () => askSync(o))}</td>
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
                       <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -583,7 +612,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           </button>
                         )}
                         {canDelete && o.source !== 'sap' && (
-                          <button className="fm-row-del" title="Xóa đơn hàng" aria-label="Xóa đơn hàng" onClick={() => deleteOrder(o)}>
+                          <button className="fm-row-del" title="Xóa đơn hàng" aria-label="Xóa đơn hàng" onClick={() => askDelete(o)}>
                             <Trash2 size={14} />
                           </button>
                         )}
@@ -624,7 +653,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                     ) : (
                       <span className="fm-chip fm-chip--closed">Closed</span>
                     )}
-                    {sapChip(o, canCreate, syncingId === o.id, () => syncOrder(o))}
+                    {sapChip(o, canCreate, syncingId === o.id, () => askSync(o))}
                     {/* Nút thao tác thêm (mobile không có right-click) → mở bottom-sheet */}
                     <button
                       type="button"
@@ -652,7 +681,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                         className="fm-ocard__del"
                         title="Xóa đơn hàng"
                         aria-label={`Xóa đơn hàng ${o.docNum}`}
-                        onClick={(e) => { e.stopPropagation(); deleteOrder(o) }}
+                        onClick={(e) => { e.stopPropagation(); askDelete(o) }}
                         // Chặn keydown bubble lên card cha (tránh mở chi tiết khi nhấn Enter trên nút Xóa)
                         onKeyDown={(e) => e.stopPropagation()}
                       >
@@ -728,6 +757,19 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         onGoOrder={(id) => onGoDetail(id)}
         onGoDelivery={(id) => onGoDelivery?.(id)}
       />
+
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
+      )}
 
     </div>
   )

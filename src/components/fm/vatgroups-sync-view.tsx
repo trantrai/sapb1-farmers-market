@@ -7,6 +7,7 @@ import FmPagination from './fm-pagination'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
 import SyncModePicker, { fmtWatermark, type SyncMode } from './sync-mode-picker'
 import PageHeader from './page-header'
+import ConfirmDialog from './confirm-dialog'
 
 // ============================================================
 // ĐỒNG BỘ NHÓM THUẾ — quản lý bản mirror danh mục /VatGroups
@@ -47,6 +48,8 @@ export default function VatGroupsSyncView() {
   const [cat, setCat] = useState<'' | 'S' | 'P'>('')
   const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState<'sync' | 'clear' | null>(null)
+  /** Dialog xác nhận xóa toàn bộ dữ liệu đồng bộ (thay window.confirm) */
+  const [confirmClear, setConfirmClear] = useState(false)
   /** Đang gửi yêu cầu dừng lượt sync nền (PATCH) — nút "Dừng" bị khóa tạm */
   const [cancelling, setCancelling] = useState(false)
   const [mode, setMode] = useState<SyncMode>('auto')
@@ -145,7 +148,7 @@ export default function VatGroupsSyncView() {
   }
 
   const doClear = async () => {
-    if (!window.confirm('Xóa TOÀN BỘ dữ liệu nhóm thuế đã đồng bộ trong CSDL local? Danh mục trên SAP B1 không bị ảnh hưởng.')) return
+    setConfirmClear(false)
     setBusy('clear')
     setMsg(null)
     try {
@@ -164,7 +167,7 @@ export default function VatGroupsSyncView() {
   return (
     <div>
       <PageHeader
-        breadcrumb={['Đồng bộ dữ liệu', 'Đồng bộ Nhóm thuế']}
+        breadcrumb={['Đồng bộ', 'Đồng bộ Nhóm thuế']}
         title="Quản lý đồng bộ nhóm thuế"
         badge="Cập nhật tức thời"
         actions={<>
@@ -177,7 +180,7 @@ export default function VatGroupsSyncView() {
               <Square size={14} /> {cancelling ? 'Đang dừng…' : 'Dừng'}
             </button>
           )}
-          <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={doClear} title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local">
+          <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={() => setConfirmClear(true)} title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local">
             <Trash2 size={14} /> Xóa dữ liệu
           </button>
         </>}
@@ -302,6 +305,17 @@ export default function VatGroupsSyncView() {
 
         <FmPagination page={page} totalPages={totalPages} onPage={(p) => load(p, q, cat)} />
       </div>
+
+      {/* Dialog xác nhận xóa toàn bộ (thay window.confirm) */}
+      <ConfirmDialog
+        open={confirmClear}
+        title="Xóa toàn bộ dữ liệu đồng bộ?"
+        message={`Xóa TOÀN BỘ dữ liệu nhóm thuế đã đồng bộ trong CSDL local?\nDanh mục trên SAP B1 không bị ảnh hưởng.\nHành động không thể hoàn tác.`}
+        confirmLabel="Xóa toàn bộ"
+        tone="danger"
+        onConfirm={() => { void doClear() }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   )
 }

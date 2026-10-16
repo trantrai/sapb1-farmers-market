@@ -20,10 +20,6 @@ import PageHeader from './page-header'
 import { useFocusTrap } from './use-focus-trap'
 import type { SessionUser } from '@/lib/fm-shared'
 
-const NAVY = '#1E3A5F'
-const GOLD = '#F2B705'
-const CORAL = '#E0522F'
-
 interface SourceFile {
   input: 'IN-1' | 'IN-2'
   field: string
@@ -231,7 +227,7 @@ function ActionConfirmModal({
           {isApply ? (
             <div>
               <dt>Mã cha sẽ apply</dt>
-              <dd style={{ fontFamily: 'monospace', fontSize: 12 }}>
+              <dd className="fm-mono" style={{ fontSize: 12 }}>
                 {applyCodes.length} mã: {applyCodes.join(', ')}
               </dd>
             </div>
@@ -247,7 +243,7 @@ function ActionConfirmModal({
             ? 'Thao tác tạo Items + ProductTrees THẬT trên SAP B1. Kiểm tra kỹ database đích trước khi bấm. Có thể rollback bằng nút "Rollback run này".'
             : 'Thao tác xóa Items + ProductTrees trên SAP B1. Không thể hoàn tác.'}
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div className="fm-row" style={{ justifyContent: 'flex-end' }}>
           <button className="fm-btn fm-btn--secondary" onClick={onCancel} disabled={busy}>
             Hủy
           </button>
@@ -277,11 +273,11 @@ const fmtDate = (iso: string) => {
 // Cột sticky khi scroll ngang bảng Preview (17 cột) — 5 cột đầu dính liền nhau
 // thành một khối: Duyệt 36 | mở rộng 40 | Dòng 56 | Mã cha 150 | Tên 200.
 // (Trước đây chỉ 3 cột sticky, 2 cột giữa trôi đi gây hở khoảng 96px khi scroll.)
-const STICKY_DUYET: CSSProperties = { position: 'sticky', left: 0, zIndex: 3, background: NAVY, width: 36 }
-const STICKY_EXPAND_TH: CSSProperties = { position: 'sticky', left: 36, zIndex: 3, background: NAVY, width: 40 }
-const STICKY_DONG_TH: CSSProperties = { position: 'sticky', left: 76, zIndex: 3, background: NAVY, width: 56 }
-const STICKY_MACHA_TH: CSSProperties = { position: 'sticky', left: 132, zIndex: 3, background: NAVY, width: 150 }
-const STICKY_TEN_TH: CSSProperties = { position: 'sticky', left: 282, zIndex: 3, background: NAVY, minWidth: 200 }
+const STICKY_DUYET: CSSProperties = { position: 'sticky', left: 0, zIndex: 3, background: 'var(--fm-navy)', width: 36 }
+const STICKY_EXPAND_TH: CSSProperties = { position: 'sticky', left: 36, zIndex: 3, background: 'var(--fm-navy)', width: 40 }
+const STICKY_DONG_TH: CSSProperties = { position: 'sticky', left: 76, zIndex: 3, background: 'var(--fm-navy)', width: 56 }
+const STICKY_MACHA_TH: CSSProperties = { position: 'sticky', left: 132, zIndex: 3, background: 'var(--fm-navy)', width: 150 }
+const STICKY_TEN_TH: CSSProperties = { position: 'sticky', left: 282, zIndex: 3, background: 'var(--fm-navy)', minWidth: 200 }
 const stickyTd = (left: number, bg: string): CSSProperties => ({
   position: 'sticky', left, zIndex: 2, background: bg,
 })
@@ -687,15 +683,15 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
       {/* Stepper 6 bước */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <ol aria-label="Tiến trình import BOM" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', listStyle: 'none', margin: 0, padding: 0 }}>
           {STEPS.map((s, i) => (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <li key={s.key} aria-current={i === stepIdx ? 'step' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <div
                 title={s.locked ? s.lockNote ?? 'Sprint tiếp theo' : undefined}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '6px 12px', borderRadius: 999,
-                  background: i <= stepIdx && !s.locked ? NAVY : '#F1F5F9',
+                  background: i <= stepIdx && !s.locked ? 'var(--fm-navy)' : '#F1F5F9',
                   color: i <= stepIdx && !s.locked ? '#fff' : '#64748B',
                   fontSize: 13, fontWeight: 600,
                   opacity: s.locked ? 0.65 : 1,
@@ -705,13 +701,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 {i + 1}. {s.label}
               </div>
               {i < STEPS.length - 1 && <ChevronRight size={14} color="#94A3B8" />}
-            </div>
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div className="fm-row" style={{ marginBottom: 16 }}>
         <button
           className={`fm-btn ${tab === 'runs' ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
           onClick={() => setTab('runs')}
@@ -733,18 +729,18 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           className="fm-card"
           style={{
             marginBottom: 16,
-            borderLeft: `4px solid ${msg.type === 'error' ? CORAL : msg.type === 'success' ? '#16A34A' : GOLD}`,
+            borderLeft: `4px solid ${msg.type === 'error' ? 'var(--fm-coral)' : msg.type === 'success' ? '#16A34A' : 'var(--fm-gold)'}`,
           }}
         >
           {msg.text}
           {conflictRunId && (
-            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+            <div className="fm-row" style={{ marginTop: 8 }}>
               <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => openRun(conflictRunId)}>
                 Mở run đã có
               </button>
               {canCreate && (
                 <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => startIngest(true)} disabled={busy}>
-                  Tạo run mới có chủ đích
+                  Vẫn tạo run mới
                 </button>
               )}
             </div>
@@ -755,7 +751,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
       {tab === 'decisions' ? (
         <div className="fm-card">
           <div className="fm-card__head"><ListChecks size={18} /> {decisions.length > 0 ? `${decisions.length} quyết định đã chốt` : 'Đang tải quyết định…'}</div>
-          <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
+          <div className="fm-table-wrap fm-scroll fm-scroll-x">
             <table className="fm-table">
               <thead>
                 <tr><th style={{ width: 70 }}>Mã</th><th style={{ width: 90 }}>Nhóm</th><th>Câu hỏi</th><th>Quyết định đã chốt</th></tr>
@@ -763,7 +759,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
               <tbody>
                 {decisions.map((d) => (
                   <tr key={d.id}>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{d.id}</td>
+                    <td className="fm-mono" style={{ fontWeight: 700 }}>{d.id}</td>
                     <td>{d.group === 'mapping' ? 'Mapping' : 'Pipeline'}</td>
                     <td>{d.question}</td>
                     <td>{d.decided}</td>
@@ -779,7 +775,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           <div className="fm-card" style={{ marginBottom: 16 }}>
             <div className="fm-card__head"><Download size={18} /> Ingest từ Base Workflow (F18)</div>
             <div className="fm-card__body">
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="fm-row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div className="fm-field" style={{ minWidth: 240 }}>
                   <label className="fm-label" htmlFor="fm-bom-jobid">Job ID Base Workflow</label>
                   <input
@@ -812,13 +808,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
           {/* Gate 1 */}
           {run && run.status === 'ingested' && (
-            <div className="fm-card" style={{ marginBottom: 16, borderLeft: `4px solid ${GOLD}` }}>
+            <div className="fm-card" style={{ marginBottom: 16, borderLeft: '4px solid var(--fm-gold)' }}>
               <div className="fm-card__head">
                 <Lock size={18} /> Gate 1 — Xác nhận file trước khi parse
               </div>
               <div className="fm-card__body">
-                <p><strong>Job:</strong> <span style={{ fontFamily: 'monospace' }}>{run.jobId}</span> — {run.jobName || '(không tên)'}</p>
-                <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto', marginTop: 8 }}>
+                <p><strong>Job:</strong> <span className="fm-mono">{run.jobId}</span> — {run.jobName || '(không tên)'}</p>
+                <div className="fm-table-wrap fm-scroll fm-scroll-x" style={{ marginTop: 8 }}>
                   <table className="fm-table">
                     <thead>
                       <tr><th>Input</th><th>Field trên Base</th><th>File</th><th>Dung lượng</th><th>MD5 (8 ký tự đầu)</th><th>Tải lúc</th></tr>
@@ -826,11 +822,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     <tbody>
                       {run.sourceFiles.map((f) => (
                         <tr key={f.input + f.field}>
-                          <td><span className="fm-chip" style={{ background: NAVY, color: '#fff' }}>{f.input}</span></td>
+                          <td><span className="fm-chip" style={{ background: 'var(--fm-navy)', color: '#fff' }}>{f.input}</span></td>
                           <td>{f.field}</td>
-                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{f.filename}</td>
+                          <td className="fm-mono" style={{ fontSize: 12 }}>{f.filename}</td>
                           <td>{fmtBytes(f.bytes)}</td>
-                          <td style={{ fontFamily: 'monospace' }}>{f.md5.slice(0, 8)}…</td>
+                          <td className="fm-mono">{f.md5.slice(0, 8)}…</td>
                           <td>{fmtDate(f.downloadedAt)}</td>
                         </tr>
                       ))}
@@ -842,7 +838,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     {fieldLog.map((l, i) => <li key={i}>{l}</li>)}
                   </ul>
                 )}
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <div className="fm-row" style={{ marginTop: 12 }}>
                   <button className="fm-btn fm-btn--primary" onClick={() => doConfirm('confirm')} disabled={busy || !canCreate}>
                     <CheckCircle2 size={16}  />
                     Xác nhận & tiếp tục parse
@@ -858,7 +854,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
           {/* Major #2 — run kẹt ở confirmed (đã xác nhận nhưng parse chưa chạy xong): cho parse lại */}
           {run && run.status === 'confirmed' && (
-            <div className="fm-card" style={{ marginBottom: 16, borderLeft: `4px solid ${GOLD}` }}>
+            <div className="fm-card" style={{ marginBottom: 16, borderLeft: '4px solid var(--fm-gold)' }}>
               <div className="fm-card__head">
                 <RefreshCw size={18} /> Đã xác nhận — chờ parse
               </div>
@@ -884,9 +880,9 @@ export default function BomImportView({ user }: { user: SessionUser }) {
             <div className="fm-card" style={{ marginBottom: 16 }}>
               <div className="fm-card__head">
                 <CheckCircle2 size={18} /> Parse & Validate — {parents.length > 0 ? parents.length : (canonicalSummary?.parents ?? 0)} mã cha
-                {parents.length > 0 && blocked && <span className="fm-chip" style={{ background: CORAL, color: '#fff' }}>{errors.length} lỗi fail-fast</span>}
+                {parents.length > 0 && blocked && <span className="fm-chip" style={{ background: 'var(--fm-coral)', color: '#fff' }}>{errors.length} lỗi fail-fast</span>}
                 {parents.length > 0 && !blocked && <span className="fm-chip" style={{ background: '#16A34A', color: '#fff' }}>Không lỗi fail-fast</span>}
-                {parents.length > 0 && warnings.length > 0 && <span className="fm-chip" style={{ background: GOLD, color: '#1E293B' }}>{warnings.length} cảnh báo</span>}
+                {parents.length > 0 && warnings.length > 0 && <span className="fm-chip" style={{ background: 'var(--fm-gold)', color: '#1E293B' }}>{warnings.length} cảnh báo</span>}
               </div>
               <div className="fm-card__body">
                 {parents.length === 0 && canonicalSummary ? (
@@ -902,7 +898,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                   </div>
                 ) : (
                 <>
-                <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
+                <div className="fm-table-wrap fm-scroll fm-scroll-x">
                   <table className="fm-table">
                     <thead>
                       <tr><th>Dòng</th><th>Mã cha</th><th>Tên</th><th>Loại</th><th>Barcode chính</th><th>Giá trước VAT</th><th>Số con</th><th>Margin</th></tr>
@@ -910,14 +906,14 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     <tbody>
                       {parents.map((p) => (
                         <tr key={p.rowNo}>
-                          <td style={{ fontFamily: 'monospace' }}>{p.rowNo}</td>
-                          <td style={{ fontFamily: 'monospace' }}>{p.itemCode ?? <em style={{ color: '#94A3B8' }}>(chờ nhập)</em>}</td>
+                          <td className="fm-mono">{p.rowNo}</td>
+                          <td className="fm-mono">{p.itemCode ?? <em style={{ color: '#94A3B8' }}>(chờ nhập)</em>}</td>
                           <td>{p.itemName}</td>
                           <td>{p.bomKind === 'BOM_PRODUCT' ? 'BOM' : p.bomKind === 'BOM_ASSEMBLY' ? 'COMBO' : '?'}</td>
-                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.primaryBarcode ?? '—'}</td>
-                          <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{p.priceExVat?.toLocaleString('vi-VN') ?? '—'}</td>
+                          <td className="fm-mono" style={{ fontSize: 12 }}>{p.primaryBarcode ?? '—'}</td>
+                          <td className="fm-mono" style={{ textAlign: 'right' }}>{p.priceExVat?.toLocaleString('vi-VN') ?? '—'}</td>
                           <td style={{ textAlign: 'right' }}>{p.components}</td>
-                          <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{p.marginPct != null ? `${(p.marginPct * 100).toFixed(1)}%` : '—'}</td>
+                          <td className="fm-mono" style={{ textAlign: 'right' }}>{p.marginPct != null ? `${(p.marginPct * 100).toFixed(1)}%` : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -926,7 +922,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
                 {errors.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <h4 style={{ color: CORAL, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <h4 style={{ color: 'var(--fm-coral)', display: 'flex', alignItems: 'center', gap: 6 }}>
                       <XCircle size={16} /> Lỗi fail-fast ({errors.length}) — chặn apply
                     </h4>
                     <ul style={{ paddingLeft: 18, fontSize: 13 }}>
@@ -962,13 +958,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           {/* Sprint 2 — Preview dry-run + gate #2 (F5) + sinh mã cha (F4) */}
           {/* Sprint 3 — mở rộng cho các trạng thái sau apply để hiện kết quả + rollback */}
           {run && (run.status === 'validated' || run.status === 'applying' || run.status === 'applied' || run.status === 'failed' || run.status === 'rolledback') && (
-            <div className="fm-card" style={{ marginBottom: 16, borderLeft: `4px solid ${NAVY}` }}>
+            <div className="fm-card" style={{ marginBottom: 16, borderLeft: '4px solid var(--fm-navy)' }}>
               <div className="fm-card__head">
                 <Eye size={18} /> Preview dry-run — Gate 2: duyệt từng mã cha
                 {preview && (
                   <>
                     {preview.blocked && (
-                      <span className="fm-chip" style={{ background: CORAL, color: '#fff' }}>
+                      <span className="fm-chip" style={{ background: 'var(--fm-coral)', color: '#fff' }}>
                         {preview.errors} lỗi fail-fast
                       </span>
                     )}
@@ -977,7 +973,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         Không lỗi fail-fast
                       </span>
                     )}
-                    <span className="fm-chip" style={{ background: NAVY, color: '#fff' }}>
+                    <span className="fm-chip" style={{ background: 'var(--fm-navy)', color: '#fff' }}>
                       {preview.approvedCount}/{preview.parents.length} đã duyệt
                     </span>
                     {/* Minor #6 — duyệt / bỏ duyệt tất cả */}
@@ -998,15 +994,14 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       Bỏ duyệt
                     </button>
                     {preview.warnings > 0 && (
-                      <span className="fm-chip" style={{ background: GOLD, color: '#1E293B' }}>
+                      <span className="fm-chip" style={{ background: 'var(--fm-gold)', color: '#1E293B' }}>
                         {preview.warnings} cảnh báo
                       </span>
                     )}
                   </>
                 )}
                 <button
-                  className="fm-btn fm-btn--ghost fm-btn--sm"
-                  style={{ marginLeft: 'auto' }}
+                  className="fm-btn fm-btn--ghost fm-btn--sm fm-spacer"
                   onClick={() => loadPreview(run.id)}
                   disabled={previewBusy}
                 >
@@ -1014,16 +1009,17 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                   {previewBusy ? 'Đang tải…' : 'Tải preview'}
                 </button>
               </div>
-              <div className="fm-card__body">
+              {/* paddingBottom: chỗ cuộn thêm để sticky bar Apply/Rollback không che nội dung cuối preview */}
+              <div className="fm-card__body" style={{ paddingBottom: 88 }}>
                 {!preview ? (
                   <p className="fm-hint">Bấm “Tải preview” để xem dry-run, đối chiếu báo giá và duyệt từng mã cha.</p>
                 ) : (
                   <>
                     {/* F4 — sinh mã cha (Q1) */}
                     <div
-                      className="fm-field"
+                      className="fm-field fm-row"
                       style={{
-                        display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap',
+                        alignItems: 'flex-end', flexWrap: 'wrap',
                         padding: 12, background: '#F8FAFC', borderRadius: 8, marginBottom: 12,
                       }}
                     >
@@ -1033,12 +1029,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         </label>
                         <input
                           id="fm-bom-firstcode"
-                          className="fm-input"
+                          className="fm-input fm-mono"
                           placeholder="vd: CB-202610-0007"
                           value={firstCode}
                           onChange={(e) => setFirstCode(e.target.value)}
                           disabled={previewBusy || !canCreate}
-                          style={{ fontFamily: 'monospace' }}
                         />
                       </div>
                       <button
@@ -1070,7 +1065,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     )}
 
                     {/* Bảng cha → con (expandable) */}
-                    <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
+                    <div className="fm-table-wrap fm-scroll fm-scroll-x">
                       <table className="fm-table">
                         <thead>
                           <tr>
@@ -1122,8 +1117,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                       {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                     </button>
                                   </td>
-                                  <td style={{ fontFamily: 'monospace', ...stickyTd(76, stickyBg) }}>{p.rowNo}</td>
-                                  <td style={{ fontFamily: 'monospace', ...stickyTd(132, stickyBg) }}>
+                                  <td className="fm-mono" style={{ ...stickyTd(76, stickyBg) }}>{p.rowNo}</td>
+                                  <td className="fm-mono" style={{ ...stickyTd(132, stickyBg) }}>
                                     {p.itemCode ?? <em style={{ color: '#94A3B8' }}>(chờ nhập)</em>}
                                   </td>
                                   <td style={{ ...stickyTd(282, stickyBg) }}>{p.itemName}</td>
@@ -1132,9 +1127,9 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                   <td>{p.uomPurchase ?? '—'}</td>
                                   <td>{p.uomSales ?? '—'}</td>
                                   <td>{p.uomInventory ?? '—'}</td>
-                                  <td style={{ fontFamily: 'monospace' }}>{p.warehouse ?? '—'}</td>
-                                  <td style={{ fontFamily: 'monospace' }}>{p.taxIn ?? '—'}</td>
-                                  <td style={{ fontFamily: 'monospace' }}>{p.taxOut ?? '—'}</td>
+                                  <td className="fm-mono">{p.warehouse ?? '—'}</td>
+                                  <td className="fm-mono">{p.taxIn ?? '—'}</td>
+                                  <td className="fm-mono">{p.taxOut ?? '—'}</td>
                                   <td>
                                     <select
                                       className="fm-input"
@@ -1157,18 +1152,19 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                       </span>
                                     )}
                                   </td>
-                                  <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                  <td className="fm-mono" style={{ textAlign: 'right' }}>
                                     {p.priceExVat?.toLocaleString('vi-VN') ?? '—'}
                                   </td>
-                                  <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                  <td className="fm-mono" style={{ textAlign: 'right' }}>
                                     {p.linkedSet
                                       ? (preview.sets.find((s) => s.name === p.linkedSet)?.subtotalExVat?.toLocaleString('vi-VN') ?? '—')
                                       : '—'}
                                   </td>
                                   <td
+                                    className="fm-mono"
                                     style={{
-                                      textAlign: 'right', fontFamily: 'monospace',
-                                      color: w7 && w7.verdict === 'warn' ? CORAL : undefined,
+                                      textAlign: 'right',
+                                      color: w7 && w7.verdict === 'warn' ? 'var(--fm-coral)' : undefined,
                                       fontWeight: w7 && w7.verdict === 'warn' ? 700 : undefined,
                                     }}
                                   >
@@ -1186,11 +1182,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                         <tbody>
                                           {p.components.map((c) => (
                                             <tr key={c.rowNo}>
-                                              <td style={{ fontFamily: 'monospace' }}>{c.rowNo}</td>
-                                              <td style={{ fontFamily: 'monospace' }}>{c.childCode}</td>
+                                              <td className="fm-mono">{c.rowNo}</td>
+                                              <td className="fm-mono">{c.childCode}</td>
                                               <td>{c.childName ?? '—'}</td>
                                               <td>{c.uom ?? '—'}</td>
-                                              <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{c.qtyPerParent ?? '—'}</td>
+                                              <td className="fm-mono" style={{ textAlign: 'right' }}>{c.qtyPerParent ?? '—'}</td>
                                             </tr>
                                           ))}
                                         </tbody>
@@ -1202,7 +1198,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                             {p.crossChecks.map((cc, i) => (
                                               <li
                                                 key={i}
-                                                style={cc.verdict === 'warn' ? { color: CORAL, fontWeight: 600 } : undefined}
+                                                style={cc.verdict === 'warn' ? { color: 'var(--fm-coral)', fontWeight: 600 } : undefined}
                                               >
                                                 <code>{cc.check}</code>
                                                 {cc.setName ? ` (${cc.setName}${cc.linkAuto ? '' : ', gán tay'})` : ''}: {cc.detail}
@@ -1224,7 +1220,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     {/* Lỗi / cảnh báo của preview (đã tính link tay) */}
                     {preview.issues.filter((x) => x.severity === 'error').length > 0 && (
                       <div style={{ marginTop: 12 }}>
-                        <h4 style={{ color: CORAL, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <h4 style={{ color: 'var(--fm-coral)', display: 'flex', alignItems: 'center', gap: 6 }}>
                           <XCircle size={16} /> Lỗi fail-fast ({preview.errors}) — chặn apply
                         </h4>
                         <ul style={{ paddingLeft: 18, fontSize: 13 }}>
@@ -1247,8 +1243,27 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       </div>
                     )}
 
-                    {/* Apply — Sprint 3: apply thật lên B1 */}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+                    {/* Apply — Sprint 3: apply thật lên B1.
+                        Sticky bar dưới cùng (pattern order-form-view M4): luôn hiện khi cuộn preview dài;
+                        paddingBottom bù ở fm-card__body để bar không che nội dung cuối. */}
+                    <div
+                      role="toolbar"
+                      aria-label="Thao tác Apply và Rollback"
+                      style={{
+                        position: 'sticky',
+                        bottom: 0,
+                        zIndex: 30,
+                        background: 'var(--fm-surface)',
+                        borderTop: '1px solid var(--fm-line)',
+                        boxShadow: '0 -6px 20px rgba(30, 58, 95, 0.12)',
+                        marginTop: 16,
+                        padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
+                        display: 'flex',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                      }}
+                    >
                       <button
                         className="fm-btn fm-btn--primary"
                         onClick={doApply}
@@ -1318,7 +1333,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     <p className="fm-hint" style={{ marginTop: 8 }}>
                       Báo giá: {preview.summary.sets} set · {preview.summary.costingRows} dòng Final Cost · {preview.summary.deliveryRows} dòng lịch giao (chỉ lưu trace).
                       <br />
-                      <strong style={{ color: CORAL }}>
+                      <strong style={{ color: 'var(--fm-coral)' }}>
                         Apply ghi THẬT Items + ProductTrees lên SAP B1 (DB: {user.databaseLabel ?? 'mặc định'})
                       </strong>
                       {' '}— kiểm tra kỹ DB đích trước khi bấm. Có thể rollback theo run bằng nút "Rollback run này".
@@ -1338,9 +1353,9 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           <div className="fm-card">
             <div className="fm-card__head">
               <RefreshCw size={18} /> Lịch sử lượt chạy
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => loadRuns(runsPage)}>Tải lại</button>
+              <button className="fm-btn fm-btn--ghost fm-btn--sm fm-spacer" onClick={() => loadRuns(runsPage)}>Tải lại</button>
             </div>
-            <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
+            <div className="fm-table-wrap fm-scroll fm-scroll-x">
               <table className="fm-table">
                 <thead>
                   <tr><th>Run</th><th>Job</th><th>Trạng thái</th><th>Files</th><th>Người tạo</th><th>Tạo lúc</th><th></th></tr>
@@ -1348,8 +1363,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 <tbody>
                   {runs.map((r) => (
                     <tr key={r.id} style={run?.id === r.id ? { background: '#EFF6FF' } : undefined}>
-                      <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.id.slice(0, 8)}…</td>
-                      <td style={{ fontFamily: 'monospace' }}>{r.jobId}</td>
+                      <td className="fm-mono" style={{ fontSize: 12 }}>{r.id.slice(0, 8)}…</td>
+                      <td className="fm-mono">{r.jobId}</td>
                       <td>{STATUS_LABEL[r.status] ?? r.status}</td>
                       <td style={{ textAlign: 'right' }}>{r.sourceFiles.length}</td>
                       <td>{r.startedBy}</td>
@@ -1365,7 +1380,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
             </div>
             {/* Minor #8 — phân trang */}
             {runsTotal > RUNS_PAGE_SIZE && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px' }}>
+              <div className="fm-row" style={{ alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px' }}>
                 <span className="fm-hint">
                   Trang {runsPage} / {Math.max(1, Math.ceil(runsTotal / RUNS_PAGE_SIZE))} · {runsTotal} lượt
                 </span>

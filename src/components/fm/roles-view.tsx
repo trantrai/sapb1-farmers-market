@@ -135,7 +135,7 @@ actions={<>
       />
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
-          <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{msg.text}</div>
+          <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{' '}{msg.text}</div>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}

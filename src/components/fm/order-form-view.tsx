@@ -1236,8 +1236,9 @@ export default function OrderFormView({
     ].filter(Boolean).join('\n')
   }
 
+  // M4: paddingBottom = chỗ cuộn thêm để sticky action bar không che nội dung cuối form
   return (
-    <div>
+    <div style={{ paddingBottom: 96 }}>
       <PageHeader
         breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng #${editOrder?.docNum}` : 'Tạo đơn hàng mới']}
         title={isEdit ? `Cập Nhật Sale Order #${editOrder?.docNum}` : 'Tạo Sale Order Mới'}
@@ -1811,12 +1812,10 @@ export default function OrderFormView({
           </div>
         )}
 
-        <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
-            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-            {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng'}
-          </button>
-          {!isEdit && (
+        {/* M4: cụm Lưu/Hủy cuối form đã chuyển xuống sticky action bar bên dưới;
+            ở Bước 3 chỉ giữ lại nút "Lưu thành mẫu" (chế độ tạo mới) */}
+        {!isEdit && (
+          <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button
               className="fm-btn fm-btn--secondary"
               onClick={() => { setTplModal(true); setTplMsg(null) }}
@@ -1826,27 +1825,53 @@ export default function OrderFormView({
               <BookmarkPlus size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
               Lưu thành mẫu
             </button>
-          )}
-          {isEdit ? (
-            <button className="fm-btn fm-btn--ghost" onClick={() => { clearDraft(); onCancel?.() }} disabled={saving}>
-              Hủy — không lưu thay đổi
-            </button>
-          ) : (
-            <button
-              className="fm-btn fm-btn--ghost"
-              onClick={() => setConfirmCfg({
-                title: 'Nhập lại đơn hàng',
-                message: 'Xóa toàn bộ dữ liệu đã nhập và bắt đầu lại?\nDữ liệu đã nhập trên form sẽ mất.',
-                confirmLabel: 'Nhập lại',
-                tone: 'danger',
-                run: resetForm,
-              })}
-              disabled={saving}
-            >
-              Nhập lại
-            </button>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
+
+      {/* M4 — Sticky action bar: luôn hiện khi cuộn form, chứa Lưu + Hủy/Nhập lại
+          (dùng đúng handler + state disabled/busy của nút cũ, không đổi logic) */}
+      <div
+        role="toolbar"
+        aria-label="Thao tác đơn hàng"
+        style={{
+          position: 'sticky',
+          bottom: 0,
+          zIndex: 30,
+          background: 'var(--fm-surface)',
+          borderTop: '1px solid var(--fm-line)',
+          boxShadow: '0 -6px 20px rgba(30, 58, 95, 0.12)',
+          marginTop: 16,
+          padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
+          display: 'flex',
+          gap: 10,
+          flexWrap: 'wrap',
+          justifyContent: 'flex-end',
+        }}
+      >
+        {isEdit ? (
+          <button className="fm-btn fm-btn--secondary" onClick={() => { clearDraft(); onCancel?.() }} disabled={saving}>
+            Hủy — không lưu thay đổi
+          </button>
+        ) : (
+          <button
+            className="fm-btn fm-btn--secondary"
+            onClick={() => setConfirmCfg({
+              title: 'Nhập lại đơn hàng',
+              message: 'Xóa toàn bộ dữ liệu đã nhập và bắt đầu lại?\nDữ liệu đã nhập trên form sẽ mất.',
+              confirmLabel: 'Nhập lại',
+              tone: 'danger',
+              run: resetForm,
+            })}
+            disabled={saving}
+          >
+            Nhập lại
+          </button>
+        )}
+        <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
+          <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+          {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng'}
+        </button>
       </div>
 
       {/* Modal lưu thành mẫu đơn hàng */}

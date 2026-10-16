@@ -110,40 +110,6 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -252,11 +218,6 @@
   box-shadow: var(--fm-shadow);
 }
 
-@utility fm-focus-ring {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--fm-navy-soft);
-}
-
 @media (min-width: 640px) {
   .fm-container { padding-inline: 1.5rem; }
 }
@@ -268,13 +229,11 @@
 /* ============================================================
    0. RESET CƠ BẢN
    ============================================================ */
-.fm-body, .fm-app-root {
+.fm-app-root {
   margin: 0; background: var(--fm-cream); color: var(--fm-text);
   font-family: var(--fm-font); font-size: var(--fm-fs-md);
   -webkit-font-smoothing: antialiased;
 }
-.fm-body a { color: var(--fm-navy); text-decoration: none; font-weight: 500; }
-.fm-body a:hover { color: var(--fm-navy-deep); text-decoration: underline; }
 /* Link dạng action (trong bảng, inline): màu navy, hover gạch chân */
 .fm-link {
   color: var(--fm-navy); font-weight: 600; cursor: pointer;
@@ -282,8 +241,6 @@
   text-decoration: none;
 }
 .fm-link:hover { color: var(--fm-navy-deep); text-decoration: underline; }
-.fm-body ::selection { background: var(--fm-yellow-soft); }
-
 /* ============================================================
    1. KHUNG ỨNG DỤNG — Sidebar trắng + Pagehead (tiêu đề + user)
    ============================================================ */
@@ -291,7 +248,7 @@
 
 .fm-sidebar {
   width: var(--fm-sidebar-w); flex-shrink: 0;
-  background: var(--fm-sidebar-bg); color: #fff;
+  background: var(--fm-sidebar-bg); color: var(--fm-surface);
   border-right: 1px solid var(--fm-sidebar-bg);
   padding: 16px 12px; display: flex; flex-direction: column;
 }
@@ -302,7 +259,7 @@
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 18px;
 }
-.fm-logo__name { font-weight: 700; font-size: 12.5px; line-height: 1.25; letter-spacing: .4px; color: #fff; }
+.fm-logo__name { font-weight: 700; font-size: 12.5px; line-height: 1.25; letter-spacing: .4px; color: var(--fm-surface); }
 .fm-logo__name small { display: block; font-weight: 400; font-size: 11px; color: rgba(255,255,255,.7); }
 
 .fm-menu-group { font-size: 11px; font-weight: 600; letter-spacing: .8px; color: rgba(255,255,255,.65); padding: 14px 12px 6px; } /* .5 chỉ 4.1:1 → .65 đạt 5.9:1 (WCAG AA) */
@@ -310,9 +267,10 @@
   padding: 9px 12px; border-radius: var(--fm-r-md);
   color: rgba(255,255,255,.85); font-size: 14px; cursor: pointer;
   border-left: 3px solid transparent; margin-bottom: 2px;
-  transition: background .15s; display: flex; align-items: center; gap: 10px;
+  transition: background .15s; display: flex; align-items: center; gap: 9px;
 }
-.fm-menu-item:hover { background: rgba(255,255,255,.1); color: #fff; }
+.fm-menu-item svg { flex-shrink: 0; }
+.fm-menu-item:hover { background: rgba(255,255,255,.1); color: var(--fm-surface); }
 .fm-menu-item.is-active {
   background: var(--fm-primary); color: var(--fm-gold-ink);
   border-left-color: transparent; font-weight: 700;
@@ -368,7 +326,7 @@
   font-size: 12.5px; color: var(--fm-text);
 }
 .fm-search__input:focus {
-  outline: none; background: #fff; border-color: var(--fm-navy);
+  outline: none; background: var(--fm-surface); border-color: var(--fm-navy);
 }
 .fm-search__input::placeholder { color: var(--fm-text-3); }
 .fm-search__kbd {
@@ -532,9 +490,9 @@
   border: none; border-radius: var(--fm-r-md); cursor: pointer;
   font-family: var(--fm-font); font-size: 12.5px; font-weight: 600;
   padding: 8px 18px; transition: background .15s, box-shadow .15s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .fm-btn:disabled { opacity: .6; cursor: not-allowed; }
-.fm-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .fm-btn svg { flex-shrink: 0; }
 
 /* Primary CTA: vàng gold #F2B705, chữ nâu đậm */
@@ -555,6 +513,7 @@
   transition: background .15s;
 }
 .fm-btn--secondary:hover:not(:disabled) { background: var(--fm-navy-soft-hover); }
+.fm-btn--secondary:active:not(:disabled) { background: var(--fm-navy-soft-hover); filter: brightness(.96); }
 
 /* Outline: viền navy, dùng khi cần phân biệt với secondary */
 .fm-btn--outline {
@@ -563,12 +522,14 @@
   transition: background .15s;
 }
 .fm-btn--outline:hover:not(:disabled) { background: var(--fm-navy-soft); }
+.fm-btn--outline:active:not(:disabled) { background: var(--fm-navy-soft-hover); }
 
 .fm-btn--danger { background: var(--fm-surface); color: var(--fm-red); border: 1px solid var(--fm-red); font-weight: 600; }
 .fm-btn--danger:hover:not(:disabled) { background: var(--fm-red-soft); }
 
 .fm-btn--ghost { background: transparent; color: var(--fm-navy); }
 .fm-btn--ghost:hover:not(:disabled) { background: var(--fm-navy-soft); }
+.fm-btn--ghost:active:not(:disabled) { background: var(--fm-navy-soft-hover); }
 
 .fm-btn--sm { padding: 4px 12px; font-size: 11px; }
 .fm-btn--dashed {
@@ -621,22 +582,12 @@
    cột lưới min:auto phình theo nội dung → tràn card. minmax(0,1fr) + max-width chặn tuyệt đối */
 .fm-form-grid > * { min-width: 0; max-width: 100%; }
 
-/* Banner trạng thái kết nối (trang Settings) */
-.fm-conn-banner {
-  display: flex; align-items: center; gap: 10px;
-  border-radius: var(--fm-r-md); padding: 10px 14px;
-  font-size: 12.5px; font-weight: 600; margin-bottom: 16px;
-}
-.fm-conn-banner--ok   { background: var(--fm-green-soft); color: var(--fm-green); }
-.fm-conn-banner--fail { background: var(--fm-red-soft);   color: var(--fm-red-text); }
-.fm-conn-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-
 /* ============================================================
    4. BẢNG DỮ LIỆU — Header navy, chữ trắng
    ============================================================ */
 .fm-table { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--fm-surface); }
 .fm-table th {
-  background: var(--fm-navy); color: #fff; text-align: left;
+  background: var(--fm-navy); color: var(--fm-surface); text-align: left;
   padding: 10px 12px; font-size: 12px; font-weight: 600;
   white-space: nowrap; border-bottom: 1px solid var(--fm-navy-deep);
 }
@@ -672,6 +623,7 @@
 .fm-lcard__bom-row { color: var(--fm-text-2); padding: 2px 0; }
 .fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 16px; padding: 8px 10px; border-radius: var(--fm-r-sm); min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; transition: background .15s, color .15s; }
 .fm-row-del:hover { background: var(--fm-red-soft); }
+.fm-row-del:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ============================================================
    5. CHIP TRẠNG THÁI — Open / Closed / Quá hạn / RBAC
@@ -693,10 +645,12 @@
 
 /* Lọc nhanh theo hạn giao (danh sách đơn hàng) */
 .fm-quickfilter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+/* Hàng lọc dùng chung (deliveries-list dùng cùng inline style cũ): flex, gap 8, wrap, canh giữa */
+.fm-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 
 /* Badge chấm đỏ đếm đơn quá hạn trên menu sidebar */
 .fm-badge-dot {
-  background: var(--fm-red); color: #fff; font-weight: 700;
+  background: var(--fm-red); color: var(--fm-surface); font-weight: 700;
   border-radius: 999px; font-size: 11px; line-height: 1;
   min-width: 20px; height: 20px; padding: 0 6px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -707,6 +661,7 @@
 .fm-chip--perm-d  { background: var(--fm-red-soft);   color: var(--fm-red-text); }
 .fm-chip--sap     { background: var(--fm-green-soft); color: var(--fm-green); }   /* Đã đẩy SAP B1: SAP #DocNum */
 .fm-chip--pending { background: var(--fm-navy-soft); color: var(--fm-navy); }          /* Chưa đẩy được SAP B1 — tông navy, phân biệt với chip Open tông gold */
+.fm-chip--ok      { background: var(--fm-green-soft); color: var(--fm-green); }    /* Đã cấu hình OK — tông xanh lá, cùng bộ với chip SAP/perm-c */
 /* Chip pending là nút bấm để đẩy lại đơn */
 .fm-chip--btn {
   border: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700;
@@ -765,7 +720,7 @@
   transition: border-color .15s, color .15s, background .15s;
 }
 .fm-page-btn:hover:not(:disabled) { border-color: var(--fm-navy); color: var(--fm-navy); }
-.fm-page-btn.is-active { background: var(--fm-navy); border-color: var(--fm-navy); color: #fff; font-weight: 700; }
+.fm-page-btn.is-active { background: var(--fm-navy); border-color: var(--fm-navy); color: var(--fm-surface); font-weight: 700; }
 .fm-page-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* Nút icon action trong bảng: 34px, hover nền nhạt */
@@ -777,6 +732,7 @@
   transition: background .15s, color .15s;
 }
 .fm-icon-btn:hover { background: var(--fm-navy-soft); color: var(--fm-navy); }
+.fm-icon-btn:disabled { opacity: .45; cursor: not-allowed; }
 .fm-icon-btn--danger { color: var(--fm-red-text); background: var(--fm-red-soft); }
 .fm-icon-btn--danger:hover { background: var(--fm-red-soft); color: var(--fm-red); filter: brightness(.96); }
 .fm-icon-btn--primary { color: var(--fm-text-2); }
@@ -802,7 +758,7 @@
 /* Input ẩn bằng mắt nhưng VẪN focus được bằng bàn phím (không dùng display:none) */
 .fm-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .fm-switch .track { position: absolute; inset: 0; background: var(--fm-muted-line); border-radius: var(--fm-r-pill); transition: background .2s; }
-.fm-switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; }
+.fm-switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--fm-surface); transition: transform .2s; }
 .fm-switch input:checked + .track { background: var(--fm-yellow); }
 .fm-switch input:checked + .track::after { transform: translateX(16px); background: var(--fm-navy); }
 
@@ -925,12 +881,12 @@
 
 /* ===== Màn hình Service Layer Audit ===== */
 .fm-audit-method--post { background: var(--fm-primary); color: var(--fm-gold-ink); }
-.fm-audit-method--patch { background: var(--fm-amber); color: #fff; }
+.fm-audit-method--patch { background: var(--fm-amber); color: var(--fm-surface); }
 .fm-audit-row--err > td { background: rgba(209, 52, 56, .04); }
 .fm-audit-detail > td { background: #FAF9F8; padding: 10px 14px; }
 .fm-audit-detail__inner { font-size: 12.5px; line-height: 1.55; color: var(--fm-text-2); word-break: break-word; }
 .fm-audit-error { color: var(--fm-red); margin-top: 4px; }
-.fm-audit-payload { margin: 4px 0 0; padding: 8px 10px; background: #fff; border: 1px solid var(--fm-line); border-radius: var(--fm-r-sm); font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; font-size: 11px; max-height: 220px; overflow: auto; white-space: pre-wrap; }
+.fm-audit-payload { margin: 4px 0 0; padding: 8px 10px; background: var(--fm-surface); border: 1px solid var(--fm-line); border-radius: var(--fm-r-sm); font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; font-size: 11px; max-height: 220px; overflow: auto; white-space: pre-wrap; }
 
 /* z-index 81: PHẢI trên bottom tab bar (65) và trên drawer sidebar mobile (80) —
    nếu không drawer đang mở sẽ đè lên modal trên mobile */
@@ -944,7 +900,7 @@
 .fm-view-detail dt { color: var(--fm-text-2); font-size: 11px; }
 .fm-view-detail dd { margin: 0; font-weight: 600; color: var(--fm-text); overflow-wrap: break-word; }
 
-.fm-login__logo { width: 96px; height: 96px; border-radius: 50%; background: var(--fm-yellow); color: var(--fm-navy-deep); font-size: 44px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; box-shadow: var(--fm-shadow); border: 4px solid #fff; transition: transform .2s; }
+.fm-login__logo { width: 96px; height: 96px; border-radius: 50%; background: var(--fm-yellow); color: var(--fm-navy-deep); font-size: 44px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; box-shadow: var(--fm-shadow); border: 4px solid var(--fm-surface); transition: transform .2s; }
 .fm-login__logo:hover { transform: scale(1.05); }
 .fm-login__title { font-size: var(--fm-fs-xl); font-weight: 800; color: var(--fm-navy); margin: 0; letter-spacing: .3px; text-transform: uppercase; }
 .fm-login__live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fm-green); font-weight: 600; margin-top: 8px; }
@@ -962,10 +918,9 @@
 .fm-login__submit:disabled { opacity: .6; cursor: not-allowed; }
 .fm-login__subtitle { font-size: var(--fm-fs-sm); color: var(--fm-text-2); margin: 4px 0 0; }
 
-.fm-menu-item { display: flex; align-items: center; gap: 9px; }
-.fm-menu-item svg { flex-shrink: 0; }
+/* (định nghĩa .fm-menu-item đã gộp vào mục sidebar ở trên) */
 
-.fm-badge-count { background: var(--fm-warn-text); color: #fff; font-weight: 700; border-radius: var(--fm-r-pill); font-size: 11px; padding: 1px 8px; margin-left: auto; }
+.fm-badge-count { background: var(--fm-warn-text); color: var(--fm-surface); font-weight: 700; border-radius: var(--fm-r-pill); font-size: 11px; padding: 1px 8px; margin-left: auto; }
 
 .fm-empty { text-align: center; padding: 40px 16px; color: var(--fm-text-3); font-size: 12.5px; }
 .fm-empty svg { width: 40px; height: 40px; margin: 0 auto 10px; display: block; opacity: .5; }
@@ -985,7 +940,7 @@
 }
 
 /* Skip link cho keyboard/a11y */
-.fm-skip-link { position: absolute; left: -9999px; top: 0; z-index: 200; background: var(--fm-navy); color: #fff; padding: 10px 16px; border-radius: 0 0 8px 0; font-weight: 600; }
+.fm-skip-link { position: absolute; left: -9999px; top: 0; z-index: 200; background: var(--fm-navy); color: var(--fm-surface); padding: 10px 16px; border-radius: 0 0 8px 0; font-weight: 600; }
 .fm-skip-link:focus { left: 0; }
 
 /* ============================================================
@@ -1142,6 +1097,16 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 /* ---------- 14.14 In đậm số liệu dạng bảng toàn cục ---------- */
 .fm-num, .fm-totals__row b, .fm-stat__value { letter-spacing: -.01em; }
 .fm-table td.fm-num, .fm-table tfoot td.fm-num { white-space: nowrap; }
+
+/* ---------- 14.15 Utility class dùng chung (.fm-*) ---------- */
+.fm-num { text-align: right; }                                      /* canh phải số liệu (dùng độc lập ngoài bảng) */
+.fm-row { display: flex; align-items: center; gap: 8px; }           /* hàng flex canh giữa */
+.fm-ic { display: inline-flex; align-items: center; }               /* canh icon trong nút/text */
+.fm-spacer { margin-left: auto; }                                   /* đẩy phần tử sang phải */
+.fm-scroll-x { overflow-x: auto; }                                 /* cuộn ngang */
+.fm-mono { font-family: monospace; }                               /* chữ monospace cho mã/token */
+.fm-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }  /* cụm nút hành động */
+.fm-field__icon { color: var(--fm-text-2); flex-shrink: 0; }        /* icon trong field */
 
 /* ============================================================
    15. MOBILE-FIRST OPTIMIZATION — tối ưu giao diện di động
@@ -1388,14 +1353,13 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 
 /* (e) Vùng chạm & phản hồi bấm trên cảm ứng */
 .fm-btn, .fm-menu-item, .fm-ocard, .fm-page-btn, .fm-bottomnav__item,
-.fm-demo-chip, .fm-ucard .fm-row-del, .fm-ocard__del, .fm-ocard__more, .fm-ocard__push {
+.fm-ucard .fm-row-del, .fm-ocard__del, .fm-ocard__more, .fm-ocard__push {
   -webkit-tap-highlight-color: transparent;
 }
 @media (max-width: 640px) {
   .fm-btn--sm { min-height: 44px; }           /* nút nhỏ đạt chuẩn chạm 44px */
   .fm-chip--btn { min-height: 44px; }        /* chip là nút bấm: đủ vùng chạm */
   .fm-atp-recheck { min-width: 44px; min-height: 44px; } /* nút kiểm tra tồn kho: đủ vùng chạm */
-  .fm-demo-chip { padding: 8px 14px; font-size: 12.5px; } /* chip đăng nhập nhanh dễ bấm hơn */
 }
 
 /* (f) Card dòng hàng trong chi tiết đơn (mobile) — thay bảng 11 cột cuộn ngang */
@@ -1414,7 +1378,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 .fm-lcard__head { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 8px; }
 .fm-lcard__num {
   flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; margin-top: 1px;
-  background: var(--fm-navy); color: #fff; font-size: 11px; font-weight: 700;
+  background: var(--fm-navy); color: var(--fm-surface); font-size: 11px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
 }
 .fm-lcard__name { font-size: 14px; font-weight: 700; color: var(--fm-text); line-height: 1.35; }
@@ -1454,7 +1418,6 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-stat__value { font-size: 21px; }
   .fm-stat__meta { display: none; } /* gọn thẻ thống kê trên màn nhỏ */
   .fm-totals { width: 100%; }
-  .fm-conn-banner { font-size: 12.5px; }
   .fm-modal h3 { font-size: 14px; }
 }
 
@@ -1465,19 +1428,19 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 
 .fm-print__header {
   display: flex; justify-content: space-between; align-items: flex-start;
-  border-bottom: 3px double #0e1c2f; padding-bottom: 12px; margin-bottom: 16px;
+  border-bottom: 3px double var(--fm-sidebar-bg); padding-bottom: 12px; margin-bottom: 16px;
 }
 .fm-print__brand { display: flex; gap: 12px; align-items: center; }
 .fm-print__logo {
   width: 56px; height: 56px; border-radius: 50%;
-  background: var(--fm-primary); color: #0e1c2f;
+  background: var(--fm-primary); color: var(--fm-sidebar-bg);
   font-size: 28px; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
 }
-.fm-print__company { font-size: 20px; font-weight: 800; color: #0e1c2f; letter-spacing: .5px; }
+.fm-print__company { font-size: 20px; font-weight: 800; color: var(--fm-sidebar-bg); letter-spacing: .5px; }
 .fm-print__tagline { font-size: 11px; color: #555; }
 .fm-print__title-block { text-align: right; }
-.fm-print__doctitle { font-size: 22px; font-weight: 800; color: #0e1c2f; }
+.fm-print__doctitle { font-size: 22px; font-weight: 800; color: var(--fm-sidebar-bg); }
 .fm-print__docnum { font-size: 12.5px; color: #555; margin-top: 4px; }
 
 .fm-print__info {
@@ -1493,7 +1456,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   border: 1px solid #333; padding: 6px 8px; text-align: left;
 }
 .fm-print__table th {
-  background: var(--fm-sidebar-bg); color: #fff; font-weight: 700;
+  background: var(--fm-sidebar-bg); color: var(--fm-surface); font-weight: 700;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .fm-print__table .fm-num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1514,7 +1477,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 /* Dialog xem trước bản in */
 .fm-print-preview {
   max-width: 900px; margin: 0 auto;
-  background: #fff; padding: 32px;
+  background: var(--fm-surface); padding: 32px;
   border: 1px solid var(--fm-line); border-radius: var(--fm-r-lg);
 }
 .fm-print-preview .fm-print-area { display: block; }
@@ -1530,14 +1493,14 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-backdrop { position: static !important; background: none !important; padding: 0 !important; }
   .fm-modal.fm-print-preview { box-shadow: none !important; max-width: none !important; margin: 0 !important; }
   .fm-print-area { display: block !important; }
-  body { background: #fff !important; }
+  body { background: var(--fm-surface) !important; }
   @page { size: A4; margin: 15mm; }
 }
 
 /* Context menu (right-click) */
 .fm-ctxmenu {
   position: fixed; z-index: 2000; min-width: 200px;
-  background: #fff; border: 1px solid var(--fm-line); border-radius: 10px;
+  background: var(--fm-surface); border: 1px solid var(--fm-line); border-radius: 10px;
   box-shadow: 0 8px 28px rgba(0,0,0,.16); padding: 6px;
 }
 .fm-ctxmenu button {
@@ -1573,7 +1536,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 .fm-relmap__node {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   min-width: 130px; padding: 12px 16px; border-radius: var(--fm-r-xl);
-  background: #fff; border: 2px solid var(--fm-line);
+  background: var(--fm-surface); border: 2px solid var(--fm-line);
   border-top: 4px solid var(--rel-color, var(--fm-navy));
   cursor: pointer; transition: box-shadow .15s, transform .15s;
   font-family: inherit; text-align: center;
