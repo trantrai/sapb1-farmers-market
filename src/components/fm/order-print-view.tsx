@@ -51,11 +51,11 @@ export default function OrderPrintView({ order, partner }: Props) {
           <div className="fm-print__logo">F</div>
           <div>
             <div className="fm-print__company">FARMERS MARKET</div>
-            <div className="fm-print__tagline">Hệ thống Sale Order — SAP Business One</div>
+            <div className="fm-print__tagline">Hệ thống Đơn hàng bán — SAP Business One</div>
           </div>
         </div>
         <div className="fm-print__title-block">
-          <div className="fm-print__doctitle">PHIẾU BÁN HÀNG</div>
+          <div className="fm-print__doctitle">ĐƠN HÀNG BÁN</div>
           <div className="fm-print__docnum">Số: SO-{order.docNum}</div>
         </div>
       </div>
@@ -87,11 +87,11 @@ export default function OrderPrintView({ order, partner }: Props) {
             <th style={{ width: 36 }}>STT</th>
             <th>Mã hàng</th>
             <th>Tên hàng</th>
-            <th className="fm-num" style={{ width: 60 }}>SL</th>
-            <th style={{ width: 60 }}>ĐVT</th>
+            <th className="fm-num" style={{ width: 60 }}>Số lượng</th>
+            <th style={{ width: 60 }}>Đơn vị tính</th>
             <th className="fm-num" style={{ width: 110 }}>Đơn giá</th>
-            <th className="fm-num" style={{ width: 60 }}>CK%</th>
-            <th className="fm-num" style={{ width: 60 }}>VAT%</th>
+            <th className="fm-num" style={{ width: 60 }}>Chiết khấu %</th>
+            <th className="fm-num" style={{ width: 60 }}>Thuế %</th>
             <th className="fm-num" style={{ width: 130 }}>Thành tiền</th>
           </tr>
         </thead>
@@ -138,11 +138,11 @@ export default function OrderPrintView({ order, partner }: Props) {
             <td className="fm-num">{formatVND(order.totalBeforeDisc)}</td>
           </tr>
           <tr>
-            <td colSpan={8} style={{ textAlign: 'right' }}>Tiền VAT:</td>
+            <td colSpan={8} style={{ textAlign: 'right' }}>Tiền thuế:</td>
             <td className="fm-num">{formatVND(order.vatAmt)}</td>
           </tr>
           <tr className="fm-print__grand">
-            <td colSpan={8} style={{ textAlign: 'right' }}>TỔNG CỘNG THANH TOÁN:</td>
+            <td colSpan={8} style={{ textAlign: 'right' }}>Tổng chứng từ:</td>
             <td className="fm-num">{formatVND(order.grandTotal)}</td>
           </tr>
         </tfoot>

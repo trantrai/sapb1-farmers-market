@@ -70,8 +70,8 @@ interface EditRow {
 
 const STATUS_LABEL: Record<string, string> = {
   Open: 'Mở',
-  Closed: 'Đóng',
-  Cancelled: 'Hủy',
+  Closed: 'Đã đóng',
+  Cancelled: 'Đã hủy',
 }
 
 export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Props) {
@@ -228,11 +228,11 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
     for (const r of editRows) {
       const qty = parseFloat(r.qtyRaw)
       if (Number.isNaN(qty) || qty <= 0) {
-        setEditError(`SL dòng ${r.itemCode} phải > 0`)
+        setEditError(`Số lượng dòng ${r.itemCode} phải > 0`)
         return
       }
       if (qty > r.maxQty) {
-        setEditError(`SL dòng ${r.itemCode} (${qty}) vượt quá SL còn mở (${r.maxQty}) của đơn nguồn`)
+        setEditError(`Số lượng dòng ${r.itemCode} (${qty}) vượt quá số lượng còn mở (${r.maxQty}) của đơn nguồn`)
         return
       }
       payload.push({ id: r.id, quantity: qty })
@@ -381,8 +381,8 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         {delivery.sourceOrder ? (
           <dl className="fm-view-detail">
             <div><dt>Số chứng từ</dt><dd><b>SO #{delivery.sourceOrder.docNum}</b></dd></div>
-            <div><dt>Mã KH</dt><dd>{delivery.sourceOrder.cardCode}</dd></div>
-            <div><dt>Tên KH</dt><dd>{delivery.sourceOrder.cardName}</dd></div>
+            <div><dt>Mã khách hàng</dt><dd>{delivery.sourceOrder.cardCode}</dd></div>
+            <div><dt>Tên khách hàng</dt><dd>{delivery.sourceOrder.cardName}</dd></div>
             <div><dt>Ngày chứng từ</dt><dd>{formatDateVN(delivery.sourceOrder.docDate)}</dd></div>
             <div><dt>Trạng thái</dt><dd><span className={`fm-chip fm-chip--${(delivery.sourceOrder.status ?? 'Open').toLowerCase()}`}>{STATUS_LABEL[delivery.sourceOrder.status] ?? delivery.sourceOrder.status}</span></dd></div>
           </dl>
@@ -436,8 +436,8 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 <th>STT</th>
                 <th>Mã hàng</th>
                 <th>Tên hàng</th>
-                <th className="fm-num">SL</th>
-                <th>ĐVT</th>
+                <th className="fm-num">Số lượng</th>
+                <th>Đơn vị tính</th>
                 <th className="fm-num">Đơn giá</th>
                 <th className="fm-num">Thành tiền</th>
               </tr>
@@ -462,7 +462,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 <td colSpan={3} />
               </tr>
               <tr>
-                <td colSpan={6} style={{ textAlign: 'right', fontSize: 16 }}><b>TỔNG CỘNG:</b></td>
+                <td colSpan={6} style={{ textAlign: 'right', fontSize: 16 }}><b>Tổng chứng từ:</b></td>
                 <td className="fm-num" style={{ fontSize: 17, color: 'var(--fm-navy)' }}><b>{formatVND(delivery.grandTotal)}</b></td>
               </tr>
             </tfoot>
@@ -479,7 +479,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                   </div>
                 </div>
                 <div className="fm-lcard__grid">
-                  <div><span className="k">SL</span><span className="v">{l.quantity}</span></div>
+                  <div><span className="k">Số lượng</span><span className="v">{l.quantity}</span></div>
                   <div><span className="k">Đơn giá</span><span className="v">{formatVND(l.unitPrice)}</span></div>
                 </div>
                 <div className="fm-lcard__total">
@@ -552,7 +552,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             </div>
 
             <p className="fm-hint" style={{ margin: '0 0 10px' }}>
-              SL mới không được vượt quá SL còn mở của đơn nguồn (nếu dòng có liên kết).
+              Số lượng mới không được vượt quá số lượng còn mở của đơn nguồn (nếu dòng có liên kết).
             </p>
 
             <div className="fm-table-wrap" style={{ marginBottom: 12 }}>
@@ -561,8 +561,8 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                   <tr>
                     <th>Mã hàng</th>
                     <th>Tên hàng</th>
-                    <th className="fm-num">SL cũ</th>
-                    <th className="fm-num">SL mới</th>
+                    <th className="fm-num">Số lượng cũ</th>
+                    <th className="fm-num">Số lượng mới</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -570,8 +570,8 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                     <tr key={r.id}>
                       <td data-label="Mã hàng"><b>{r.itemCode}</b></td>
                       <td data-label="Tên hàng">{r.itemName}</td>
-                      <td className="fm-num" data-label="SL cũ">{r.oldQuantity}</td>
-                      <td className="fm-num" data-label="SL mới">
+                      <td className="fm-num" data-label="Số lượng cũ">{r.oldQuantity}</td>
+                      <td className="fm-num" data-label="Số lượng mới">
                         <input
                           type="number"
                           className="fm-input"
@@ -580,7 +580,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                           step="any"
                           value={r.qtyRaw}
                           onChange={(e) => setEditRowQty(r.id, e.target.value)}
-                          aria-label={`SL mới cho ${r.itemCode}${Number.isFinite(r.maxQty) ? ` (tối đa ${r.maxQty})` : ''}`}
+                          aria-label={`Số lượng mới cho ${r.itemCode}${Number.isFinite(r.maxQty) ? ` (tối đa ${r.maxQty})` : ''}`}
                           disabled={editBusy}
                         />
                         {Number.isFinite(r.maxQty) && (
@@ -632,7 +632,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
             </div>
             <p style={{ margin: '0 0 8px' }}>
               Hủy phiếu giao hàng <b>#{delivery.docNum}</b>? Các dòng đã giao của phiếu này sẽ được trả lại
-              thành SL còn mở của đơn nguồn.
+              thành số lượng còn mở của đơn nguồn.
             </p>
             <p className="fm-hint" style={{ margin: '0 0 16px' }}>
               Phiếu đã hủy sẽ không thể sửa và không thể đẩy sang SAP. Nếu cần giao tiếp, hãy tạo phiếu mới từ đơn nguồn.

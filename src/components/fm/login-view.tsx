@@ -67,7 +67,7 @@ export default function LoginView({ onLogin }: Props) {
         <div className="fm-login__brand">
           <div className="fm-login__logo" aria-hidden="true">F</div>
           <h1 className="fm-login__title">FARMERS MARKET</h1>
-          <p className="fm-login__subtitle">Hệ thống Sale Order — SAP Business One</p>
+          <p className="fm-login__subtitle">Hệ thống Đơn hàng bán — SAP Business One</p>
           <div className="fm-login__live">
             <span className="fm-login__live-dot" />
             SAP B1 Service Layer v1.1
@@ -132,7 +132,7 @@ export default function LoginView({ onLogin }: Props) {
 
           {dbs.length > 1 && (
             <div className="fm-field">
-              <label className="fm-label" htmlFor="database">Database SAP B1</label>
+              <label className="fm-label" htmlFor="database">Cơ sở dữ liệu công ty</label>
               <div style={{ position: 'relative' }}>
                 <select
                   id="database"
@@ -140,7 +140,7 @@ export default function LoginView({ onLogin }: Props) {
                   style={{ paddingLeft: 34, appearance: 'auto' }}
                   value={databaseId}
                   onChange={(e) => setDatabaseId(e.target.value)}
-                  aria-label="Chọn database SAP B1"
+                  aria-label="Chọn cơ sở dữ liệu công ty"
                 >
                   {dbs.map((d) => (
                     <option key={d.id} value={d.id}>

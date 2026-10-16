@@ -131,7 +131,7 @@ actions={<>
             <RefreshCw size={14} /> Tải lại
           </button>
           <button className="fm-btn fm-btn--secondary" onClick={() => setConfirmClear(true)}>
-            <Trash2 size={14} /> Xóa log
+            <Trash2 size={14} /> Xóa nhật ký
           </button>
         </>}
       />
@@ -173,7 +173,7 @@ actions={<>
               <tr>
                 <th style={{ width: 30 }}></th>
                 <th style={{ width: 148 }}>Thời gian</th>
-                <th style={{ width: 64 }}>Method</th>
+                <th style={{ width: 64 }}>Phương thức</th>
                 <th style={{ minWidth: 210 }}>Endpoint</th>
                 <th style={{ width: 110 }}>Kết quả</th>
                 <th className="fm-num" style={{ width: 90 }}>Ms</th>
@@ -205,7 +205,7 @@ actions={<>
                   >
                     <td data-label="">{expanded === r.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
                     <td data-label="Thời gian">{fmtTime(r.createdAt)}</td>
-                    <td data-label="Method">
+                    <td data-label="Phương thức">
                       <span className={`fm-line-meta ${r.method === 'POST' ? 'fm-audit-method--post' : r.method === 'PATCH' ? 'fm-audit-method--patch' : ''}`}>{r.method}</span>
                     </td>
                     <th scope="row" data-label="Endpoint" data-full title={r.path}>{fmtPath(r.path)}</th>

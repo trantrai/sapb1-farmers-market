@@ -145,7 +145,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <RefreshCw size={16} /> Tải lại số liệu
             </button>
             <button type="button" className="fm-btn fm-btn--primary" onClick={onGoCreate}>
-              <PlusCircle size={16} /> Tạo Sale Order mới
+              <PlusCircle size={16} /> Tạo đơn hàng bán mới
             </button>
           </>
         }
@@ -165,7 +165,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
       )}
       {stats?.sources.sap && (
         <div style={{ marginBottom: 12 }}>
-          <span className="fm-chip fm-chip--open">Gồm đơn SAP B1 live</span>
+          <span className="fm-chip fm-chip--open">Gồm đơn SAP B1 trực tiếp</span>
         </div>
       )}
       <div className="fm-stats" aria-busy={!stats && !loadError}>
@@ -181,11 +181,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><ClipboardList size={18} /></div>
               <div className="fm-stat__label">Tổng đơn hàng</div>
               <div className="fm-stat__value">{stats.totalOrders}</div>
-              <div className="fm-stat__meta">Tất cả Sale Order trong hệ thống</div>
+              <div className="fm-stat__meta">Tất cả đơn hàng bán trong hệ thống</div>
             </div>
             <div className="fm-stat fm-stat--navy">
               <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><FolderOpen size={18} /></div>
-              <div className="fm-stat__label">Đang mở (Open)</div>
+              <div className="fm-stat__label">Đang mở</div>
               <div className="fm-stat__value">{stats.openOrders}</div>
               <div className="fm-stat__meta">Chưa hoàn tất / chờ giao</div>
             </div>
@@ -241,7 +241,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                     <th>Số CT</th>
                     <th>Khách hàng</th>
                     <th>Hạn giao</th>
-                    <th>Tình trạng</th>
+                    <th>Trạng thái</th>
                     <th className="fm-num">Tổng tiền</th>
                     <th><span className="fm-sr-only">Thao tác</span></th>
                   </tr>
@@ -419,7 +419,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
           <div className="fm-empty">
             Chưa có đơn hàng nào
             <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
-              <Plus size={16} /> Tạo đơn hàng
+              <Plus size={16} /> Tạo đơn hàng bán
             </button>
           </div>
         ) : (

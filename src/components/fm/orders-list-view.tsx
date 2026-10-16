@@ -145,7 +145,7 @@ function OrderSheet({ order, onClose, onOpenRelMap, canDuplicate, onDuplicate }:
         style={{ maxWidth: 420 }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>Đơn hàng #{order.docNum}</h3>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Đơn hàng bán #{order.docNum}</h3>
           <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={onClose} aria-label="Đóng">
             <X size={16} />
           </button>
@@ -224,7 +224,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         json = {}
       }
       if (!res.ok) {
-        setAlert({ type: 'error', msg: json.error ?? `Tải danh sách đơn thất bại (HTTP ${res.status})` })
+        setAlert({ type: 'error', msg: json.error ?? `Tải danh sách đơn hàng bán thất bại (HTTP ${res.status})` })
         setOrders([])
         setTotal(0)
         setTotalPages(1)
@@ -267,9 +267,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
   const askDelete = (o: Order) => {
     setConfirmCfg({
-      title: 'Xóa đơn hàng',
-      message: `Xóa đơn hàng #${o.docNum} — ${o.cardName}?\nHành động không thể hoàn tác.`,
-      confirmLabel: 'Xóa đơn hàng',
+      title: 'Xóa đơn hàng bán',
+      message: `Xóa đơn hàng bán #${o.docNum} — ${o.cardName}?\nHành động không thể hoàn tác.`,
+      confirmLabel: 'Xóa đơn hàng bán',
       tone: 'danger',
       run: () => { void deleteOrder(o) },
     })
@@ -320,23 +320,23 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     try {
       const all = await fetchAllFiltered()
       if (all.length === 0) {
-        setAlert({ type: 'error', msg: 'Không có đơn hàng nào phù hợp bộ lọc để xuất' })
+        setAlert({ type: 'error', msg: 'Không có đơn hàng bán nào phù hợp bộ lọc để xuất' })
         return
       }
       // B4: lazy load xlsx chỉ khi xuất
       const XLSX = await import('xlsx')
-      const statusLabel = (s: string) => (s === 'Open' ? 'Mở' : s === 'Closed' ? 'Đóng' : s === 'Cancelled' ? 'Hủy' : s)
+      const statusLabel = (s: string) => (s === 'Open' ? 'Mở' : s === 'Closed' ? 'Đã đóng' : s === 'Cancelled' ? 'Đã hủy' : s)
 
       // Sheet 1: Danh sách đơn hàng
       const headerRows = all.map((o, i) => ({
         'STT': i + 1,
-        'Số CT': o.docNum,
-        'Ngày CT': formatDateVN(o.docDate),
+        'Số chứng từ': o.docNum,
+        'Ngày chứng từ': formatDateVN(o.docDate),
         'Ngày giao': formatDateVN(o.docDueDate),
-        'Mã KH': o.cardCode,
+        'Mã khách hàng': o.cardCode,
         'Tên khách hàng': o.cardName,
         'Trạng thái': statusLabel(o.status),
-        'Tổng tiền': o.grandTotal,
+        'Tổng chứng từ': o.grandTotal,
         'Ghi chú': o.remarks ?? '',
       }))
       const ws1 = XLSX.utils.json_to_sheet(headerRows)
@@ -346,14 +346,14 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       for (const o of all) {
         for (const l of o.lines) {
           detailRows.push({
-            'Số CT': o.docNum,
+            'Số chứng từ': o.docNum,
             'Mã hàng': l.itemCode,
             'Tên hàng': l.itemName,
             'Số lượng': l.quantity,
-            'Đơn vị': l.uom,
+            'Đơn vị tính': l.uom,
             'Đơn giá': l.unitPrice,
-            'CK%': l.discPct,
-            'VAT%': l.vatPct,
+            'Chiết khấu %': l.discPct,
+            'Thuế %': l.vatPct,
             'Thành tiền': l.grandTotal,
           })
         }
@@ -480,7 +480,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const askSync = (o: Order) => {
     setConfirmCfg({
       title: 'Đẩy lại đơn sang SAP B1',
-      message: `Đẩy lại Sale Order #${o.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
+      message: `Đẩy lại đơn hàng bán #${o.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
       confirmLabel: 'Đẩy sang SAP',
       tone: 'danger',
       run: () => { void syncOrder(o) },
@@ -490,8 +490,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   return (
     <div>
       <PageHeader
-        breadcrumb={['Chức năng chính', 'Danh sách đơn hàng']}
-        title="Danh sách Sale Order"
+        breadcrumb={['Chức năng chính', 'Danh sách đơn hàng bán']}
+        title="Danh sách đơn hàng bán"
         badge="Làm mới mỗi 45 giây"
         actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => load()}><RefreshCw size={14} /> Tải lại</button>
@@ -509,7 +509,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
           {canCreate && (
             <button className="fm-btn fm-btn--primary" onClick={onGoCreate}>
-              <Plus size={16} style={{ verticalAlign: -2, marginRight: 4 }} /> Tạo đơn hàng
+              <Plus size={16} style={{ verticalAlign: -2, marginRight: 4 }} /> Tạo đơn hàng bán
             </button>
           )}
         </div>
@@ -539,8 +539,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
             <input
               className="fm-input"
               style={{ paddingLeft: 32 }}
-              placeholder="Số CT, mã/tên khách hàng…"
-              aria-label="Tìm kiếm đơn hàng theo số chứng từ, mã hoặc tên khách hàng"
+              placeholder="Số chứng từ, mã/tên khách hàng…"
+              aria-label="Tìm kiếm đơn hàng bán theo số chứng từ, mã hoặc tên khách hàng"
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1) }}
             />
@@ -548,8 +548,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
           </div>
           <select className="fm-select" aria-label="Lọc theo trạng thái đơn hàng" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
             <option value="">Tất cả trạng thái</option>
-            <option value="Open">Open</option>
-            <option value="Closed">Closed</option>
+            <option value="Open">Mở</option>
+            <option value="Closed">Đã đóng</option>
             <option value="Cancelled">Đã hủy</option>
           </select>
           <input type="date" className="fm-datepicker" title="Từ ngày" aria-label="Lọc từ ngày" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
@@ -576,10 +576,10 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         ) : orders.length === 0 ? (
           <div className="fm-empty">
             <Inbox />
-            Không có đơn hàng phù hợp bộ lọc
+            Không có đơn hàng bán phù hợp bộ lọc
             {canCreate && (
               <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
-                <Plus size={16} /> Tạo đơn hàng
+                <Plus size={16} /> Tạo đơn hàng bán
               </button>
             )}
           </div>
@@ -590,15 +590,15 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
               <table className="fm-table">
                 <thead>
                   <tr>
-                    <th>Số CT</th>
-                    <th>Mã KH</th>
+                    <th>Số chứng từ</th>
+                    <th>Mã khách hàng</th>
                     <th>Khách hàng</th>
-                    <th>Ngày CT</th>
+                    <th>Ngày chứng từ</th>
                     <th>Hạn giao</th>
                     <th>Trạng thái</th>
                     <th>SAP B1</th>
-                    <th className="fm-num">Tổng trước VAT</th>
-                    <th className="fm-num">Tổng tiền</th>
+                    <th className="fm-num">Tổng trước thuế</th>
+                    <th className="fm-num">Tổng chứng từ</th>
                     <th><span className="fm-sr-only">Thao tác</span></th>
                   </tr>
                 </thead>
@@ -609,7 +609,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       style={{ cursor: 'pointer' }}
                       title="Bấm để xem chi tiết — Chuột phải để xem sơ đồ liên kết"
                       tabIndex={0}
-                      aria-label={`Xem chi tiết đơn hàng #${o.docNum} — ${o.cardName}`}
+                      aria-label={`Xem chi tiết đơn hàng bán #${o.docNum} — ${o.cardName}`}
                       onClick={() => openDetail(o)}
                       onContextMenu={(e) => {
                         e.preventDefault()
@@ -643,11 +643,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                         ) : isDueSoon(o.docDueDate, o.status) ? (
                           <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                         ) : o.status === 'Open' ? (
-                          <span className="fm-chip fm-chip--open">Open</span>
+                          <span className="fm-chip fm-chip--open">Mở</span>
                         ) : o.status === 'Cancelled' ? (
                           <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
                         ) : (
-                          <span className="fm-chip fm-chip--closed">Closed</span>
+                          <span className="fm-chip fm-chip--closed">Đã đóng</span>
                         )}
                       </td>
                       <td>{sapChip(o, canCreate, syncingId === o.id, () => askSync(o))}</td>
@@ -659,7 +659,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           <Network size={14} />
                         </button>
                         {editable(o) && (
-                          <button className="fm-icon-btn" title="Sửa đơn hàng" aria-label={`Sửa đơn hàng ${o.docNum}`} onClick={() => onGoEdit(toEditData(o))}>
+                          <button className="fm-icon-btn" title="Sửa đơn hàng bán" aria-label={`Sửa đơn hàng bán ${o.docNum}`} onClick={() => onGoEdit(toEditData(o))}>
                             <Pencil size={14} />
                           </button>
                         )}
@@ -669,7 +669,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           </button>
                         )}
                         {canDelete && o.source !== 'sap' && (
-                          <button className="fm-row-del" title="Xóa đơn hàng" aria-label="Xóa đơn hàng" onClick={() => askDelete(o)}>
+                          <button className="fm-row-del" title="Xóa đơn hàng bán" aria-label="Xóa đơn hàng bán" onClick={() => askDelete(o)}>
                             <Trash2 size={14} />
                           </button>
                         )}
@@ -688,7 +688,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                   className="fm-ocard"
                   role="button"
                   tabIndex={0}
-                  aria-label={`Xem chi tiết đơn hàng #${o.docNum} — ${o.cardName}`}
+                  aria-label={`Xem chi tiết đơn hàng bán #${o.docNum} — ${o.cardName}`}
                   onClick={() => openDetail(o)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -704,11 +704,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                     ) : isDueSoon(o.docDueDate, o.status) ? (
                       <span className="fm-chip fm-chip--warn">Còn {daysUntilDue(o.docDueDate)} ngày</span>
                     ) : o.status === 'Open' ? (
-                      <span className="fm-chip fm-chip--open">Open</span>
+                      <span className="fm-chip fm-chip--open">Mở</span>
                     ) : o.status === 'Cancelled' ? (
                       <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
                     ) : (
-                      <span className="fm-chip fm-chip--closed">Closed</span>
+                      <span className="fm-chip fm-chip--closed">Đã đóng</span>
                     )}
                     {sapChip(o, canCreate, syncingId === o.id, () => askSync(o))}
                     {/* Nút thao tác thêm (mobile không có right-click) → mở bottom-sheet */}
@@ -729,15 +729,15 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                     <div className="fm-ocard__meta">{o.cardCode}</div>
                   </div>
                   <div className="fm-ocard__meta">
-                    Ngày CT {formatDateVN(o.docDate)} · Hạn giao {formatDateVN(o.docDueDate)}
+                    Ngày chứng từ {formatDateVN(o.docDate)} · Hạn giao {formatDateVN(o.docDueDate)}
                   </div>
                   <div className="fm-ocard__bottom">
                     <span className="fm-ocard__total">{formatVND(o.grandTotal)}</span>
                     {canDelete && o.source !== 'sap' && (
                       <button
                         className="fm-ocard__del"
-                        title="Xóa đơn hàng"
-                        aria-label={`Xóa đơn hàng ${o.docNum}`}
+                        title="Xóa đơn hàng bán"
+                        aria-label={`Xóa đơn hàng bán ${o.docNum}`}
                         onClick={(e) => { e.stopPropagation(); askDelete(o) }}
                         // Chặn keydown bubble lên card cha (tránh mở chi tiết khi nhấn Enter trên nút Xóa)
                         onKeyDown={(e) => e.stopPropagation()}

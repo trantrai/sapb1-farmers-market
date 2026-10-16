@@ -26,15 +26,15 @@ interface Props {
 }
 
 const KIND_META = {
-  order: { label: 'Sale Order', icon: FileText, color: 'var(--fm-navy)' },
-  delivery: { label: 'Delivery', icon: Truck, color: 'var(--fm-primary-text)' },
-  invoice: { label: 'AR Invoice', icon: Receipt, color: 'var(--fm-coral)' },
+  order: { label: 'Đơn hàng bán', icon: FileText, color: 'var(--fm-navy)' },
+  delivery: { label: 'Phiếu giao hàng', icon: Truck, color: 'var(--fm-primary-text)' },
+  invoice: { label: 'Hóa đơn bán hàng', icon: Receipt, color: 'var(--fm-coral)' },
 } as const
 
 const STATUS_LABEL: Record<string, string> = {
   Open: 'Mở',
-  Closed: 'Đóng',
-  Cancelled: 'Hủy',
+  Closed: 'Đã đóng',
+  Cancelled: 'Đã hủy',
   none: 'Chưa đẩy SAP',
   pending: 'Đẩy lỗi',
   synced: 'Đã đẩy SAP',

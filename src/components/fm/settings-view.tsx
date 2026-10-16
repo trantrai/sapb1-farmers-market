@@ -149,7 +149,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
   const saveDb = async () => {
     if (!form) return
     setFieldErr(null)
-    if (!form.label.trim()) { setFieldErr('label'); setMsg({ type: 'error', text: 'Vui lòng nhập tên database' }); return }
+    if (!form.label.trim()) { setFieldErr('label'); setMsg({ type: 'error', text: 'Vui lòng nhập tên cơ sở dữ liệu' }); return }
     if (!/^https?:\/\/.+/i.test(form.serviceLayerUrl.trim())) { setFieldErr('url'); setMsg({ type: 'error', text: 'URL Service Layer không hợp lệ' }); return }
     if (!form.companyDb.trim()) { setFieldErr('companyDb'); setMsg({ type: 'error', text: 'Vui lòng nhập CompanyDB' }); return }
     if (!form.sapUser.trim()) { setFieldErr('user'); setMsg({ type: 'error', text: 'Vui lòng nhập tài khoản SAP' }); return }
@@ -173,12 +173,12 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       })
       const json = await res.json()
       if (!res.ok) {
-        setMsg({ type: 'error', text: json.error ?? 'Không thể lưu database' })
+        setMsg({ type: 'error', text: json.error ?? 'Không thể lưu cơ sở dữ liệu' })
         return
       }
       setForm(null)
       await loadDbs()
-      setMsg({ type: 'success', text: form.id ? 'Đã cập nhật database' : 'Đã thêm database mới' })
+      setMsg({ type: 'success', text: form.id ? 'Đã cập nhật cơ sở dữ liệu' : 'Đã thêm cơ sở dữ liệu mới' })
     } finally {
       setDbBusy(null)
     }
@@ -207,7 +207,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       const res = await api(`/api/sap-databases/${d.id}/set-default`, { method: 'POST' })
       const json = await res.json()
       if (!res.ok) setMsg({ type: 'error', text: json.error ?? 'Không thể đặt mặc định' })
-      else setMsg({ type: 'success', text: `Đã đặt “${d.label}” làm database mặc định.` })
+      else setMsg({ type: 'success', text: `Đã đặt “${d.label}” làm cơ sở dữ liệu mặc định.` })
       await loadDbs()
     } finally {
       setDbBusy(null)
@@ -216,8 +216,8 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
 
   const askDeleteDb = (d: SapDb) => {
     setConfirmCfg({
-      title: 'Xóa database',
-      message: `Xóa database “${d.label}” (${d.companyDb})?\nDữ liệu đã đồng bộ của database này sẽ được giữ lại.`,
+      title: 'Xóa cơ sở dữ liệu',
+      message: `Xóa cơ sở dữ liệu “${d.label}” (${d.companyDb})?\nDữ liệu đã đồng bộ của database này sẽ được giữ lại.`,
       confirmLabel: 'Xóa',
       tone: 'danger',
       run: () => { void doDeleteDb(d) },
@@ -232,11 +232,11 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       const res = await api(`/api/sap-databases/${d.id}`, { method: 'DELETE' })
       const json = await res.json()
       if (!res.ok) {
-        setMsg({ type: 'error', text: json.error ?? 'Không thể xóa database' })
+        setMsg({ type: 'error', text: json.error ?? 'Không thể xóa cơ sở dữ liệu' })
         return
       }
       await loadDbs()
-      setMsg({ type: 'success', text: 'Đã xóa database' })
+      setMsg({ type: 'success', text: 'Đã xóa cơ sở dữ liệu' })
     } finally {
       setDbBusy(null)
     }
@@ -270,22 +270,22 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       {/* Quản lý database SAP B1 */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Database size={18} /> Database SAP B1 — Service Layer (OData v2)
+          <Database size={18} /> Cơ sở dữ liệu công ty SAP B1 — Service Layer
           <span style={{ marginLeft: 'auto' }}>
             {canEdit && (
               <button className="fm-btn fm-btn--primary fm-btn--sm" onClick={openNew} disabled={dbBusy !== null}>
-                <Plus size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm database
+                <Plus size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm cơ sở dữ liệu
               </button>
             )}
           </span>
         </h2>
         <p style={{ fontSize: 12.5, color: 'var(--fm-text-2)', margin: '0 0 12px' }}>
-          Khai báo các CompanyDB kết nối qua Service Layer. Khi đăng nhập, người dùng chọn 1 database —
+          Khai báo các CompanyDB kết nối qua Service Layer. Khi đăng nhập, người dùng chọn 1 cơ sở dữ liệu —
           mọi thao tác SAP (đẩy đơn, đồng bộ, tra cứu) dùng đúng database đã chọn.
         </p>
 
         {dbs.length === 0 ? (
-          <div className="fm-empty">Chưa khai báo database nào. {canEdit ? 'Bấm “Thêm database” để bắt đầu.' : 'Liên hệ quản trị viên.'}</div>
+          <div className="fm-empty">Chưa khai báo cơ sở dữ liệu nào. {canEdit ? 'Bấm “Thêm cơ sở dữ liệu” để bắt đầu.' : 'Liên hệ quản trị viên.'}</div>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             {dbs.map((d) => (
@@ -296,10 +296,10 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                   <span
                     className="fm-chip"
                     style={d.connected ? { background: 'var(--fm-green-soft)', color: 'var(--fm-green)' } : undefined}
-                    title={d.lastTestAt ? `Test gần nhất: ${new Date(d.lastTestAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}` : 'Chưa test'}
+                    title={d.lastTestAt ? `Test gần nhất: ${new Date(d.lastTestAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}` : 'Chưa kiểm tra'}
                   >
                     <span className="dot" style={{ background: d.connected ? 'var(--fm-green)' : '#B0B0B0' }} />
-                    {d.connected ? 'Đã kết nối' : 'Chưa test'}
+                    {d.connected ? 'Đã kết nối' : 'Chưa kiểm tra'}
                   </span>
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {canEdit && (
@@ -313,7 +313,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                         </button>
                         {!d.isDefault && (
                           <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setDefault(d)} disabled={dbBusy !== null}>
-                            <Star size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt mặc định
+                            <Star size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt làm cơ sở dữ liệu mặc định
                           </button>
                         )}
                         <button className="fm-btn fm-btn--ghost fm-btn--sm fm-btn--danger" onClick={() => askDeleteDb(d)} disabled={dbBusy !== null} aria-label={`Xóa ${d.label}`}>
@@ -326,7 +326,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                 <div style={{ fontSize: 12.5, color: 'var(--fm-text-2)', marginTop: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   <span><b>URL:</b> {d.serviceLayerUrl || '—'}</span>
                   <span><b>CompanyDB:</b> {d.companyDb || '—'}</span>
-                  <span><b>User:</b> {d.sapUser || '—'}</span>
+                  <span><b>Tài khoản SAP:</b> {d.sapUser || '—'}</span>
                   {d.sslSkipVerify && <span className="fm-chip">Bỏ qua SSL</span>}
                 </div>
               </div>
@@ -343,9 +343,9 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       {/* Modal thêm/sửa database */}
       {form && (
         <div className="fm-backdrop" onClick={() => setForm(null)}>
-          <div ref={formTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label={form.id ? 'Sửa database' : 'Thêm database'} onClick={(e) => e.stopPropagation()}>
+          <div ref={formTrapRef} className="fm-modal" role="dialog" aria-modal="true" aria-label={form.id ? 'Sửa cơ sở dữ liệu' : 'Thêm cơ sở dữ liệu'} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 className="fm-modal__title">{form.id ? 'Sửa database' : 'Thêm database SAP B1'}</h3>
+              <h3 className="fm-modal__title">{form.id ? 'Sửa cơ sở dữ liệu' : 'Thêm cơ sở dữ liệu SAP B1'}</h3>
               <button className="fm-icon-btn" aria-label="Đóng" onClick={() => setForm(null)}><X size={16} /></button>
             </div>
             <div className="fm-form-grid" style={{ padding: '4px 0 12px' }}>
@@ -358,7 +358,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                 <input id="db-url" className={`fm-input${fieldErr === 'url' ? ' is-error' : ''}`} placeholder="https://sapb1…:50000/b1s/v1" value={form.serviceLayerUrl} onChange={(e) => updateForm({ serviceLayerUrl: e.target.value })} aria-invalid={fieldErr === 'url' ? true : undefined} aria-describedby={fieldErr === 'url' ? 'db-form-msg' : undefined} />
               </div>
               <div className="fm-field">
-                <label className="fm-label" htmlFor="db-companydb">Company DB <span className="fm-label__req">*</span></label>
+                <label className="fm-label" htmlFor="db-companydb">Cơ sở dữ liệu công ty (CompanyDB) <span className="fm-label__req">*</span></label>
                 <input id="db-companydb" className={`fm-input${fieldErr === 'companyDb' ? ' is-error' : ''}`} placeholder="FM_LIVE" value={form.companyDb} onChange={(e) => updateForm({ companyDb: e.target.value })} aria-invalid={fieldErr === 'companyDb' ? true : undefined} aria-describedby={fieldErr === 'companyDb' ? 'db-form-msg' : undefined} />
               </div>
               <div className="fm-field">
@@ -387,13 +387,13 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             </div>
             <label className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 12 }}>
               <input id="db-default" type="checkbox" checked={form.isDefault} onChange={(e) => updateForm({ isDefault: e.target.checked })} style={{ width: 16, height: 16, accentColor: 'var(--fm-primary)' }} />
-              <label className="fm-label" htmlFor="db-default" style={{ margin: 0 }}>Đặt làm database mặc định</label>
+              <label className="fm-label" htmlFor="db-default" style={{ margin: 0 }}>Đặt làm cơ sở dữ liệu mặc định</label>
             </label>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="fm-btn fm-btn--ghost" onClick={() => setForm(null)}>Hủy</button>
               <button className="fm-btn fm-btn--primary" onClick={saveDb} disabled={dbBusy !== null}>
                 <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-                {dbBusy === 'new' ? 'Đang lưu…' : form.id ? 'Cập nhật' : 'Thêm database'}
+                {dbBusy === 'new' ? 'Đang lưu…' : form.id ? 'Cập nhật' : 'Thêm cơ sở dữ liệu'}
               </button>
             </div>
           </div>

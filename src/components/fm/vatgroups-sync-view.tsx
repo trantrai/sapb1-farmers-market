@@ -212,11 +212,11 @@ export default function VatGroupsSyncView() {
           <span className="fm-chip fm-chip--role">Bán: {st?.salesCount ?? 0} · Mua: {st?.purchaseCount ?? 0}</span>
           {(st?.missingRateCount ?? 0) > 0 && (
             <span className="fm-chip fm-chip--overdue" title="Số nhóm không tra được thuế suất hiệu lực (không có dòng hiệu lực trong VatGroups_Lines)">
-              {st?.missingRateCount} nhóm chưa rõ suất
+              {st?.missingRateCount} nhóm thuế chưa rõ thuế suất
             </span>
           )}
-          <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
-          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt gia tăng chỉ tải bản ghi mới hơn mốc này">
+          <span className="fm-chip fm-chip--role">Lần đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
+          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt tăng dần chỉ tải bản ghi mới hơn mốc này">
             Mốc SAP: {fmtWatermark(st?.watermark?.date ?? null, st?.watermark?.time ?? null)}
           </span>
           <span style={{ marginLeft: 'auto' }}>

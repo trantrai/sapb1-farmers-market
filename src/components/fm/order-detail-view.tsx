@@ -272,7 +272,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
           .catch(() => {})
       }
     } catch {
-      if (!signal.cancelled) setError('Không tải được chi tiết đơn hàng')
+      if (!signal.cancelled) setError('Không tải được chi tiết đơn hàng bán')
     } finally {
       if (!signal.cancelled) setLoading(false)
     }
@@ -331,8 +331,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   const doCancelOrder = () => {
     if (!order || actionBusy) return
     const msg = order.sapSyncStatus === 'synced'
-      ? `Hủy Sale Order #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi hủy chứng từ trên SAP B1 trước.`
-      : `Hủy Sale Order #${order.docNum}?\nĐơn đã hủy sẽ không sửa, không copy delivery và không đẩy SAP được.`
+      ? `Hủy đơn hàng bán #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi hủy chứng từ trên SAP B1 trước.`
+      : `Hủy đơn hàng bán #${order.docNum}?\nĐơn đã hủy sẽ không sửa, không sao chép delivery và không đẩy SAP được.`
     const run = async () => {
       setConfirmCfg(null)
       setActionBusy(true)
@@ -370,8 +370,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   const doCloseOrder = () => {
     if (!order || actionBusy) return
     const msg = order.sapSyncStatus === 'synced'
-      ? `Đóng Sale Order #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi đóng chứng từ trên SAP B1 trước.`
-      : `Đóng Sale Order #${order.docNum}?\nĐơn đã đóng sẽ không sửa được nữa.`
+      ? `Đóng đơn hàng bán #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi đóng chứng từ trên SAP B1 trước.`
+      : `Đóng đơn hàng bán #${order.docNum}?\nĐơn đã đóng sẽ không sửa được nữa.`
     const run = async () => {
       setConfirmCfg(null)
       setActionBusy(true)
@@ -428,7 +428,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
     }
     setConfirmCfg({
       title: 'Đẩy sang SAP B1',
-      message: `Đẩy Sale Order #${order.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
+      message: `Đẩy đơn hàng bán #${order.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
       confirmLabel: 'Đẩy ngay',
       tone: 'primary',
       run: () => void run(),
@@ -438,7 +438,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   const openEmail = () => {
     if (!order) return
     setEmailTo(partner?.email ?? '')
-    setEmailSubject(`Phiếu bán hàng SO-${order.docNum} — ${order.cardName}`)
+    setEmailSubject(`Đơn hàng bán SO-${order.docNum} — ${order.cardName}`)
     setEmailMessage('')
     setEmailResult(null)
     setShowEmail(true)
@@ -497,22 +497,22 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   return (
     <div>
       <PageHeader
-        breadcrumb={['Chức năng chính', 'Danh sách đơn hàng', `Sale Order #${order.docNum}`]}
-        title={`Sale Order #${order.docNum}`}
+        breadcrumb={['Chức năng chính', 'Danh sách đơn hàng bán', `Đơn hàng bán #${order.docNum}`]}
+        title={`Đơn hàng bán #${order.docNum}`}
 actions={
           <>
             <button className="fm-btn fm-btn--secondary" onClick={onBack}>
               <ArrowLeft size={16} /> Quay lại
             </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
-              <Printer size={16} /> In đơn hàng
+              <Printer size={16} /> In đơn hàng bán
             </button>
             <button className="fm-btn fm-btn--secondary" onClick={openEmail}>
               <Mail size={16} /> Gửi email
             </button>
             {order.status === 'Open' && (
               <button className="fm-btn fm-btn--primary" onClick={() => onEdit(order.id)}>
-                <Pencil size={16} /> Sửa đơn hàng
+                <Pencil size={16} /> Sửa đơn hàng bán
               </button>
             )}
             {order.status === 'Open' && (
@@ -522,7 +522,7 @@ actions={
                 disabled={copyDisabled}
                 title={totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở'}
               >
-                <Truck size={16} /> Copy sang Delivery
+                <Truck size={16} /> Sao chép sang phiếu giao hàng
               </button>
             )}
             {order.status === 'Open' && (
@@ -544,13 +544,13 @@ actions={
 
       {order.status === 'Cancelled' && (
         <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }}>
-          Đơn hàng đã bị hủy — không thể sửa, copy sang Delivery hoặc đẩy lên SAP B1.
+          Đơn hàng bán đã bị hủy — không thể sửa, sao chép sang phiếu giao hàng hoặc đẩy lên SAP B1.
         </div>
       )}
 
       {overdue && (
         <div className="fm-alert fm-alert--error" style={{ marginBottom: 16 }}>
-          Đơn hàng đã quá hạn giao ({formatDateVN(order.docDueDate)})
+          Đơn hàng bán đã quá hạn giao ({formatDateVN(order.docDueDate)})
         </div>
       )}
 
@@ -566,7 +566,7 @@ actions={
           <div><dt>Ngày giao hàng</dt><dd>{formatDateVN(order.docDueDate)}</dd></div>
           <div><dt>Kho xuất</dt><dd>{order.warehouseCode || '—'}</dd></div>
           <div><dt>Người tạo</dt><dd>{order.createdBy}</dd></div>
-          <div><dt>Trạng thái</dt><dd>{order.status === 'Open' ? 'Đang mở' : order.status === 'Cancelled' ? 'Đã hủy' : 'Đã đóng'}</dd></div>
+          <div><dt>Trạng thái</dt><dd>{order.status === 'Open' ? 'Mở' : order.status === 'Cancelled' ? 'Đã hủy' : 'Đã đóng'}</dd></div>
           <div><dt>Chiết khấu đầu chứng từ</dt><dd>{order.headerDiscPct > 0 ? `${order.headerDiscPct}% (${formatVND(order.headerDiscAmt)})` : '—'}</dd></div>
           <div>
             <dt>Đồng bộ SAP B1</dt>
@@ -596,14 +596,14 @@ actions={
                 <th>#</th>
                 <th>Mã hàng</th>
                 <th>Tên hàng</th>
-                <th className="fm-num">SL</th>
-                <th>ĐVT</th>
+                <th className="fm-num">Số lượng</th>
+                <th>Đơn vị tính</th>
                 <th>Kho</th>
                 <th className="fm-num">Đơn giá</th>
-                <th className="fm-num">CK (%)</th>
-                <th className="fm-num">Sau CK</th>
-                <th className="fm-num">VAT (%)</th>
-                <th className="fm-num">Tiền dòng (sau VAT)</th>
+                <th className="fm-num">Chiết khấu (%)</th>
+                <th className="fm-num">Sau chiết khấu</th>
+                <th className="fm-num">Thuế (%)</th>
+                <th className="fm-num">Tiền dòng (sau thuế)</th>
               </tr>
             </thead>
             <tbody>
@@ -673,11 +673,11 @@ actions={
                 <td className="fm-num">{formatVND(order.totalBeforeDisc - order.discountAmt - order.headerDiscAmt)}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Thuế VAT các dòng:</td>
+                <td colSpan={10} style={{ textAlign: 'right' }}>Thuế các dòng:</td>
                 <td className="fm-num">{formatVND(order.vatAmt)}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}><b>TỔNG CỘNG:</b></td>
+                <td colSpan={10} style={{ textAlign: 'right' }}><b>Tổng chứng từ:</b></td>
                 <td className="fm-num"><b>{formatVND(order.grandTotal)}</b></td>
               </tr>
             </tfoot>
@@ -711,7 +711,7 @@ actions={
                     </div>
                   </div>
                   <div className="fm-lcard__grid">
-                    <div><span className="k">SL</span><span className="v">{line.quantity}</span></div>
+                    <div><span className="k">Số lượng</span><span className="v">{line.quantity}</span></div>
                     <div><span className="k">Đơn giá</span><span className="v">{formatVND(line.unitPrice)}</span></div>
                     <div><span className="k">CK</span><span className="v">{line.discPct}%</span></div>
                     <div><span className="k">VAT</span><span className="v">{line.vatPct}%</span></div>
@@ -727,7 +727,7 @@ actions={
                     </div>
                   )}
                   <div className="fm-lcard__total">
-                    <span>Thành tiền (sau VAT)</span>
+                    <span>Thành tiền (sau thuế)</span>
                     <b>{formatVND(afterDisc + vatAmt)}</b>
                   </div>
                 </div>
@@ -749,7 +749,7 @@ actions={
       {order.status !== 'Cancelled' && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
-            <Lock size={16} /> {order.status === 'Open' ? 'Đóng đơn hàng (Closed)' : 'Mở lại đơn hàng'}
+            <Lock size={16} /> {order.status === 'Open' ? 'Đóng đơn hàng (Đã đóng)' : 'Mở lại đơn hàng'}
           </button>
           <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
             <CloudUpload size={16} /> Đẩy sang SAP B1 ngay
@@ -799,13 +799,13 @@ actions={
             className="fm-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Gửi email đơn hàng"
+            aria-label="Gửi email đơn hàng bán"
             onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: 560 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Mail size={18} /> Gửi email đơn hàng SO-{order.docNum}
+                <Mail size={18} /> Gửi email đơn hàng bán SO-{order.docNum}
               </h3>
               <button className="fm-icon-btn" onClick={() => { if (!emailBusy) setShowEmail(false) }} aria-label="Đóng" disabled={emailBusy}>
                 <X size={16} />
@@ -846,7 +846,7 @@ actions={
                 id="fm-email-message"
                 className="fm-input"
                 rows={4}
-                placeholder="Lời nhắn kèm theo phiếu bán hàng…"
+                placeholder="Lời nhắn kèm theo đơn hàng bán…"
                 value={emailMessage}
                 onChange={(e) => setEmailMessage(e.target.value)}
                 disabled={emailBusy}
@@ -872,13 +872,13 @@ actions={
             className="fm-modal fm-modal--wide"
             role="dialog"
             aria-modal="true"
-            aria-label={`Copy sang Delivery từ đơn ${order.docNum}`}
+            aria-label={`Sao chép sang phiếu giao hàng từ đơn ${order.docNum}`}
             onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: 760 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 className="fm-modal__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Truck size={18} /> Copy sang Delivery — Sale Order #{order.docNum}
+                <Truck size={18} /> Sao chép sang phiếu giao hàng — Đơn hàng bán #{order.docNum}
               </h3>
               <button className="fm-icon-btn" onClick={() => setShowCopyModal(false)} aria-label="Đóng" disabled={copyBusy}>
                 <X size={16} />
@@ -887,7 +887,7 @@ actions={
 
             {order.sapSyncStatus !== 'synced' && (
               <div className="fm-alert fm-alert--warning" role="alert" style={{ marginBottom: 12 }}>
-                Đơn chưa đẩy SAP — liên kết SO→Delivery trên SAP sẽ mất.
+                Đơn hàng bán chưa đẩy SAP — liên kết chứng từ gốc→đích trên SAP sẽ mất.
               </div>
             )}
 

@@ -53,8 +53,8 @@ interface Props {
 
 const STATUS_LABEL: Record<string, string> = {
   Open: 'Mở',
-  Closed: 'Đóng',
-  Cancelled: 'Hủy',
+  Closed: 'Đã đóng',
+  Cancelled: 'Đã hủy',
 }
 
 export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refreshKey, canCreate, onGoCreate }: Props) {
@@ -259,7 +259,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
           <Search size={16} className="fm-search__icon" />
           <input
             className="fm-search__input"
-            placeholder="Tìm mã KH, tên KH, số phiếu…"
+            placeholder="Tìm mã khách hàng, tên khách hàng, số phiếu…"
             value={q}
             onChange={(e) => { setQ(e.target.value); setPage(1) }}
             aria-label="Tìm kiếm phiếu giao hàng"
@@ -274,8 +274,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
         >
           <option value="">Tất cả trạng thái</option>
           <option value="Open">Mở</option>
-          <option value="Closed">Đóng</option>
-          <option value="Cancelled">Hủy</option>
+          <option value="Closed">Đã đóng</option>
+          <option value="Cancelled">Đã hủy</option>
         </select>
       </div>
 
@@ -285,12 +285,12 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
             <thead>
               <tr>
                 <th>Số phiếu</th>
-                <th>Ngày</th>
+                <th>Ngày giao</th>
                 <th>Khách hàng</th>
                 <th>Đơn nguồn</th>
                 <th>Trạng thái</th>
                 <th>SAP</th>
-                <th className="fm-num">Tổng tiền</th>
+                <th className="fm-num">Tổng chứng từ</th>
                 <th><span className="fm-sr-only">Thao tác</span></th>
               </tr>
             </thead>
@@ -304,10 +304,10 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   </div>
                 </td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8}><div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).
+                <tr><td colSpan={8}><div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Sao chép sang phiếu giao hàng”).
                   {canCreate && onGoCreate && (
                     <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
-                      <Plus size={16} /> Tạo đơn hàng
+                      <Plus size={16} /> Tạo đơn hàng bán
                     </button>
                   )}
                 </div></td></tr>
@@ -353,7 +353,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                         type="button"
                         className="fm-link"
                         onClick={(e) => { e.stopPropagation(); onGoOrderDetail(d.sourceOrder!.id) }}
-                        title={`Xem Sale Order #${d.sourceOrder.docNum}`}
+                        title={`Xem đơn hàng bán #${d.sourceOrder.docNum}`}
                       >
                         SO #{d.sourceOrder.docNum}
                       </button>
@@ -436,10 +436,10 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Copy sang Delivery”).
+            <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Sao chép sang phiếu giao hàng”).
               {canCreate && onGoCreate && (
                 <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
-                  <Plus size={16} /> Tạo đơn hàng
+                  <Plus size={16} /> Tạo đơn hàng bán
                 </button>
               )}
             </div>
@@ -476,7 +476,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                 <div className="fm-ocard__meta">{d.cardCode}</div>
               </div>
               <div className="fm-ocard__meta">
-                Ngày {formatDateVN(d.docDate)}
+                Ngày giao {formatDateVN(d.docDate)}
                 {d.sourceOrder ? ` · Đơn nguồn SO #${d.sourceOrder.docNum}` : ''}
               </div>
               <div className="fm-ocard__bottom">

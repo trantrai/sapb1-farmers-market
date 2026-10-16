@@ -1165,7 +1165,7 @@ export default function OrderFormView({
           setVersionConflict(true)
           setError('Đơn hàng đã bị sửa bởi người khác — vui lòng tải lại đơn hàng rồi thử lại')
         } else {
-          setError(json.error ?? (isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể tạo đơn hàng'))
+          setError(json.error ?? (isEdit ? 'Không thể cập nhật đơn hàng bán' : 'Không thể tạo đơn hàng bán'))
         }
         return
       }
@@ -1240,12 +1240,12 @@ export default function OrderFormView({
   return (
     <div style={{ paddingBottom: 96 }}>
       <PageHeader
-        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng #${editOrder?.docNum}` : 'Tạo đơn hàng mới']}
-        title={isEdit ? `Cập Nhật Sale Order #${editOrder?.docNum}` : 'Tạo Sale Order Mới'}
+        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng bán #${editOrder?.docNum}` : 'Tạo đơn hàng bán mới']}
+        title={isEdit ? `Cập nhật đơn hàng bán #${editOrder?.docNum}` : 'Tạo đơn hàng bán mới'}
 />
       {error && (
         <div className="fm-alert fm-alert--error" role="alert">
-          <div><b>{isEdit ? 'Không thể cập nhật đơn hàng' : 'Không thể lưu đơn hàng'}</b>{error}</div>
+          <div><b>{isEdit ? 'Không thể cập nhật đơn hàng bán' : 'Không thể lưu đơn hàng bán'}</b>{error}</div>
           {versionConflict && (
             <button
               type="button"
@@ -1270,9 +1270,9 @@ export default function OrderFormView({
       {isEdit && editOrder && (
         <div className="fm-alert fm-alert--success" style={{ marginBottom: 14 }}>
           <div>
-            <b>Đang sửa Sale Order #{editOrder.docNum}</b>
+            <b>Đang sửa đơn hàng bán #{editOrder.docNum}</b>
             {editOrder.sapSyncStatus === 'synced'
-              ? ' — Lưu thay đổi sẽ cập nhật trực tiếp chứng từ trên SAP B1 (PATCH /Orders). Chỉ được sửa khi chứng từ còn Open trên SAP.'
+              ? ' — Lưu thay đổi sẽ cập nhật trực tiếp chứng từ trên SAP B1 (PATCH /Orders). Chỉ được sửa khi chứng từ còn Mở trên SAP.'
               : ' — Đơn chưa đẩy sang SAP B1, lưu thay đổi chỉ áp dụng trên hệ thống này.'}
           </div>
         </div>
@@ -1324,7 +1324,7 @@ export default function OrderFormView({
           <Autocomplete
             label="Khách hàng"
             required
-            placeholder="Gõ mã KH hoặc tên KH…"
+            placeholder="Gõ mã khách hàng hoặc tên khách hàng…"
             fetchUrl="/api/partners"
             value={partner}
             disabled={saving}
@@ -1468,10 +1468,10 @@ export default function OrderFormView({
                 <th style={{ width: 86 }} title="Kho hàng xuất bán (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng">Kho</th>
                 <th style={{ width: 128 }} title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt. Tự kiểm tra sau khi chọn mặt hàng">Tồn kho (ATP)</th>
                 <th style={{ width: 132 }}>Đơn giá (₫)</th>
-                <th style={{ width: 92 }} title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
+                <th style={{ width: 92 }} title="Chiết khấu áp dụng riêng cho dòng này">Chiết khấu (%)</th>
                 <th style={{ width: 88 }} title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">Mã thuế</th>
-                <th style={{ width: 92 }} title="Thuế suất VAT áp dụng riêng cho dòng này — tự điền theo mã thuế">VAT (%)</th>
-                <th className="fm-num" style={{ minWidth: 128 }}>Sau CK (₫)</th>
+                <th style={{ width: 92 }} title="Thuế suất VAT áp dụng riêng cho dòng này — tự điền theo mã thuế">Thuế (%)</th>
+                <th className="fm-num" style={{ minWidth: 128 }}>Sau chiết khấu (₫)</th>
                 <th style={{ width: 44 }}></th>
               </tr>
             </thead>
@@ -1681,7 +1681,7 @@ export default function OrderFormView({
                       </div>
                       )}
                     </td>
-                    <td data-label="CK (%)">
+                    <td data-label="Chiết khấu (%)">
                       <input
                         type="number"
                         min={0}
@@ -1706,7 +1706,7 @@ export default function OrderFormView({
                         '—'
                       )}
                     </td>
-                    <td data-label="VAT (%)">
+                    <td data-label="Thuế (%)">
                       <input
                         type="number"
                         aria-label={`VAT % dòng ${l.key}`}
@@ -1722,7 +1722,7 @@ export default function OrderFormView({
                         </div>
                       )}
                     </td>
-                    <td className="fm-num" data-label="Sau CK (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
+                    <td className="fm-num" data-label="Sau chiết khấu (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
                     <td data-label="Xóa dòng">
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
@@ -1801,8 +1801,8 @@ export default function OrderFormView({
               <div className="fm-totals__row"><span>Chiết khấu đầu chứng từ ({headerDiscPct}%)</span><b>−{formatVND(totals.headerDiscAmt)}</b></div>
             )}
             <div className="fm-totals__row"><span>Sau chiết khấu</span><b>{formatVND(totals.afterDisc)}</b></div>
-            <div className="fm-totals__row"><span>Thuế VAT các dòng</span><b>{formatVND(totals.vatAmt)}</b></div>
-            <div className="fm-totals__grand"><span>TỔNG CỘNG</span><span>{formatVND(totals.grand)}</span></div>
+            <div className="fm-totals__row"><span>Thuế các dòng</span><b>{formatVND(totals.vatAmt)}</b></div>
+            <div className="fm-totals__grand"><span>Tổng chứng từ</span><span>{formatVND(totals.grand)}</span></div>
           </div>
         </div>
 
@@ -1833,7 +1833,7 @@ export default function OrderFormView({
           (dùng đúng handler + state disabled/busy của nút cũ, không đổi logic) */}
       <div
         role="toolbar"
-        aria-label="Thao tác đơn hàng"
+        aria-label="Thao tác đơn hàng bán"
         style={{
           position: 'sticky',
           bottom: 0,
@@ -1880,7 +1880,7 @@ export default function OrderFormView({
         )}
         <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
           <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-          {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng'}
+          {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng bán'}
         </button>
       </div>
 
@@ -1994,10 +1994,10 @@ export default function OrderFormView({
                   <thead>
                     <tr>
                       <th>Ngày</th>
-                      <th>Số CT</th>
-                      <th style={{ textAlign: 'right' }}>SL</th>
+                      <th>Số chứng từ</th>
+                      <th style={{ textAlign: 'right' }}>Số lượng</th>
                       <th style={{ textAlign: 'right' }}>Đơn giá (₫)</th>
-                      <th style={{ textAlign: 'right' }}>CK%</th>
+                      <th style={{ textAlign: 'right' }}>Chiết khấu %</th>
                       <th style={{ width: 90 }}></th>
                     </tr>
                   </thead>
@@ -2005,10 +2005,10 @@ export default function OrderFormView({
                     {priceHist.map((h, i) => (
                       <tr key={`${h.docNum}-${i}`}>
                         <td data-label="Ngày">{formatDateVN(h.docDate)}</td>
-                        <th scope="row" data-label="Số CT">#{h.docNum}</th>
-                        <td data-label="SL" style={{ textAlign: 'right' }}>{formatNum(h.quantity)} {h.uom}</td>
+                        <th scope="row" data-label="Số chứng từ">#{h.docNum}</th>
+                        <td data-label="Số lượng" style={{ textAlign: 'right' }}>{formatNum(h.quantity)} {h.uom}</td>
                         <td data-label="Đơn giá (₫)" style={{ textAlign: 'right', fontWeight: 600 }}>{formatVND(h.unitPrice)}</td>
-                        <td data-label="CK%" style={{ textAlign: 'right' }}>{h.discPct}%</td>
+                        <td data-label="Chiết khấu %" style={{ textAlign: 'right' }}>{h.discPct}%</td>
                         <td data-label="">
                           <button
                             type="button"

@@ -8,9 +8,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Farmers Market — SAP B1 Sale Order",
+  title: "Farmers Market — Đơn hàng bán SAP B1",
   description:
-    "Hệ thống quản lý Sale Order tích hợp SAP Business One của Farmers Market — tạo đơn, theo dõi trạng thái, phân quyền RBAC.",
+    "Hệ thống quản lý đơn hàng bán tích hợp SAP Business One của Farmers Market — tạo đơn, theo dõi trạng thái, quản lý ủy quyền.",
   icons: {
     icon: "/logo-farmers-market.png",
   },

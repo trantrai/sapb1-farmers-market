@@ -111,7 +111,7 @@ export default function RolesView({ user, onGoUsers }: Props) {
     if (selfLock) {
       setConfirmCfg({
         title: 'Cảnh báo: tự khóa quyền của chính bạn',
-        message: 'Bạn đang tắt quyền "Phân quyền" hoặc "Người dùng" của vai trò Admin — vai trò của chính bạn.\n\nSau khi lưu, bạn có thể mất khả năng truy cập lại các trang này. Tiếp tục lưu?',
+        message: 'Bạn đang tắt quyền "Ủy quyền" hoặc "Người dùng" của vai trò Admin — vai trò của chính bạn.\n\nSau khi lưu, bạn có thể mất khả năng truy cập lại các trang này. Tiếp tục lưu?',
         confirmLabel: 'Tiếp tục lưu',
         tone: 'danger',
         run: () => { void doSave() },
@@ -155,8 +155,8 @@ export default function RolesView({ user, onGoUsers }: Props) {
   return (
     <div>
       <PageHeader
-        breadcrumb={['Quản trị & Hệ thống', 'Phân quyền RBAC']}
-        title="Phân quyền vai trò (RBAC)"
+        breadcrumb={['Quản trị & Hệ thống', 'Quản lý ủy quyền']}
+        title="Ủy quyền vai trò"
 actions={<>
           <span className="fm-hint">Bấm vào vai trò để xem và chỉnh ma trận quyền</span>
         </>}
@@ -279,7 +279,7 @@ actions={<>
               <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="fm-btn fm-btn--primary" onClick={askSave} disabled={!canEdit || saving || !dirty}>
                   <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-                  {saving ? 'Đang lưu…' : 'Lưu phân quyền'}
+                  {saving ? 'Đang lưu…' : 'Lưu ủy quyền'}
                 </button>
                 {dirty && canEdit && (
                   <button className="fm-btn fm-btn--ghost" onClick={() => resetDraft(selectedId, roles)} disabled={saving}>

@@ -226,8 +226,8 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
             {st?.configured ? 'SAP B1 đã kết nối' : 'Chưa cấu hình SAP B1'}
           </span>
           <span className="fm-chip fm-chip--role"><DatabaseZap size={14} />{st?.count ?? 0} mặt hàng local</span>
-          <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
-          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt gia tăng chỉ tải bản ghi mới hơn mốc này">
+          <span className="fm-chip fm-chip--role">Lần đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
+          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt tăng dần chỉ tải bản ghi mới hơn mốc này">
             Mốc SAP: {fmtWatermark(st?.watermark?.date ?? null, st?.watermark?.time ?? null)}
           </span>
           <span style={{ marginLeft: 'auto' }}>
@@ -240,7 +240,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
           <input
             className="fm-input"
             data-search
-            placeholder="Tìm mã / tên hàng / mã vạch / mã thuế…"
+            placeholder="Tìm mã hàng / Tên hàng / mã vạch / mã thuế…"
             aria-label="Tìm kiếm mặt hàng theo mã, tên, mã vạch hoặc mã thuế"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -258,7 +258,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
             <thead>
               <tr>
                 <th style={{ width: 128 }}>Mã hàng</th>
-                <th style={{ minWidth: 200 }}>Tên mặt hàng</th>
+                <th style={{ minWidth: 200 }}>Tên hàng</th>
                 <th style={{ width: 64 }}>ĐVT</th>
                 <th className="fm-num" style={{ width: 110 }}>Đơn giá (₫)</th>
                 <th className="fm-num" style={{ width: 90 }}>Tồn kho</th>
@@ -293,7 +293,7 @@ export default function ItemsSyncView({ initialQuery = '' }: { initialQuery?: st
               {rows?.map((r) => (
                 <tr key={r.id}>
                   <th scope="row" data-label="Mã hàng"><b>{r.itemCode}</b></th>
-                  <td data-label="Tên mặt hàng" data-full>{r.itemName}</td>
+                  <td data-label="Tên hàng" data-full>{r.itemName}</td>
                   <td data-label="ĐVT">{r.uom || '—'}</td>
                   <td className="fm-num" data-label="Đơn giá (₫)">{fmtVND(r.price)}</td>
                   <td className="fm-num" data-label="Tồn kho">{fmtNum(r.stock)}</td>

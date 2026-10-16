@@ -225,8 +225,8 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
             {st?.configured ? 'SAP B1 đã kết nối' : 'Chưa cấu hình SAP B1'}
           </span>
           <span className="fm-chip fm-chip--role"><DatabaseZap size={14} />{st?.count ?? 0} khách hàng local</span>
-          <span className="fm-chip fm-chip--role">Đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
-          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt gia tăng chỉ tải bản ghi mới hơn mốc này">
+          <span className="fm-chip fm-chip--role">Lần đồng bộ cuối: {st?.lastSyncAt ? fmtTime(st.lastSyncAt) : 'chưa bao giờ'}</span>
+          <span className="fm-chip fm-chip--role" title="Mốc thay đổi (UpdateDate/UpdateTime) lớn nhất đã đồng bộ từ SAP — lượt tăng dần chỉ tải bản ghi mới hơn mốc này">
             Mốc SAP: {fmtWatermark(st?.watermark?.date ?? null, st?.watermark?.time ?? null)}
           </span>
           <span style={{ marginLeft: 'auto' }}>
@@ -256,8 +256,8 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
           <table className="fm-table fm-stack-table">
             <thead>
               <tr>
-                <th style={{ width: 110 }}>Mã KH</th>
-                <th style={{ minWidth: 180 }}>Tên đơn vị</th>
+                <th style={{ width: 110 }}>Mã đối tác</th>
+                <th style={{ minWidth: 180 }}>Tên đối tác</th>
                 <th style={{ minWidth: 160 }}>Địa chỉ</th>
                 <th style={{ minWidth: 140 }}>Người liên hệ</th>
                 <th style={{ width: 120 }}>Điện thoại</th>
@@ -291,8 +291,8 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
               )}
               {rows?.map((r) => (
                 <tr key={r.id}>
-                  <th scope="row" data-label="Mã KH"><b>{r.cardCode}</b></th>
-                  <td data-label="Tên đơn vị">{r.cardName}</td>
+                  <th scope="row" data-label="Mã đối tác"><b>{r.cardCode}</b></th>
+                  <td data-label="Tên đối tác">{r.cardName}</td>
                   <td data-label="Địa chỉ" data-full>{r.address || '—'}</td>
                   <td data-label="Người liên hệ">{r.contactPerson ? <>{r.contactPerson}{r.contactPhone ? <><br /><small style={{ color: 'var(--fm-text-2)' }}>{r.contactPhone}</small></> : null}</> : '—'}</td>
                   <td data-label="Điện thoại">{r.phone || '—'}</td>

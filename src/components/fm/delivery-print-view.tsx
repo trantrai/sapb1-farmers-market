@@ -44,7 +44,7 @@ export default function DeliveryPrintView({ delivery }: Props) {
           <div className="fm-print__logo">F</div>
           <div>
             <div className="fm-print__company">FARMERS MARKET</div>
-            <div className="fm-print__tagline">Hệ thống Sale Order — SAP Business One</div>
+            <div className="fm-print__tagline">Hệ thống Đơn hàng bán — SAP Business One</div>
           </div>
         </div>
         <div className="fm-print__title-block">
@@ -59,7 +59,7 @@ export default function DeliveryPrintView({ delivery }: Props) {
           <div><b>Khách hàng:</b> {delivery.cardName} ({delivery.cardCode})</div>
           <div>
             <b>Đơn nguồn:</b>{' '}
-            {delivery.sourceOrder ? `SO-${delivery.sourceOrder.docNum}` : delivery.source === 'sap' ? 'Từ SAP B1' : 'Tạo thủ công'}
+            {delivery.sourceOrder ? `Đơn hàng bán ${delivery.sourceOrder.docNum}` : delivery.source === 'sap' ? 'Từ SAP B1' : 'Tạo thủ công'}
           </div>
         </div>
         <div className="fm-print__info-col">
@@ -75,8 +75,8 @@ export default function DeliveryPrintView({ delivery }: Props) {
             <th style={{ width: 36 }}>STT</th>
             <th>Mã hàng</th>
             <th>Tên hàng</th>
-            <th className="fm-num" style={{ width: 70 }}>SL</th>
-            <th style={{ width: 60 }}>ĐVT</th>
+            <th className="fm-num" style={{ width: 70 }}>Số lượng</th>
+            <th style={{ width: 60 }}>Đơn vị tính</th>
             <th className="fm-num" style={{ width: 120 }}>Đơn giá</th>
             <th className="fm-num" style={{ width: 140 }}>Thành tiền</th>
           </tr>
@@ -101,7 +101,7 @@ export default function DeliveryPrintView({ delivery }: Props) {
             <td colSpan={3} />
           </tr>
           <tr className="fm-print__grand">
-            <td colSpan={6} style={{ textAlign: 'right' }}>TỔNG CỘNG:</td>
+            <td colSpan={6} style={{ textAlign: 'right' }}>Tổng chứng từ:</td>
             <td className="fm-num">{formatVND(delivery.grandTotal)}</td>
           </tr>
         </tfoot>

@@ -50,35 +50,35 @@ interface MenuItem {
 
 const MENU: MenuItem[] = [
   { key: 'dashboard', module: 'orders', label: 'Tổng quan hệ thống', short: 'Tổng quan', icon: <LayoutDashboard size={16} />, group: 'main' },
-  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng', short: 'Đơn hàng', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
-  { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng mới', short: 'Tạo đơn', icon: <PlusCircle size={16} />, group: 'main' },
+  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng bán', short: 'Đơn hàng bán', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
+  { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng bán mới', short: 'Tạo đơn bán', icon: <PlusCircle size={16} />, group: 'main' },
   { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main', badge: 'DL' },
   { key: 'excelTemplates', module: 'excelTemplates', label: 'Mẫu Excel', short: 'Mẫu Excel', icon: <FileSpreadsheet size={16} />, group: 'main' },
   { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
   { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
-  { key: 'partners', module: 'settings', label: 'Đồng bộ Khách hàng', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
+  { key: 'partners', module: 'settings', label: 'Đồng bộ Đối tác kinh doanh', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
   { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync', badge: 'BOM' },
   { key: 'users', module: 'users', label: 'Quản lý người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
-  { key: 'roles', module: 'roles', label: 'Phân quyền RBAC', short: 'Phân quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
+  { key: 'roles', module: 'roles', label: 'Quản lý ủy quyền', short: 'Ủy quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
   { key: 'settings', module: 'settings', label: 'Cài đặt SAP B1', short: 'Cài đặt', icon: <Settings size={16} />, group: 'admin' },
   { key: 'sapAudit', module: 'settings', label: 'Service Layer Audit', short: 'SL Audit', icon: <History size={16} />, group: 'admin' },
 ]
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   dashboard: 'Tổng quan hệ thống',
-  orders: 'Danh sách Sale Order',
-  ordersNew: 'Tạo / Cập nhật Sale Order',
-  orderDetail: 'Chi tiết Sale Order',
+  orders: 'Danh sách đơn hàng bán',
+  ordersNew: 'Tạo / Cập nhật đơn hàng bán',
+  orderDetail: 'Chi tiết đơn hàng bán',
   deliveries: 'Quản lý giao hàng',
   deliveryDetail: 'Chi tiết phiếu giao hàng',
   users: 'Quản lý người dùng',
   settings: 'Cài đặt kết nối SAP B1',
-  sapAudit: 'Service Layer Audit — nhật ký & Retry',
+  sapAudit: 'Service Layer Audit — nhật ký & thử lại',
   items: 'Quản lý đồng bộ Mặt hàng',
   vatGroups: 'Quản lý đồng bộ Nhóm thuế (Sale VAT Group)',
   partners: 'Quản lý đồng bộ Khách hàng',
-  roles: 'Phân quyền (RBAC)',
-  excelTemplates: 'Quản lý Template Excel',
+  roles: 'Ủy quyền',
+  excelTemplates: 'Quản lý mẫu Excel',
   bomImport: 'Import BOM/Combo từ Base Workflow',
 }
 
@@ -295,7 +295,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </div>
           <span className="fm-sap-status__live" style={sapStatus === 'none' ? { opacity: 0.6 } : sapStatus === 'error' ? { color: 'var(--fm-red)' } : undefined}>
             <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: 'var(--fm-muted-line)' } : sapStatus === 'error' ? { background: 'var(--fm-red)' } : undefined} />
-            {sapStatus === 'ok' ? 'Live' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi'}
+            {sapStatus === 'ok' ? 'Đang kết nối' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi'}
           </span>
         </div>
 
@@ -373,7 +373,7 @@ export default function AppShell({ user, onLogout }: Props) {
               <Search size={18} className="fm-search__icon" />
               <input
                 className="fm-search__input"
-                placeholder="Tìm kiếm mã hàng, SO, khách hàng (Ctrl+K)..."
+                placeholder="Tìm kiếm mã mặt hàng, đơn hàng, khách hàng (Ctrl+K)..."
                 aria-label="Tìm kiếm"
                 readOnly
                 tabIndex={-1}
@@ -458,8 +458,8 @@ export default function AppShell({ user, onLogout }: Props) {
                   const wasEdit = Boolean(editOrder)
                   setEditOrder(null)
                   let msg = wasEdit
-                    ? `Đã cập nhật Sale Order #${docNum} thành công!`
-                    : `Đã tạo Sale Order #${docNum} thành công!`
+                    ? `Đã cập nhật đơn hàng bán #${docNum} thành công!`
+                    : `Đã tạo đơn hàng bán #${docNum} thành công!`
                   if (sapStatus === 'synced') msg += wasEdit
                     ? ` Đã cập nhật chứng từ trên SAP B1${sapDocNum ? ` (DocNum ${sapDocNum})` : ''}.`
                     : ` Đã đẩy sang SAP B1 — DocNum ${sapDocNum}.`

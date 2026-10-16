@@ -49,7 +49,7 @@ function buildOrderHtml(
 <body style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:760px;margin:0 auto;padding:16px;">
   <div style="background:#0e1c2f;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0;">
     <div style="font-size:20px;font-weight:bold;">FARMERS MARKET</div>
-    <div style="font-size:12px;color:#cbd5e1;">Hệ thống Sale Order — SAP Business One</div>
+    <div style="font-size:12px;color:#cbd5e1;">Hệ thống Đơn hàng bán — SAP Business One</div>
   </div>
   <div style="border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px;">
     <h2 style="margin:0 0 4px;color:#0e1c2f;">PHIẾU BÁN HÀNG SO-${order.docNum}</h2>
@@ -85,7 +85,7 @@ function buildOrderHtml(
       </tfoot>
     </table>
     ${order.remarks ? `<p style="font-size:13px;"><b>Ghi chú:</b> ${esc(order.remarks)}</p>` : ''}
-    <p style="font-size:11px;color:#6b7280;margin-top:16px;">Email được gửi tự động từ hệ thống Farmers Market — SAP B1 Sale Order.</p>
+    <p style="font-size:11px;color:#6b7280;margin-top:16px;">Email được gửi tự động từ hệ thống Farmers Market — Đơn hàng bán SAP B1.</p>
   </div>
 </body></html>`
 }
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     const fromName = settings.smtpFromName || 'Farmers Market'
     const fromEmail = settings.smtpFromEmail || settings.smtpUser
-    const mailSubject = subject?.trim() || `Phiếu bán hàng SO-${order.docNum} — ${order.cardName}`
+    const mailSubject = subject?.trim() || `Đơn hàng bán SO-${order.docNum} — ${order.cardName}`
 
     await transporter.sendMail({
       from: `"${fromName}" <${fromEmail}>`,

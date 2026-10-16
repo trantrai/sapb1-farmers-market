@@ -10,14 +10,14 @@ import PageHeader from './page-header'
 
 /** Các trường đơn hàng có thể map từ cột Excel */
 export const EXCEL_FIELDS = [
-  { key: 'itemCode', label: 'Mã hàng (ItemCode)', required: true },
-  { key: 'itemName', label: 'Tên hàng (ItemName)', required: false },
+  { key: 'itemCode', label: 'Mã mặt hàng (ItemCode)', required: true },
+  { key: 'itemName', label: 'Tên mặt hàng (ItemName)', required: false },
   { key: 'quantity', label: 'Số lượng (Quantity)', required: true },
   { key: 'unitPrice', label: 'Đơn giá (Price)', required: false },
   { key: 'uom', label: 'Đơn vị tính (UoM)', required: false },
   { key: 'discPct', label: 'Chiết khấu % (Discount%)', required: false },
   { key: 'taxCode', label: 'Mã thuế (TaxCode)', required: false },
-  { key: 'warehouseCode', label: 'Kho (Warehouse)', required: false },
+  { key: 'warehouseCode', label: 'Kho hàng (Warehouse)', required: false },
 ] as const
 
 export type ExcelFieldKey = (typeof EXCEL_FIELDS)[number]['key']
@@ -217,10 +217,10 @@ export default function ExcelTemplatesView({ onBack }: Props) {
     <div>
       <PageHeader
         breadcrumb={['Chức năng chính', 'Mẫu Excel']}
-        title="Quản lý template Excel"
+        title="Quản lý mẫu Excel"
 actions={
           <button className="fm-btn fm-btn--primary" onClick={() => openForm()}>
-            <Plus size={14} /> Thêm template
+            <Plus size={14} /> Thêm mẫu
           </button>
         }
       />
@@ -241,7 +241,7 @@ actions={
             ))}
           </div>
         ) : templates.length === 0 ? (
-          <p style={{ color: 'var(--fm-text-2)' }}>Chưa có template nào. Bấm "Thêm template" để tạo mới.</p>
+          <p style={{ color: 'var(--fm-text-2)' }}>Chưa có template nào. Bấm "Thêm mẫu" để tạo mới.</p>
         ) : (
           <div className="fm-table-wrap" style={{ overflowX: 'auto' }}>
             <table className="fm-table fm-stack-table">
@@ -249,7 +249,7 @@ actions={
                 <tr>
                   <th>Tên template</th>
                   <th>Mô tả</th>
-                  <th>Số cột map</th>
+                  <th>Số cột ánh xạ</th>
                   <th>Mặc định</th>
                   <th style={{ width: 180 }}>Thao tác</th>
                 </tr>
@@ -259,7 +259,7 @@ actions={
                   <tr key={t.id}>
                     <th scope="row" data-label="Tên template"><b>{t.name}</b></th>
                     <td data-label="Mô tả">{t.description || '—'}</td>
-                    <td data-label="Số cột map" className="fm-num">{Object.keys(t.mapping).length}</td>
+                    <td data-label="Số cột ánh xạ" className="fm-num">{Object.keys(t.mapping).length}</td>
                     <td data-label="Mặc định">
                       {t.isDefault ? (
                         <span className="fm-chip fm-chip--role"><Star size={14} /> Mặc định</span>
@@ -271,10 +271,10 @@ actions={
                       <button className="fm-icon-btn" title="Tải template mẫu" aria-label="Tải template mẫu" onClick={() => downloadSample(t)}>
                         <Download size={16} />
                       </button>
-                      <button className="fm-icon-btn" title="Sửa" aria-label="Sửa template" onClick={() => openForm(t)}>
+                      <button className="fm-icon-btn" title="Sửa" aria-label="Sửa mẫu" onClick={() => openForm(t)}>
                         <Pencil size={16} />
                       </button>
-                      <button className="fm-icon-btn fm-icon-btn--danger" title="Xóa" aria-label="Xóa template" onClick={() => setConfirmDelete(t)}>
+                      <button className="fm-icon-btn fm-icon-btn--danger" title="Xóa" aria-label="Xóa mẫu" onClick={() => setConfirmDelete(t)}>
                         <Trash2 size={16} />
                       </button>
                     </td>
@@ -289,9 +289,9 @@ actions={
       {/* Form thêm/sửa */}
       {showForm && (
         <div className="fm-backdrop" onClick={() => setShowForm(false)}>
-          <div ref={formTrapRef} className="fm-modal fm-modal--wide" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editing ? 'Sửa template' : 'Thêm template'}>
+          <div ref={formTrapRef} className="fm-modal fm-modal--wide" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={editing ? 'Sửa mẫu' : 'Thêm mẫu'}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h3 className="fm-modal__title">{editing ? 'Sửa template' : 'Thêm template mới'}</h3>
+              <h3 className="fm-modal__title">{editing ? 'Sửa mẫu' : 'Thêm mẫu mới'}</h3>
               <button className="fm-icon-btn" onClick={() => setShowForm(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
             <div>
@@ -356,7 +356,7 @@ actions={
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="fm-btn fm-btn--secondary" onClick={() => setShowForm(false)}>Hủy</button>
               <button className="fm-btn fm-btn--primary" onClick={saveTemplate}>
-                <Save size={14} /> Lưu template
+                <Save size={14} /> Lưu mẫu
               </button>
             </div>
           </div>

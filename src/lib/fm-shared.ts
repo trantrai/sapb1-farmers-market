@@ -20,12 +20,12 @@ export interface SessionUser {
 }
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {
-  orders: 'Danh sách đơn hàng',
-  ordersNew: 'Tạo đơn hàng (SO)',
+  orders: 'Danh sách đơn hàng bán',
+  ordersNew: 'Tạo đơn hàng bán',
   deliveries: 'Quản lý giao hàng',
   users: 'Người dùng hệ thống',
   settings: 'Cài đặt kết nối SAP B1',
-  roles: 'Phân quyền (RBAC)',
+  roles: 'Ủy quyền',
   excelTemplates: 'Mẫu Excel',
   orderTemplates: 'Đơn hàng mẫu',
   bomImport: 'Import BOM/Combo',

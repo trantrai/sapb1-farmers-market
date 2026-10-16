@@ -226,7 +226,7 @@ function ActionConfirmModal({
           </div>
           {isApply ? (
             <div>
-              <dt>Mã cha sẽ apply</dt>
+              <dt>Mã mặt hàng cha sẽ apply</dt>
               <dd className="fm-mono" style={{ fontSize: 12 }}>
                 {applyCodes.length} mã: {applyCodes.join(', ')}
               </dd>
@@ -240,8 +240,8 @@ function ActionConfirmModal({
         </dl>
         <div className={`fm-alert fm-alert--${isApply ? 'warning' : 'error'}`} role="alert" style={{ marginBottom: 16 }}>
           {isApply
-            ? 'Thao tác tạo Items + ProductTrees THẬT trên SAP B1. Kiểm tra kỹ database đích trước khi bấm. Có thể rollback bằng nút "Rollback run này".'
-            : 'Thao tác xóa Items + ProductTrees trên SAP B1. Không thể hoàn tác.'}
+            ? 'Thao tác tạo mặt hàng + định mức (ProductTrees) THẬT trên SAP B1. Kiểm tra kỹ database đích trước khi bấm. Có thể rollback bằng nút "Rollback run này".'
+            : 'Thao tác xóa mặt hàng + định mức (ProductTrees) trên SAP B1. Không thể hoàn tác.'}
         </div>
         <div className="fm-row" style={{ justifyContent: 'flex-end' }}>
           <button className="fm-btn fm-btn--secondary" onClick={onCancel} disabled={busy}>
@@ -436,8 +436,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
       const q = json.quotation
       setMsg(
         e > 0
-          ? { type: 'error', text: `Parse xong: ${json.stats.parents} mã cha, ${json.stats.components} dòng con — ${e} lỗi fail-fast (chặn apply), ${w} cảnh báo` }
-          : { type: 'success', text: `Parse xong: ${json.stats.parents} mã cha, ${json.stats.components} dòng con — không có lỗi fail-fast, ${w} cảnh báo${q ? ` · báo giá: ${q.sets.length} set, ${q.costingRows} dòng Final Cost` : ''}` },
+          ? { type: 'error', text: `Parse xong: ${json.stats.parents} mã mặt hàng cha, ${json.stats.components} dòng mặt hàng con — ${e} lỗi fail-fast (chặn apply), ${w} cảnh báo` }
+          : { type: 'success', text: `Parse xong: ${json.stats.parents} mã mặt hàng cha, ${json.stats.components} dòng mặt hàng con — không có lỗi fail-fast, ${w} cảnh báo${q ? ` · báo giá: ${q.sets.length} set, ${q.costingRows} dòng Final Cost` : ''}` },
       )
       loadRuns()
       // Sprint 2 — tự tải preview sau parse
@@ -491,7 +491,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
         text:
           (json.reused
             ? `Dùng lại dãy mã đã sinh (idempotent): ${codes}`
-            : `Đã sinh ${codeList.length} mã cha: ${codes}`) + warnText,
+            : `Đã sinh ${codeList.length} mã mặt hàng cha: ${codes}`) + warnText,
       })
       await loadPreview(run.id)
     } finally {
@@ -561,8 +561,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
       setMsg({
         type: 'success',
         text: approve
-          ? `Đã duyệt tất cả ${next.length} mã cha (gate 2)`
-          : 'Đã bỏ duyệt tất cả mã cha',
+          ? `Đã duyệt tất cả ${next.length} mã mặt hàng cha (gate 2)`
+          : 'Đã bỏ duyệt tất cả mã mặt hàng cha',
       })
       await loadPreview(run.id)
     } finally {
@@ -593,7 +593,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-      setMsg({ type: 'success', text: 'Đã xuất file Excel BOM đã điền mã cha (cột D — Mã hàng).' })
+      setMsg({ type: 'success', text: 'Đã xuất file Excel BOM đã điền mã mặt hàng cha (cột D — Mã hàng).' })
     } finally {
       setPreviewBusy(false)
     }
@@ -622,7 +622,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
         type: json.failed > 0 ? 'error' : 'success',
         text: json.failed > 0
           ? `Apply xong ${json.succeeded}/${json.total} cha — ${json.failed} cha lỗi (dừng cả đợt, có thể retry).`
-          : `Apply thành công ${json.succeeded}/${json.total} mã cha lên SAP B1. Vào menu Đồng bộ để tải Items/ProductTrees mới về app.`,
+          : `Apply thành công ${json.succeeded}/${json.total} mã mặt hàng cha lên SAP B1. Vào menu Đồng bộ để tải mặt hàng/định mức mới về app.`,
       })
       // Tải lại run để cập nhật trạng thái stepper
       await openRun(run.id)
@@ -676,8 +676,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
   return (
     <div>
       <PageHeader
-        breadcrumb={['Đồng bộ', 'Import BOM/Combo']}
-        title="Import BOM/Combo từ Base Workflow"
+        breadcrumb={['Đồng bộ', 'Import ĐMNVL/Combo']}
+        title="Import ĐMNVL/Combo từ Base Workflow"
         badge="Sprint 3"
       />
 
@@ -800,7 +800,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
               </div>
               <p className="fm-hint" style={{ marginTop: 8 }}>
                 App gọi <code>POST workflow.base.vn/extapi/v1/job/get</code> (param <code>id</code>),
-                tải ngay 2 file (File BOM + workbook báo giá) kèm md5/sha256. Cần cấu hình
+                tải ngay 2 file (file định mức (BOM) + workbook báo giá) kèm md5/sha256. Cần cấu hình
                 Base Access Token v2 ở màn hình Cài đặt trước.
               </p>
             </div>
@@ -879,7 +879,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           {run && (run.status === 'validated' || parents.length > 0) && (
             <div className="fm-card" style={{ marginBottom: 16 }}>
               <div className="fm-card__head">
-                <CheckCircle2 size={18} /> Parse & Validate — {parents.length > 0 ? parents.length : (canonicalSummary?.parents ?? 0)} mã cha
+                <CheckCircle2 size={18} /> Parse & Validate — {parents.length > 0 ? parents.length : (canonicalSummary?.parents ?? 0)} mã mặt hàng cha
                 {parents.length > 0 && blocked && <span className="fm-chip" style={{ background: 'var(--fm-coral)', color: 'var(--fm-surface)' }}>{errors.length} lỗi fail-fast</span>}
                 {parents.length > 0 && !blocked && <span className="fm-chip" style={{ background: 'var(--fm-green)', color: 'var(--fm-surface)' }}>Không lỗi fail-fast</span>}
                 {parents.length > 0 && warnings.length > 0 && <span className="fm-chip" style={{ background: 'var(--fm-gold)', color: 'var(--fm-navy)' }}>{warnings.length} cảnh báo</span>}
@@ -890,8 +890,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                   <div>
                     <p>
                       Run đã parse{canonicalSummary.validatedAt ? ` lúc ${fmtDate(canonicalSummary.validatedAt)}` : ''}:{' '}
-                      <strong>{canonicalSummary.parents}</strong> mã cha ·{' '}
-                      <strong>{canonicalSummary.components}</strong> dòng con ·{' '}
+                      <strong>{canonicalSummary.parents}</strong> mã mặt hàng cha ·{' '}
+                      <strong>{canonicalSummary.components}</strong> dòng mặt hàng con ·{' '}
                       {canonicalSummary.errors} lỗi fail-fast · {canonicalSummary.warnings} cảnh báo.
                     </p>
                     <p className="fm-hint">Chi tiết dry-run xem ở mục Preview bên dưới (đang tự tải…).</p>
@@ -901,7 +901,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 <div className="fm-table-wrap fm-scroll fm-scroll-x">
                   <table className="fm-table">
                     <thead>
-                      <tr><th>Dòng</th><th>Mã cha</th><th>Tên</th><th>Loại</th><th>Barcode chính</th><th>Giá trước VAT</th><th>Số con</th><th>Margin</th></tr>
+                      <tr><th>Dòng</th><th>Mã mặt hàng cha</th><th>Tên hàng</th><th>Loại ĐMNVL</th><th>Mã vạch chính</th><th>Giá trước VAT</th><th>Số mặt hàng con</th><th>Margin</th></tr>
                     </thead>
                     <tbody>
                       {parents.map((p) => (
@@ -909,7 +909,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                           <td className="fm-mono">{p.rowNo}</td>
                           <td className="fm-mono">{p.itemCode ?? <em style={{ color: 'var(--fm-muted-line)' }}>(chờ nhập)</em>}</td>
                           <td>{p.itemName}</td>
-                          <td>{p.bomKind === 'BOM_PRODUCT' ? 'BOM' : p.bomKind === 'BOM_ASSEMBLY' ? 'COMBO' : '?'}</td>
+                          <td>{p.bomKind === 'BOM_PRODUCT' ? 'Sản xuất' : p.bomKind === 'BOM_ASSEMBLY' ? 'Lắp ráp' : '?'}</td>
                           <td className="fm-mono" style={{ fontSize: 12 }}>{p.primaryBarcode ?? '—'}</td>
                           <td className="fm-mono" style={{ textAlign: 'right' }}>{p.priceExVat?.toLocaleString('vi-VN') ?? '—'}</td>
                           <td style={{ textAlign: 'right' }}>{p.components}</td>
@@ -960,7 +960,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           {run && (run.status === 'validated' || run.status === 'applying' || run.status === 'applied' || run.status === 'failed' || run.status === 'rolledback') && (
             <div className="fm-card" style={{ marginBottom: 16, borderLeft: '4px solid var(--fm-navy)' }}>
               <div className="fm-card__head">
-                <Eye size={18} /> Preview dry-run — Gate 2: duyệt từng mã cha
+                <Eye size={18} /> Preview dry-run — Gate 2: duyệt từng mã mặt hàng cha
                 {preview && (
                   <>
                     {preview.blocked && (
@@ -981,7 +981,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       className="fm-btn fm-btn--ghost fm-btn--sm"
                       onClick={() => doApproveAll(true)}
                       disabled={!canCreate || previewBusy || preview.blocked}
-                      title="Duyệt tất cả mã cha (gate 2)"
+                      title="Duyệt tất cả mã mặt hàng cha (gate 2)"
                     >
                       Duyệt tất cả
                     </button>
@@ -989,7 +989,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       className="fm-btn fm-btn--ghost fm-btn--sm"
                       onClick={() => doApproveAll(false)}
                       disabled={!canCreate || previewBusy || preview.approvedCount === 0}
-                      title="Bỏ duyệt tất cả mã cha"
+                      title="Bỏ duyệt tất cả mã mặt hàng cha"
                     >
                       Bỏ duyệt
                     </button>
@@ -1012,7 +1012,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
               {/* paddingBottom: chỗ cuộn thêm để sticky bar Apply/Rollback không che nội dung cuối preview */}
               <div className="fm-card__body" style={{ paddingBottom: 88 }}>
                 {!preview ? (
-                  <p className="fm-hint">Bấm “Tải preview” để xem dry-run, đối chiếu báo giá và duyệt từng mã cha.</p>
+                  <p className="fm-hint">Bấm “Tải preview” để xem dry-run, đối chiếu báo giá và duyệt từng mã mặt hàng cha.</p>
                 ) : (
                   <>
                     {/* F4 — sinh mã cha (Q1) */}
@@ -1025,7 +1025,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     >
                       <div style={{ minWidth: 220 }}>
                         <label className="fm-label" htmlFor="fm-bom-firstcode">
-                          Mã cha đầu tiên (Q1)
+                          Mã mặt hàng cha đầu tiên (Q1)
                         </label>
                         <input
                           id="fm-bom-firstcode"
@@ -1047,10 +1047,10 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         className="fm-btn fm-btn--secondary"
                         onClick={doExportCodes}
                         disabled={previewBusy || Object.keys(preview.generatedCodes ?? {}).length === 0}
-                        title="Tải file Excel BOM gốc đã điền mã cha vào cột D (Mã hàng)"
+                        title="Tải file Excel BOM gốc đã điền mã mặt hàng cha vào cột D (Mã hàng)"
                       >
                         <Download size={16}  />
-                        Xuất Excel điền mã cha
+                        Xuất Excel điền mã mặt hàng cha
                       </button>
                       <span className="fm-hint" style={{ flexBasis: '100%' }}>
                         Các mã còn lại tự tăng dần theo phần số cuối (giữ zero-padding); trùng → tăng tiếp tối đa 10 lần.
@@ -1072,16 +1072,16 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                             <th style={STICKY_DUYET}>Duyệt</th>
                             <th style={STICKY_EXPAND_TH}></th>
                             <th style={STICKY_DONG_TH}>Dòng</th>
-                            <th style={STICKY_MACHA_TH}>Mã cha</th>
-                            <th style={STICKY_TEN_TH}>Tên</th>
-                            <th>Loại</th>
+                            <th style={STICKY_MACHA_TH}>Mã mặt hàng cha</th>
+                            <th style={STICKY_TEN_TH}>Tên hàng</th>
+                            <th>Loại ĐMNVL</th>
                             <th>Name Level 7</th>
                             <th>ĐVT đầu vào</th>
                             <th>ĐVT bán ra</th>
                             <th>ĐVT tồn kho</th>
-                            <th>Kho TP</th>
-                            <th>VAT IN (P)</th>
-                            <th>VAT OUT (S)</th>
+                            <th>Kho thành phẩm</th>
+                            <th>Thuế đầu vào (P)</th>
+                            <th>Thuế đầu ra (S)</th>
                             <th>Link set báo giá (NQ4)</th>
                             <th>Giá MD_05</th>
                             <th>Subtotal set</th>
@@ -1104,8 +1104,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                       checked={p.approved}
                                       disabled={!canCreate || previewBusy || preview.blocked}
                                       onChange={(e) => doApprove(p.rowNo, e.target.checked)}
-                                      title={preview.blocked ? 'Còn lỗi fail-fast — chưa duyệt được' : 'Duyệt mã cha này (gate 2)'}
-                                      aria-label={`Duyệt mã cha dòng ${p.rowNo}`}
+                                      title={preview.blocked ? 'Còn lỗi fail-fast — chưa duyệt được' : 'Duyệt mã mặt hàng cha này (gate 2)'}
+                                      aria-label={`Duyệt mã mặt hàng cha dòng ${p.rowNo}`}
                                     />
                                   </td>
                                   <td style={{ ...stickyTd(36, stickyBg) }}>
@@ -1122,7 +1122,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                     {p.itemCode ?? <em style={{ color: 'var(--fm-muted-line)' }}>(chờ nhập)</em>}
                                   </td>
                                   <td style={{ ...stickyTd(282, stickyBg) }}>{p.itemName}</td>
-                                  <td>{p.bomKind === 'BOM_PRODUCT' ? 'BOM' : p.bomKind === 'BOM_ASSEMBLY' ? 'COMBO' : '?'}</td>
+                                  <td>{p.bomKind === 'BOM_PRODUCT' ? 'Sản xuất' : p.bomKind === 'BOM_ASSEMBLY' ? 'Lắp ráp' : '?'}</td>
                                   <td style={{ fontSize: 12 }} title={p.categoryLevel7 ?? undefined}>{p.categoryLevel7 ?? '—'}</td>
                                   <td>{p.uomPurchase ?? '—'}</td>
                                   <td>{p.uomSales ?? '—'}</td>
@@ -1174,10 +1174,10 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                 {isOpen && (
                                   <tr>
                                     <td colSpan={17} style={{ background: 'var(--fm-hover-bg)', padding: '8px 12px' }}>
-                                      <strong style={{ fontSize: 13 }}>Thành phần con ({p.components.length}):</strong>
+                                      <strong style={{ fontSize: 13 }}>Thành phần NVL ({p.components.length}):</strong>
                                       <table className="fm-table" style={{ marginTop: 6 }}>
                                         <thead>
-                                          <tr><th>Dòng</th><th>Mã NVL</th><th>Tên</th><th>ĐVT</th><th>Định mức/cha</th></tr>
+                                          <tr><th>Dòng</th><th>Mã NVL</th><th>Tên hàng</th><th>ĐVT</th><th>Số lượng/mặt hàng cha</th></tr>
                                         </thead>
                                         <tbody>
                                           {p.components.map((c) => (
@@ -1268,7 +1268,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         className="fm-btn fm-btn--primary"
                         onClick={doApply}
                         disabled={previewBusy || !canCreate || !preview.canApply || run?.status === 'applied' || run?.status === 'applying'}
-                        title={preview.applyNote ?? 'Apply các mã cha đã duyệt lên SAP B1'}
+                        title={preview.applyNote ?? 'Apply các mã mặt hàng cha đã duyệt lên SAP B1'}
                       >
                         {run?.status === 'applied'
                           ? 'Đã apply lên SAP B1'
@@ -1285,14 +1285,14 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                           className="fm-btn fm-btn--secondary"
                           onClick={doRollback}
                           disabled={previewBusy || !canCreate}
-                          title="Xóa các Items + ProductTrees do run này tạo trên SAP B1 (theo createdKeys)"
+                          title="Xóa các mặt hàng + định mức (ProductTrees) do run này tạo trên SAP B1 (theo createdKeys)"
                         >
                           Rollback run này{(run.createdKeys?.length ?? 0) > 0 ? ` (${run.createdKeys!.length} key)` : ''}
                         </button>
                       )}
                       {preview.applyNote && <span className="fm-hint">{preview.applyNote}</span>}
                       {!preview.canApply && !preview.applyNote && (
-                        <span className="fm-hint">Duyệt ít nhất 1 mã cha ở gate 2 để apply.</span>
+                        <span className="fm-hint">Duyệt ít nhất 1 mã mặt hàng cha ở gate 2 để apply.</span>
                       )}
                     </div>
                     {applyResult && (
@@ -1300,10 +1300,10 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         <table className="fm-table">
                           <thead>
                             <tr>
-                              <th>Mã cha</th>
+                              <th>Mã mặt hàng cha</th>
                               <th>Dòng Excel</th>
-                              <th>Item</th>
-                              <th>ProductTree</th>
+                              <th>Mặt hàng</th>
+                              <th>Định mức (ProductTree)</th>
                               <th>Ghi chú</th>
                             </tr>
                           </thead>
@@ -1334,13 +1334,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       Báo giá: {preview.summary.sets} set · {preview.summary.costingRows} dòng Final Cost · {preview.summary.deliveryRows} dòng lịch giao (chỉ lưu trace).
                       <br />
                       <strong style={{ color: 'var(--fm-coral)' }}>
-                        Apply ghi THẬT Items + ProductTrees lên SAP B1 (DB: {user.databaseLabel ?? 'mặc định'})
+                        Apply ghi THẬT mặt hàng + định mức (ProductTrees) lên SAP B1 (DB: {user.databaseLabel ?? 'mặc định'})
                       </strong>
                       {' '}— kiểm tra kỹ DB đích trước khi bấm. Có thể rollback theo run bằng nút "Rollback run này".
                     </p>
                     {applyResult && applyResult.failed === 0 && (
                       <p className="fm-hint" style={{ marginTop: 4 }}>
-                        Mã mới đã nằm trên B1 — vào menu <strong>Đồng bộ</strong> để tải Items/ProductTrees mới về app.
+                        Mã mới đã nằm trên B1 — vào menu <strong>Đồng bộ</strong> để tải mặt hàng/định mức mới về app.
                       </p>
                     )}
                   </>
