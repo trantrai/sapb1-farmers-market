@@ -145,8 +145,8 @@ const STEPS: StepDef[] = [
   { key: 'parse', label: 'Parse' },
   { key: 'validate', label: 'Validate' },
   { key: 'preview', label: 'Preview' },
-  { key: 'apply', label: 'Apply', locked: true, lockNote: 'Sprint 3' },
-  { key: 'done', label: 'Kết quả', locked: true, lockNote: 'Sprint 3' },
+  { key: 'apply', label: 'Apply' },
+  { key: 'done', label: 'Kết quả' },
 ]
 
 const STATUS_LABEL: Record<string, string> = {
@@ -154,7 +154,10 @@ const STATUS_LABEL: Record<string, string> = {
   ingested: 'Chờ xác nhận (gate 1)',
   confirmed: 'Đã xác nhận — chờ parse',
   validated: 'Đã parse + validate',
+  applying: 'Đang apply lên B1…',
+  applied: 'Đã apply lên B1',
   failed: 'Thất bại',
+  rolledback: 'Đã rollback',
   cancelled: 'Đã hủy',
 }
 
@@ -163,7 +166,11 @@ function stepIndexFor(status: string): number {
     case 'ingesting': return 0
     case 'ingested': return 0
     case 'confirmed': return 1
-    case 'validated': return 3 // parse+validate xong → preview (Sprint 2) khả dụng
+    case 'validated': return 3 // parse+validate xong → preview khả dụng
+    case 'applying': return 4
+    case 'applied': return 5
+    case 'rolledback': return 5
+    case 'failed': return 4
     default: return 0
   }
 }
@@ -207,6 +214,14 @@ export default function BomImportView({ user }: { user: SessionUser }) {
   const [firstCode, setFirstCode] = useState('')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [previewBusy, setPreviewBusy] = useState(false)
+  // Sprint 3 — kết quả apply/rollback
+  const [applyResult, setApplyResult] = useState<{
+    status: string
+    total: number
+    succeeded: number
+    failed: number
+    results: { rowNo: number; code: string; item: string; tree: string; error?: string }[]
+  } | null>(null)
   // Major #1 — tóm tắt canonical khi mở lại run đã validated (tránh bảng trống gây hiểu lầm)
   const [canonicalSummary, setCanonicalSummary] = useState<{
     parents: number; components: number; errors: number; warnings: number; validatedAt: string | null
@@ -495,18 +510,55 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
   const doApply = async () => {
     if (!run || previewBusy) return
+    if (!window.confirm(
+      `Apply ${preview?.approvedCount ?? 0} mã cha đã duyệt lên SAP B1?\n` +
+      `Thao tác tạo Items + ProductTrees THẬT trên SAP và không thể hoàn tác tự động (có nút Rollback riêng).`,
+    )) return
     setPreviewBusy(true)
     setMsg(null)
+    setApplyResult(null)
     try {
       const res = await api(`/api/bom-import/runs/${run.id}/apply`, { method: 'POST' })
       const json = await res.json()
-      if (res.status === 501) {
-        setMsg({ type: 'info', text: json.error ?? 'Apply là Sprint 3' })
-        return
-      }
       if (!res.ok) {
         setMsg({ type: 'error', text: json.error ?? 'Apply thất bại' })
+        return
       }
+      setApplyResult(json)
+      setMsg({
+        type: json.failed > 0 ? 'error' : 'success',
+        text: json.failed > 0
+          ? `Apply xong ${json.succeeded}/${json.total} cha — ${json.failed} cha lỗi (dừng cả đợt, có thể retry).`
+          : `Apply thành công ${json.succeeded}/${json.total} mã cha lên SAP B1.`,
+      })
+      // Tải lại run để cập nhật trạng thái stepper
+      await openRun(run.id)
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
+  const doRollback = async () => {
+    if (!run || previewBusy) return
+    if (!window.confirm(
+      `Rollback run này?\nXóa các Items + ProductTrees do run tạo trên SAP B1 (theo createdKeys). Không thể hoàn tác.`,
+    )) return
+    setPreviewBusy(true)
+    setMsg(null)
+    try {
+      const res = await api(`/api/bom-import/runs/${run.id}/rollback`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        setMsg({ type: 'error', text: json.error ?? 'Rollback thất bại' })
+        return
+      }
+      setMsg({
+        type: json.failed.length > 0 ? 'error' : 'success',
+        text: json.failed.length > 0
+          ? `Rollback xóa được ${json.deleted.length} key — ${json.failed.length} key lỗi (giữ lại để retry).`
+          : `Rollback xong — đã xóa ${json.deleted.length} key trên SAP B1.`,
+      })
+      await openRun(run.id)
     } finally {
       setPreviewBusy(false)
     }
@@ -530,7 +582,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
       <PageHeader
         breadcrumb={['Đồng bộ', 'Import BOM/Combo']}
         title="Import BOM/Combo từ Base Workflow"
-        badge="Sprint 2"
+        badge="Sprint 3"
       />
 
       {/* Stepper 6 bước */}
@@ -808,7 +860,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           )}
 
           {/* Sprint 2 — Preview dry-run + gate #2 (F5) + sinh mã cha (F4) */}
-          {run && run.status === 'validated' && (
+          {/* Sprint 3 — mở rộng cho các trạng thái sau apply để hiện kết quả + rollback */}
+          {run && (run.status === 'validated' || run.status === 'applying' || run.status === 'applied' || run.status === 'failed' || run.status === 'rolledback') && (
             <div className="fm-card" style={{ marginBottom: 16, borderLeft: `4px solid ${NAVY}` }}>
               <div className="fm-card__head">
                 <Eye size={18} /> Preview dry-run — Gate 2: duyệt từng mã cha
@@ -1094,7 +1147,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       </div>
                     )}
 
-                    {/* Apply — Sprint 2 chỉ stub 501 */}
+                    {/* Apply — Sprint 3: apply thật lên B1 */}
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
                       <button
                         className="fm-btn fm-btn--primary"
@@ -1102,13 +1155,58 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         disabled={previewBusy || !canCreate || !preview.canApply}
                         title={preview.applyNote ?? 'Apply các mã cha đã duyệt lên SAP B1'}
                       >
-                        Apply {preview.approvedCount > 0 ? `${preview.approvedCount} mã đã duyệt` : ''} lên SAP B1 (Sprint 3)
+                        Apply {preview.approvedCount > 0 ? `${preview.approvedCount} mã đã duyệt` : ''} lên SAP B1
                       </button>
+                      {(run?.status === 'applied' || run?.status === 'failed') && (
+                        <button
+                          className="fm-btn fm-btn--secondary"
+                          onClick={doRollback}
+                          disabled={previewBusy || !canCreate}
+                          title="Xóa các Items + ProductTrees do run này tạo trên SAP B1 (theo createdKeys)"
+                        >
+                          Rollback run này
+                        </button>
+                      )}
                       {preview.applyNote && <span className="fm-hint">{preview.applyNote}</span>}
                       {!preview.canApply && !preview.applyNote && (
-                        <span className="fm-hint">Sprint 2 chỉ preview dry-run — Apply thật là Sprint 3.</span>
+                        <span className="fm-hint">Duyệt ít nhất 1 mã cha ở gate 2 để apply.</span>
                       )}
                     </div>
+                    {applyResult && (
+                      <div className="fm-table-wrap" style={{ marginTop: 12 }}>
+                        <table className="fm-table">
+                          <thead>
+                            <tr>
+                              <th>Mã cha</th>
+                              <th>Dòng Excel</th>
+                              <th>Item</th>
+                              <th>ProductTree</th>
+                              <th>Ghi chú</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {applyResult.results.map((r) => (
+                              <tr key={r.code}>
+                                <td><b>{r.code}</b></td>
+                                <td>{r.rowNo}</td>
+                                <td>
+                                  {r.item === 'created' ? <span className="fm-chip fm-chip--open">Đã tạo</span>
+                                    : r.item === 'exists' ? <span className="fm-chip fm-chip--closed">Đã tồn tại</span>
+                                      : <span className="fm-chip fm-chip--error">Lỗi</span>}
+                                </td>
+                                <td>
+                                  {r.tree === 'created' ? <span className="fm-chip fm-chip--open">Đã tạo</span>
+                                    : r.tree === 'exists' ? <span className="fm-chip fm-chip--closed">Đã tồn tại</span>
+                                      : r.tree === 'skipped' ? <span className="fm-hint">Bỏ qua</span>
+                                        : <span className="fm-chip fm-chip--error">Lỗi</span>}
+                                </td>
+                                <td style={{ maxWidth: 320 }}>{r.error ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                     <p className="fm-hint" style={{ marginTop: 8 }}>
                       Báo giá: {preview.summary.sets} set · {preview.summary.costingRows} dòng Final Cost · {preview.summary.deliveryRows} dòng lịch giao (chỉ lưu trace).
                       Dry-run không gọi API B1 ghi dữ liệu.

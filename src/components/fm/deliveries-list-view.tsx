@@ -5,12 +5,13 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw, Plus } from 'lucide-react'
+import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw, Plus, Network } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import PageHeader from './page-header'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
+import RelMapModal from './relmap-modal'
 
 interface DeliveryLine {
   id: string
@@ -112,6 +113,45 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
     tone?: ConfirmTone
     run: () => void
   } | null>(null)
+
+  // Context menu right-click dòng phiếu → "Sơ đồ liên kết" (pattern orders-list-view)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; delivery: Delivery } | null>(null)
+  const [relMapDelivery, setRelMapDelivery] = useState<{ id: string; docNum: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  /** Phần tử đã mở context menu (dòng) — trả focus về khi đóng bằng Escape */
+  const openerRef = useRef<HTMLElement | null>(null)
+
+  /** Mở context menu tại tọa độ cho trước (kẹp trong viewport) */
+  const openCtxMenu = (delivery: Delivery, x: number, y: number) => {
+    setCtxMenu({
+      x: Math.min(Math.max(x, 8), window.innerWidth - 220),
+      y: Math.min(Math.max(y, 8), window.innerHeight - 80),
+      delivery,
+    })
+  }
+
+  const closeCtxMenu = (restoreFocus: boolean) => {
+    setCtxMenu(null)
+    if (restoreFocus) openerRef.current?.focus({ preventScroll: true })
+  }
+
+  // Mở menu → focus vào menuitem đầu tiên
+  useEffect(() => {
+    if (!ctxMenu) return
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [ctxMenu])
+
+  // Đóng context menu khi bấm ra ngoài hoặc cuộn
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [ctxMenu])
 
   const doDelete = async (d: Delivery) => {
     setConfirmCfg(null)
@@ -261,7 +301,27 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   )}
                 </div></td></tr>
               ) : rows.map((d) => (
-                <tr key={d.id}>
+                <tr
+                  key={d.id}
+                  tabIndex={0}
+                  title="Chuột phải để xem sơ đồ liên kết"
+                  aria-label={`Phiếu giao hàng #${d.docNum} — ${d.cardName}. Chuột phải để xem sơ đồ liên kết`}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    openerRef.current = e.currentTarget
+                    openCtxMenu(d, e.clientX, e.clientY)
+                  }}
+                  onKeyDown={(e) => {
+                    // Shift+F10: mở context menu tại dòng đang focus (tương đương right-click)
+                    if (e.shiftKey && e.key === 'F10') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      openerRef.current = e.currentTarget
+                      const r = e.currentTarget.getBoundingClientRect()
+                      openCtxMenu(d, r.left + 80, r.bottom - 20)
+                    }
+                  }}
+                >
                   <th scope="row"><b>#{d.docNum}</b></th>
                   <td>{formatDateVN(d.docDate)}</td>
                   <td>
@@ -403,6 +463,16 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   >
                     <Eye size={16} />
                   </button>
+                  <button
+                    type="button"
+                    className="fm-ocard__more"
+                    title="Sơ đồ liên kết"
+                    aria-label={`Sơ đồ liên kết phiếu ${d.docNum}`}
+                    onClick={(e) => { e.stopPropagation(); setRelMapDelivery({ id: d.id, docNum: d.docNum }) }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <Network size={16} />
+                  </button>
                   {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                     <button
                       type="button"
@@ -450,6 +520,56 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
           onCancel={() => setConfirmCfg(null)}
         />
       )}
+
+      {/* Context menu khi right-click / Shift+F10 dòng phiếu */}
+      {ctxMenu && (
+        <div
+          ref={menuRef}
+          className="fm-ctxmenu"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          role="menu"
+          aria-label={`Thao tác phiếu giao hàng #${ctxMenu.delivery.docNum}`}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            // Điều hướng bàn phím trong menu: ↑↓ di chuyển giữa các item, Escape đóng
+            const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              closeCtxMenu(true)
+            } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length > 0) {
+              e.preventDefault()
+              const idx = items.indexOf(document.activeElement as HTMLElement)
+              const next = e.key === 'ArrowDown'
+                ? (idx + 1) % items.length
+                : (idx - 1 + items.length) % items.length
+              items[next].focus()
+            }
+          }}
+          onBlur={(e) => {
+            // Tab ra khỏi menu → đóng
+            if (!menuRef.current?.contains(e.relatedTarget as Node | null)) setCtxMenu(null)
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { setRelMapDelivery({ id: ctxMenu.delivery.id, docNum: ctxMenu.delivery.docNum }); setCtxMenu(null) }}
+          >
+            <Network size={16} /> Sơ đồ liên kết
+          </button>
+        </div>
+      )}
+
+      {/* Modal Relationship Map — chỉ mở khi right-click phiếu (đã gỡ khỏi hiển thị inline) */}
+      <RelMapModal
+        orderId={null}
+        orderDocNum={null}
+        deliveryId={relMapDelivery?.id ?? null}
+        deliveryDocNum={relMapDelivery?.docNum ?? null}
+        onClose={() => setRelMapDelivery(null)}
+        onGoOrder={(id) => onGoOrderDetail(id)}
+        onGoDelivery={(id) => onGoDetail(id)}
+      />
     </div>
   )
 }

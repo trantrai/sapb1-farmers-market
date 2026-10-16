@@ -1,7 +1,7 @@
 'use client'
 
 // ============================================================
-// MODAL RELATIONSHIP MAP — mở khi right-click vào dòng SO.
+// MODAL RELATIONSHIP MAP — mở khi right-click vào dòng SO / phiếu giao hàng.
 // Hiển thị sơ đồ: Sale Order → Delivery (click node để nhảy chi tiết).
 // ============================================================
 
@@ -14,49 +14,83 @@ import { useFocusTrap } from './use-focus-trap'
 interface Props {
   orderId: string | null
   orderDocNum: number | null
+  /** Mode phiếu giao hàng: right-click phiếu → sơ đồ đơn nguồn → phiếu */
+  deliveryId?: string | null
+  deliveryDocNum?: number | null
   onClose: () => void
   onGoOrder: (id: string) => void
   onGoDelivery: (id: string) => void
 }
 
-export default function RelMapModal({ orderId, orderDocNum, onClose, onGoOrder, onGoDelivery }: Props) {
-  const [nodes, setNodes] = useState<RelNode[] | null>(null)
-  const [error, setError] = useState('')
-  const trapRef = useFocusTrap<HTMLDivElement>(!!orderId, onClose)
+export default function RelMapModal({ orderId, orderDocNum, deliveryId = null, deliveryDocNum = null, onClose, onGoOrder, onGoDelivery }: Props) {
+  // nodes/error gắn với id đã tải → đổi mode (đơn ↔ phiếu) không flash dữ liệu cũ
+  const [data, setData] = useState<{ id: string; nodes: RelNode[] } | null>(null)
+  const [loadError, setLoadError] = useState<{ id: string; message: string } | null>(null)
+  const activeId = orderId ?? deliveryId
+  const trapRef = useFocusTrap<HTMLDivElement>(!!activeId, onClose)
 
+  // setState chỉ nằm trong callback .then/.catch (bất đồng bộ) để qua rule react-hooks/set-state-in-effect
   useEffect(() => {
-    if (!orderId) return
+    if (!activeId) return
     let cancelled = false
-    api(`/api/orders/${orderId}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((j) => {
-        if (cancelled) return
-        const o = j.order
-        if (!o) throw new Error('Không tìm thấy đơn hàng')
-        const list: RelNode[] = [
-          {
-            kind: 'order',
-            id: o.id,
-            docNum: o.docNum,
-            docDate: o.docDate,
-            status: o.sapSyncStatus === 'synced' ? 'synced' : o.status,
-            current: true,
-          },
-          ...(o.deliveries ?? []).map((d: { id: string; docNum: number; docDate: string; status: string; sapSyncStatus: string }) => ({
-            kind: 'delivery' as const,
-            id: d.id,
-            docNum: d.docNum,
-            docDate: d.docDate,
-            status: d.sapSyncStatus === 'synced' ? 'synced' : d.status,
-          })),
-        ]
-        setNodes(list)
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu')
-      })
+    const id = activeId
+    const onOk = (list: RelNode[]) => { if (!cancelled) setData({ id, nodes: list }) }
+    const onError = (e: unknown) => {
+      if (!cancelled) setLoadError({ id, message: e instanceof Error ? e.message : 'Lỗi tải dữ liệu' })
+    }
+    if (orderId) {
+      api(`/api/orders/${orderId}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((j) => {
+          const o = j.order
+          if (!o) throw new Error('Không tìm thấy đơn hàng')
+          onOk([
+            {
+              kind: 'order',
+              id: o.id,
+              docNum: o.docNum,
+              docDate: o.docDate,
+              status: o.sapSyncStatus === 'synced' ? 'synced' : o.status,
+              current: true,
+            },
+            ...(o.deliveries ?? []).map((d: { id: string; docNum: number; docDate: string; status: string; sapSyncStatus: string }) => ({
+              kind: 'delivery' as const,
+              id: d.id,
+              docNum: d.docNum,
+              docDate: d.docDate,
+              status: d.sapSyncStatus === 'synced' ? 'synced' : d.status,
+            })),
+          ])
+        })
+        .catch(onError)
+    } else if (deliveryId) {
+      api(`/api/deliveries/${deliveryId}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((j) => {
+          const d = j.delivery
+          if (!d) throw new Error('Không tìm thấy phiếu giao hàng')
+          onOk([
+            ...(d.sourceOrder ? [{
+              kind: 'order' as const,
+              id: d.sourceOrder.id,
+              docNum: d.sourceOrder.docNum,
+              docDate: d.sourceOrder.docDate,
+              status: d.sourceOrder.status ?? 'Open',
+            }] : []),
+            {
+              kind: 'delivery' as const,
+              id: d.id,
+              docNum: d.docNum,
+              docDate: d.docDate,
+              status: d.sapSyncStatus === 'synced' ? 'synced' : d.status,
+              current: true,
+            },
+          ])
+        })
+        .catch(onError)
+    }
     return () => { cancelled = true }
-  }, [orderId])
+  }, [orderId, deliveryId, activeId])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -64,7 +98,12 @@ export default function RelMapModal({ orderId, orderDocNum, onClose, onGoOrder, 
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  if (!orderId) return null
+  if (!activeId) return null
+
+  const isDeliveryMode = !orderId && !!deliveryId
+  const title = isDeliveryMode ? `Sơ đồ liên kết — Phiếu #${deliveryDocNum}` : `Sơ đồ liên kết — Đơn #${orderDocNum}`
+  const nodes = data && data.id === activeId ? data.nodes : null
+  const error = loadError && loadError.id === activeId ? loadError.message : ''
 
   return (
     <div className="fm-backdrop" onClick={onClose}>
@@ -73,12 +112,12 @@ export default function RelMapModal({ orderId, orderDocNum, onClose, onGoOrder, 
         className="fm-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Sơ đồ liên kết đơn hàng #${orderDocNum}`}
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 640 }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 className="fm-modal__title">Sơ đồ liên kết — Đơn #{orderDocNum}</h3>
+          <h3 className="fm-modal__title">{title}</h3>
           <button className="fm-icon-btn" onClick={onClose} aria-label="Đóng">
             <X size={16} />
           </button>

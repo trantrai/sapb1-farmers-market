@@ -350,7 +350,7 @@ model ImportRun {
   jobId              String    // Base Workflow job id (vd "4818871")
   jobName            String?   // Tên job lấy từ Base API
   sapDatabaseId      String?   // DB SAP đích (null = DB mặc định)
-  status             String    @default("ingesting") // ingesting|ingested|confirmed|parsed|validated|failed|cancelled
+  status             String    @default("ingesting") // ingesting|ingested|confirmed|parsed|validated|applying|applied|failed|rolledback|cancelled
   sourceFiles        String    @default("[]") // JSON: [{ field, filename, md5, sha256, bytes, downloadedAt }]
   canonicalRef       String?   // Đường dẫn tương đối file canonical JSON (data/bom-import/<jobId>/<runId>.canonical.json)
   decisions          String    @default("[]") // JSON snapshot 17 quyết định (F8)

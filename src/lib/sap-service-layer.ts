@@ -492,6 +492,49 @@ export function sapClearSessions() {
 }
 
 /**
+ * DELETE lên Service Layer (vd /Items('CODE'), /ProductTrees('CODE')).
+ * SL trả 204 No Content khi thành công. Luôn ghi audit (kèm retryOf khi có).
+ */
+export async function sapDelete(c: SapConfig, path: string, opts: SapCallOpts = {}): Promise<SapCallResult> {
+  const base = c.serviceLayerUrl.replace(/\/+$/, '')
+  const cleanPath = path.startsWith('/') ? path : `/${path}`
+  let session = sessions.get(sessionKey(c))
+  if (!session || session.expiresAt < Date.now()) {
+    try {
+      session = await sapLogin(c)
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'DELETE', path: cleanPath, ok: false, httpStatus: 0, error, retryOf: opts.retryOf })
+      return { ok: false, status: 0, error }
+    }
+  }
+  const startedAt = Date.now()
+  try {
+    const res = await sslFetch(
+      `${base}${cleanPath}`,
+      {
+        method: 'DELETE',
+        headers: { Cookie: session.cookie, Accept: 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        cache: 'no-store',
+      },
+      c.sslSkipVerify,
+    )
+    if (!res.ok) {
+      const error = sapErrorVN(res.status, await safeJson(res))
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'DELETE', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
+      return { ok: false, status: res.status, error }
+    }
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'DELETE', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, resultSummary: `Đã xóa — HTTP ${res.status}`, retryOf: opts.retryOf })
+    return { ok: true, status: res.status }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'DELETE', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, retryOf: opts.retryOf })
+    return { ok: false, status: 0, error }
+  }
+}
+
+/**
  * PATCH dữ liệu lên Service Layer (dùng để SỬA chứng từ đã tồn tại — vd /Orders(DocEntry)).
  * Gửi kèm header B1S-ReplaceCollectionsOnPatch=true để các collection con
  * (DocumentLines) được THAY THẾ toàn bộ: dòng có LineNum → cập nhật, dòng

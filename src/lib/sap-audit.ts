@@ -14,7 +14,7 @@
 import { db as prisma } from '@/lib/db'
 
 export interface SapAuditEntry {
-  method: 'POST' | 'GET' | 'PATCH'
+  method: 'POST' | 'GET' | 'PATCH' | 'DELETE'
   path: string
   ok: boolean
   httpStatus?: number

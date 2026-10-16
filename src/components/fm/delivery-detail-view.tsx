@@ -6,11 +6,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, FileText } from 'lucide-react'
+import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
-import RelationshipMap, { type RelNode } from './relationship-map'
 import DeliveryPrintView from './delivery-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 
@@ -327,26 +326,6 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
     )
   }
 
-  const relNodes: RelNode[] = []
-  if (delivery.sourceOrder) {
-    relNodes.push({
-      kind: 'order',
-      id: delivery.sourceOrder.id,
-      docNum: delivery.sourceOrder.docNum,
-      docDate: delivery.sourceOrder.docDate,
-      // Trạng thái thật của đơn nguồn (API include sourceOrder.status), không hardcode 'Open'
-      status: delivery.sourceOrder.status ?? 'Open',
-    })
-  }
-  relNodes.push({
-    kind: 'delivery',
-    id: delivery.id,
-    docNum: delivery.docNum,
-    docDate: delivery.docDate,
-    status: delivery.sapSyncStatus === 'synced' ? 'synced' : delivery.status,
-    current: true,
-  })
-
   return (
     <div>
       <PageHeader
@@ -383,12 +362,6 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
         }
       />
 
-      <RelationshipMap
-        nodes={relNodes}
-        onGoOrder={onGoOrder}
-        onGoDelivery={() => {}}
-      />
-
       {actionMsg && (
         <div className={`fm-alert fm-alert--${actionMsg.type === 'success' ? 'success' : 'error'}`} role="alert" style={{ marginBottom: 12 }}>
           {actionMsg.text}
@@ -397,50 +370,39 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
 
       {/* Đơn nguồn */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FileText size={18} style={{ color: 'var(--fm-navy)' }} />
-            <div>
-              <div className="fm-hint">Đơn nguồn</div>
-              {delivery.sourceOrder ? (
-                <div>
-                  <b>SO #{delivery.sourceOrder.docNum}</b>
-                  {' '}· {delivery.sourceOrder.cardCode} — {delivery.sourceOrder.cardName}
-                  {' '}· Ngày {formatDateVN(delivery.sourceOrder.docDate)}
-                  {' '}<span className={`fm-chip fm-chip--${(delivery.sourceOrder.status ?? 'Open').toLowerCase()}`}>{STATUS_LABEL[delivery.sourceOrder.status] ?? delivery.sourceOrder.status}</span>
-                </div>
-              ) : delivery.source === 'sap' ? (
-                <div>Phiếu từ SAP B1 (không có bản ghi đơn nguồn trên local)</div>
-              ) : (
-                <div>Tạo thủ công (không từ đơn hàng)</div>
-              )}
-            </div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
+          <h2 className="fm-card__title" style={{ margin: 0 }}>Đơn nguồn</h2>
           {delivery.sourceOrder && (
-            <button className="fm-btn fm-btn--secondary" onClick={() => onGoOrder(delivery.sourceOrder!.id)}>
+            <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => onGoOrder(delivery.sourceOrder!.id)}>
               <ArrowLeft size={16} style={{ transform: 'rotate(180deg)' }} /> Xem đơn nguồn
             </button>
           )}
         </div>
+        {delivery.sourceOrder ? (
+          <dl className="fm-view-detail">
+            <div><dt>Số chứng từ</dt><dd><b>SO #{delivery.sourceOrder.docNum}</b></dd></div>
+            <div><dt>Mã KH</dt><dd>{delivery.sourceOrder.cardCode}</dd></div>
+            <div><dt>Tên KH</dt><dd>{delivery.sourceOrder.cardName}</dd></div>
+            <div><dt>Ngày chứng từ</dt><dd>{formatDateVN(delivery.sourceOrder.docDate)}</dd></div>
+            <div><dt>Trạng thái</dt><dd><span className={`fm-chip fm-chip--${(delivery.sourceOrder.status ?? 'Open').toLowerCase()}`}>{STATUS_LABEL[delivery.sourceOrder.status] ?? delivery.sourceOrder.status}</span></dd></div>
+          </dl>
+        ) : delivery.source === 'sap' ? (
+          <p style={{ color: 'var(--fm-text-2)', fontSize: 12.5, margin: '8px 0 0' }}>Phiếu từ SAP B1 (không có bản ghi đơn nguồn trên local)</p>
+        ) : (
+          <p style={{ color: 'var(--fm-text-2)', fontSize: 12.5, margin: '8px 0 0' }}>Tạo thủ công (không từ đơn hàng)</p>
+        )}
       </div>
 
+      {/* Thông tin chung */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, padding: 16 }}>
+        <h2 className="fm-card__title">Thông tin chung</h2>
+        <dl className="fm-view-detail">
+          <div><dt>Khách hàng</dt><dd><b>{delivery.cardCode}</b> — {delivery.cardName}</dd></div>
+          <div><dt>Ngày giao</dt><dd>{formatDateVN(delivery.docDate)}</dd></div>
+          <div><dt>Trạng thái</dt><dd><span className={`fm-chip fm-chip--${delivery.status.toLowerCase()}`}>{STATUS_LABEL[delivery.status] ?? delivery.status}</span></dd></div>
           <div>
-            <div className="fm-hint">Khách hàng</div>
-            <div><b>{delivery.cardCode}</b> — {delivery.cardName}</div>
-          </div>
-          <div>
-            <div className="fm-hint">Ngày giao</div>
-            <div>{formatDateVN(delivery.docDate)}</div>
-          </div>
-          <div>
-            <div className="fm-hint">Trạng thái</div>
-            <div><span className={`fm-chip fm-chip--${delivery.status.toLowerCase()}`}>{STATUS_LABEL[delivery.status] ?? delivery.status}</span></div>
-          </div>
-          <div>
-            <div className="fm-hint">SAP B1</div>
-            <div>
+            <dt>SAP B1</dt>
+            <dd>
               {delivery.source === 'sap' ? (
                 <span className="fm-chip fm-chip--sap">Từ SAP B1 — DocNum {delivery.sapDocNum}</span>
               ) : delivery.sapSyncStatus === 'synced' ? (
@@ -448,40 +410,25 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
               ) : delivery.sapSyncStatus === 'pending' ? (
                 <span className="fm-chip fm-chip--error" title={delivery.sapSyncError ?? ''}>Đẩy lỗi</span>
               ) : (
-                <span className="fm-hint">Chưa đẩy</span>
+                <span style={{ color: 'var(--fm-text-2)', fontWeight: 400 }}>Chưa đẩy</span>
               )}
-            </div>
+            </dd>
           </div>
           {delivery.source !== 'sap' && (
             <>
-              <div>
-                <div className="fm-hint">Người tạo</div>
-                <div>{delivery.createdBy}</div>
-              </div>
-              <div>
-                <div className="fm-hint">Ngày tạo</div>
-                <div>{formatDateVN(delivery.createdAt ?? '')}</div>
-              </div>
-              <div>
-                <div className="fm-hint">Cập nhật cuối</div>
-                <div>{formatDateVN(delivery.updatedAt ?? '')}</div>
-              </div>
-              <div>
-                <div className="fm-hint">Version</div>
-                <div>v{delivery.version ?? 0}</div>
-              </div>
+              <div><dt>Người tạo</dt><dd>{delivery.createdBy || '—'}</dd></div>
+              <div><dt>Ngày tạo</dt><dd>{delivery.createdAt ? formatDateVN(delivery.createdAt) : '—'}</dd></div>
+              <div><dt>Cập nhật cuối</dt><dd>{delivery.updatedAt ? formatDateVN(delivery.updatedAt) : '—'}</dd></div>
+              <div><dt>Version</dt><dd>v{delivery.version ?? 0}</dd></div>
             </>
           )}
-          {delivery.remarks && (
-            <div style={{ gridColumn: '1 / -1' }}>
-              <div className="fm-hint">Ghi chú</div>
-              <div>{delivery.remarks}</div>
-            </div>
-          )}
-        </div>
+          <div><dt>Ghi chú</dt><dd>{delivery.remarks || '—'}</dd></div>
+        </dl>
       </div>
 
-      <div className="fm-card">
+      {/* Dòng hàng */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title">Hàng hóa & chi tiết</h2>
         <div className="fm-table-wrap">
           <table className="fm-table">
             <thead>
