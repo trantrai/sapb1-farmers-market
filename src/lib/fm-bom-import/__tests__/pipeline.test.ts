@@ -135,3 +135,83 @@ describe('pipeline Sprint 1 (mock Base API)', () => {
     expect(warningsOf(issues).some((i) => i.code === 'W1')).toBe(true)
   })
 })
+
+describe('pipeline Sprint 2 (F19 + F5 + F4, in-memory)', () => {
+  /** Workbook báo giá mini: set "Set 1" để gán tay cho cha 1 của MD_05 fixture */
+  function buildQuoteFixture(): XLSX.WorkBook {
+    const wb = XLSX.utils.book_new()
+    const quote: unknown[][] = [
+      [null, null, 'Set 1'],
+      ['STT', 'BARCODE', 'ITEMCODE', 'TÊN SẢN PHẨM', 'Đơn vị tính', 'ĐƠN GIÁ\n(-vat)', 'VAT', 'CHIẾT KHẤU', 'ĐƠN GIÁ SAU CK\n(-VAT)', 'SỐ LƯỢNG', 'THÀNH TIỀN\n(-vat)'],
+      [1, 'B1', 'I0000001', 'Táo test', 'Kg', 50000, 0.05, 0, 50000, 2, 100000],
+      [null, null, null, 'GIÁ TRỊ SET QUÀ (chưa bao gồm VAT)', null, null, null, null, null, 1, 100000],
+    ]
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(quote), 'BẢNG BÁO GIÁ')
+    const costing: unknown[][] = [
+      ['Stt', 'Mã hàng', 'Barcode', 'TÊN CÔNG THỨC', 'ĐVT GHI NHẬN', 'GIÁ VỐN CHƯA VAT', 'GIÁ BÁN FINAL (-VAT)', 'GIÁ BÁN FINAL (+VAT)', 'MARGIN'],
+      [1, 'I0000001', 'B1', 'Táo test', 'Kg', 30000, 50000, 52500, 0.4],
+    ]
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(costing), 'Final Cost')
+    return wb
+  }
+
+  it('MD_05 + báo giá → canonical v1.1 có quotation/costing → W7/W9 + crossChecks + sinh mã', async () => {
+    // Parse MD_05
+    const mdBuf = XLSX.write(buildMd05Fixture(), { type: 'buffer', bookType: 'xlsx' })
+    const { parents } = parseMd05FromBuffer(mdBuf)
+    expect(parents).toHaveLength(2)
+
+    // Parse báo giá (F19)
+    const qBuf = XLSX.write(buildQuoteFixture(), { type: 'buffer', bookType: 'xlsx' })
+    const { parseQuotationFromBuffer } = await import('../parser-quotation')
+    const { generateParentCodes } = await import('../parent-codes')
+    const { buildCrossChecks, linkParentToSet } = await import('../validator')
+    const q = parseQuotationFromBuffer(qBuf)
+    expect(q.sets).toHaveLength(1)
+    expect(q.sets[0].name).toBe('Set 1')
+    expect(q.sets[0].subtotalExVat).toBe(100000)
+    expect(q.costing).toHaveLength(1)
+
+    // Canonical v1.1 gắn quotation
+    const doc = buildCanonicalDoc(parents, { sourceFile: 'md05.xlsx' })
+    doc.quotation = {
+      sets: q.sets,
+      contractTotals: q.contractTotals,
+      deliverySchedule: q.deliverySchedule,
+    }
+    doc.costing = q.costing
+
+    // Link NQ4: tên không chứa nhau → null; gán tay ở preview (manualLinks)
+    const rowNo1 = parents[0].rowNo
+    expect(linkParentToSet(parents[0], q.sets).set).toBeNull()
+    const manualLinks = { [rowNo1]: 'Set 1' }
+    expect(linkParentToSet(parents[0], q.sets, manualLinks).set?.name).toBe('Set 1')
+
+    // Validate bật W7/W8/W9 (Sprint 2) với link tay
+    const issues = validateCanonical(doc, {
+      quotationSets: q.sets,
+      costing: q.costing,
+      manualLinks,
+      requireQuotationLink: false,
+    })
+    // cha 1 đã link tay → W9 phủ dòng (I0000001 khớp; các con khác thiếu ở báo giá)
+    const w9 = warningsOf(issues).filter(
+      (i) => i.code === 'W9' && i.field === 'components' && i.rowNo === rowNo1,
+    )
+    expect(w9.length).toBeGreaterThan(0)
+    expect(w9[0].message).toContain('I0000002')
+
+    // crossChecks cho panel đối chiếu (có link tay)
+    const cc = buildCrossChecks(doc, { sets: q.sets, costing: q.costing }, { manualLinks })
+    expect(cc.some((c) => c.check === 'W7' && c.rowNo === rowNo1)).toBe(true)
+    expect(cc.some((c) => c.check === 'W9' && c.rowNo === rowNo1)).toBe(true)
+    expect(cc.find((c) => c.check === 'W7' && c.rowNo === rowNo1)?.linkAuto).toBe(false)
+
+    // Sinh mã Q1 (F4)
+    const { codes } = await generateParentCodes('CB-202610-0007', {
+      count: parents.length,
+      exists: () => false,
+    })
+    expect(codes).toEqual(['CB-202610-0007', 'CB-202610-0008'])
+  })
+})

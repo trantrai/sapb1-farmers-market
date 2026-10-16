@@ -99,7 +99,24 @@ export interface CanonicalJobContext {
   sourceFiles: JobContextSourceFile[]
 }
 
-// Quotation/costing/crossChecks: parse ở Sprint 2 (F19) — khai báo khung v1.1
+// Quotation/costing/crossChecks: parse ở Sprint 2 (F19) — types đầy đủ
+import type {
+  ContractTotals,
+  CostingRow,
+  DeliveryScheduleRow,
+  QuotationSet,
+} from './parser-quotation'
+import type { CrossCheck } from './validator'
+
+export type { ContractTotals, CostingRow, DeliveryScheduleRow, QuotationSet, CrossCheck }
+
+/** Báo giá parse từ workbook IN-2 (F19) — gắn vào canonical v1.1 */
+export interface CanonicalQuotation {
+  sets: QuotationSet[]
+  contractTotals: ContractTotals | null
+  deliverySchedule: DeliveryScheduleRow[]
+}
+
 export interface CanonicalDoc {
   version: '1.1'
   sourceFile: string
@@ -107,9 +124,9 @@ export interface CanonicalDoc {
   batchQtyDefault: number
   parents: CanonicalParent[]
   jobContext?: CanonicalJobContext
-  quotation?: unknown
-  costing?: unknown
-  crossChecks?: unknown[]
+  quotation?: CanonicalQuotation
+  costing?: CostingRow[]
+  crossChecks?: CrossCheck[]
 }
 
 /** Barcode chính theo Q2a: thương mại → đầu 8 → đầu I */

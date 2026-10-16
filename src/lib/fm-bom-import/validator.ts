@@ -8,6 +8,14 @@
 // ============================================================
 
 import type { CanonicalDoc, CanonicalParent } from './canonical'
+import type {
+  CostingRow,
+  DeliveryScheduleRow,
+  QuotationSet,
+  QuotationSetLine,
+} from './parser-quotation'
+
+export type { CostingRow, DeliveryScheduleRow, QuotationSet, QuotationSetLine }
 
 export type Severity = 'error' | 'warning'
 
@@ -19,31 +27,14 @@ export interface ValidationIssue {
   severity: Severity
 }
 
-export interface QuotationSetLine {
-  itemCode: string
-  itemName?: string
-}
-
-export interface QuotationSet {
-  name: string
-  lines: QuotationSetLine[]
-  subtotalExVat: number | null
-}
-
-export interface CostingRow {
-  itemCode: string
-  margin: number | null // tỷ lệ, vd 0.53 = 53%
-}
-
-export interface DeliveryScheduleRow {
-  date: string // YYYY-MM-DD
-}
-
 export interface SourceFileCheck {
   field: string
   md5: string
   sha256: string
 }
+
+/** Gán tay parent ↔ set ở preview (NQ4): rowNo → tên set */
+export type ManualLinks = Record<number, string>
 
 export interface ValidationContext {
   /** Mã VAT hợp lệ (vd P0..P4, S0..S4) — V2; mặc định đủ 10 mã */
@@ -75,6 +66,8 @@ export interface ValidationContext {
   costing?: CostingRow[]
   /** Bắt buộc mỗi parent link được tới 1 set báo giá — V9 */
   requireQuotationLink?: boolean
+  /** Gán tay parent ↔ set từ preview (NQ4) — ưu tiên hơn rule tự động */
+  manualLinks?: ManualLinks
   /** Ngưỡng W7 (mặc định 0.01 = 1%, NQ3) */
   w7Threshold?: number
   /** Ngưỡng W8 theo điểm % (mặc định 3, NQ3) */
@@ -85,20 +78,33 @@ export interface ValidationContext {
   sourceFiles?: SourceFileCheck[]
 }
 
+/** Gán tay ở preview được ưu tiên; mặc định NQ4 — link theo tên chứa nhau */
+export interface ParentSetLink {
+  set: QuotationSet | null
+  /** true = rule tự động NQ4; false = user gán tay */
+  auto: boolean
+}
+
 /** NQ4 — link parent ↔ set theo tên chứa nhau (normalize, không dấu vẫn khớp) */
 export function linkParentToSet(
   parent: CanonicalParent,
   sets: QuotationSet[],
-): QuotationSet | null {
+  manualLinks?: ManualLinks,
+): ParentSetLink {
+  if (manualLinks?.[parent.rowNo]) {
+    const found = sets.find((s) => s.name === manualLinks[parent.rowNo])
+    if (found) return { set: found, auto: false }
+  }
   const norm = (s: string) =>
     s.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ')
   const pn = norm(parent.itemName)
-  if (!pn) return null
-  for (const set of sets) {
-    const sn = norm(set.name)
-    if (sn.includes(pn) || pn.includes(sn)) return set
+  if (pn) {
+    for (const set of sets) {
+      const sn = norm(set.name)
+      if (sn.includes(pn) || pn.includes(sn)) return { set, auto: true }
+    }
   }
-  return null
+  return { set: null, auto: true }
 }
 
 const VAT_PATTERN = /^[PS][0-4]$/
@@ -250,9 +256,14 @@ export function validateCanonical(
 
     // ---- V9/W7/W9: đối chiếu báo giá ----
     const sets = ctx.quotationSets ?? []
-    const linked = sets.length > 0 ? linkParentToSet(p, sets) : null
+    const { set: linked } =
+      sets.length > 0 ? linkParentToSet(p, sets, ctx.manualLinks) : { set: null }
     if (ctx.requireQuotationLink && sets.length > 0 && !linked) {
       err('V9', p.rowNo, 'quotation', `Không link được mã cha "${p.itemName}" tới set báo giá nào (NQ4)`)
+    }
+    if (sets.length > 0 && !linked) {
+      // NQ4: không khớp tự động → warning, user gán tay ở preview
+      warn('W9', p.rowNo, 'quotation', `Chưa link được mã cha "${p.itemName}" tới set báo giá nào — hãy gán tay ở preview (NQ4)`)
     }
     if (linked) {
       // W7 — lệch giá
@@ -300,6 +311,117 @@ export function validateCanonical(
   }
 
   return issues
+}
+
+/** Kết quả đối chiếu báo giá ↔ MD_05 (theo schema thiết kế §4) */
+export interface CrossCheck {
+  /** "rowNo|itemName" */
+  parentRef: string
+  rowNo: number
+  check: 'W7' | 'W8' | 'W9'
+  expected: number | null
+  actual: number | null
+  /** W7: % tương đối; W8: điểm % — xem `unit` */
+  deviation: number | null
+  unit: 'pct' | 'pp'
+  verdict: 'pass' | 'warn'
+  detail: string
+  /** Tên set đã link (tự động hay gán tay) */
+  setName: string | null
+  linkAuto: boolean
+}
+
+export interface CrossCheckOptions {
+  w7Threshold?: number
+  w8ThresholdPp?: number
+  manualLinks?: ManualLinks
+}
+
+/**
+ * Dựng crossChecks[] cho panel "Đối chiếu báo giá" (F5).
+ * Không phát sinh issue mới — chỉ tóm tắt số liệu từ cùng logic W7/W8/W9.
+ */
+export function buildCrossChecks(
+  doc: CanonicalDoc,
+  quotation: { sets: QuotationSet[]; costing: CostingRow[] },
+  opts: CrossCheckOptions = {},
+): CrossCheck[] {
+  const w7Threshold = opts.w7Threshold ?? 0.01
+  const w8ThresholdPp = opts.w8ThresholdPp ?? 3
+  const out: CrossCheck[] = []
+  for (const p of doc.parents) {
+    const parentRef = `${p.rowNo}|${p.itemName}`
+    const { set: linked, auto: linkAuto } = linkParentToSet(p, quotation.sets, opts.manualLinks)
+    const setName = linked?.name ?? null
+
+    if (linked) {
+      // W7 — lệch giá
+      if (p.priceExVat != null && linked.subtotalExVat != null && linked.subtotalExVat > 0) {
+        const devPct = (Math.abs(p.priceExVat - linked.subtotalExVat) / linked.subtotalExVat) * 100
+        out.push({
+          parentRef,
+          rowNo: p.rowNo,
+          check: 'W7',
+          expected: linked.subtotalExVat,
+          actual: p.priceExVat,
+          deviation: Math.round(devPct * 100) / 100,
+          unit: 'pct',
+          verdict: devPct / 100 > w7Threshold ? 'warn' : 'pass',
+          detail: `Giá MD_05 ${p.priceExVat.toLocaleString('vi-VN')} vs subtotal "${linked.name}" ${linked.subtotalExVat.toLocaleString('vi-VN')} (lệch ${devPct.toFixed(2)}%)`,
+          setName,
+          linkAuto,
+        })
+      }
+      // W9 — phủ dòng
+      const setCodes = new Set(linked.lines.map((l) => l.itemCode))
+      const mdCodes = new Set(p.components.map((c) => c.childCode))
+      const missingInSet = [...mdCodes].filter((c) => !setCodes.has(c))
+      const missingInMd = [...setCodes].filter((c) => !mdCodes.has(c))
+      out.push({
+        parentRef,
+        rowNo: p.rowNo,
+        check: 'W9',
+        expected: setCodes.size,
+        actual: mdCodes.size,
+        deviation: null,
+        unit: 'pct',
+        verdict: missingInSet.length > 0 || missingInMd.length > 0 ? 'warn' : 'pass',
+        detail:
+          missingInSet.length > 0 || missingInMd.length > 0
+            ? `Phủ dòng "${linked.name}" lệch — thiếu ở báo giá: ${missingInSet.join(', ') || '—'}; thiếu ở MD_05: ${missingInMd.join(', ') || '—'}`
+            : `Phủ dòng "${linked.name}" khớp đủ ${mdCodes.size} mã NVL`,
+        setName,
+        linkAuto,
+      })
+    }
+
+    // W8 — lệch margin vs Final Cost (theo mã cha/con trùng trong costing[])
+    const margin = p.mdChecks.marginPct
+    if (margin != null && quotation.costing.length > 0) {
+      const codes = new Set(
+        [p.itemCode, ...p.components.map((c) => c.childCode)].filter(Boolean) as string[],
+      )
+      for (const row of quotation.costing) {
+        if (row.margin != null && codes.has(row.itemCode)) {
+          const ppDiff = Math.abs(margin - row.margin) * 100
+          out.push({
+            parentRef,
+            rowNo: p.rowNo,
+            check: 'W8',
+            expected: Math.round(row.margin * 10000) / 100,
+            actual: Math.round(margin * 10000) / 100,
+            deviation: Math.round(ppDiff * 100) / 100,
+            unit: 'pp',
+            verdict: ppDiff > w8ThresholdPp ? 'warn' : 'pass',
+            detail: `Margin MD_05 ${(margin * 100).toFixed(1)}% vs Final Cost ${(row.margin * 100).toFixed(1)}% (mã ${row.itemCode}, lệch ${ppDiff.toFixed(1)} điểm %)`,
+            setName,
+            linkAuto,
+          })
+        }
+      }
+    }
+  }
+  return out
 }
 
 /** true nếu còn lỗi fail-fast (severity error) */

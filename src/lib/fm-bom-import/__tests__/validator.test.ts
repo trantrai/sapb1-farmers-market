@@ -1,15 +1,76 @@
 // Test validation engine V1–V9 / W1–W10 (F3)
 import { describe, expect, it } from 'vitest'
 import {
+  buildCrossChecks,
   errorsOf,
   hasErrors,
   linkParentToSet,
   validateCanonical,
   warningsOf,
+  type QuotationSet,
+  type QuotationSetLine,
+  type CostingRow,
+  type DeliveryScheduleRow,
   type ValidationContext,
 } from '../validator'
 import { buildCanonicalDoc } from '../canonical'
 import { makeParent } from './fixtures'
+
+/** Helper dựng QuotationSet đầy đủ field (types Sprint 2) */
+function mkSet(over: Partial<QuotationSet> = {}): QuotationSet {
+  return {
+    name: 'Set Test',
+    lines: [],
+    subtotalExVat: null,
+    vatRows: [],
+    totalIncVat: null,
+    orderTotal: null,
+    ...over,
+  }
+}
+
+function mkLine(over: Partial<QuotationSetLine> = {}): QuotationSetLine {
+  return {
+    itemCode: 'I0000001',
+    itemName: null,
+    barcode: null,
+    uom: null,
+    unitPriceExVat: null,
+    vatRate: null,
+    discountPct: null,
+    priceAfterDiscountExVat: null,
+    qty: null,
+    amountExVat: null,
+    ...over,
+  }
+}
+
+function mkCosting(over: Partial<CostingRow> = {}): CostingRow {
+  return {
+    itemCode: 'T0000001',
+    barcode: null,
+    itemName: null,
+    uom: null,
+    costExVat: null,
+    priceExVat: null,
+    priceIncVat: null,
+    margin: null,
+    ...over,
+  }
+}
+
+function mkDelivery(over: Partial<DeliveryScheduleRow> = {}): DeliveryScheduleRow {
+  return {
+    date: null,
+    setName: null,
+    qty: null,
+    address: null,
+    receiver: null,
+    timeSlot: null,
+    department: null,
+    ...over,
+  }
+}
 
 const baseCtx: ValidationContext = {}
 
@@ -163,7 +224,7 @@ describe('V9 — link báo giá bắt buộc', () => {
     const issues = validate(
       {
         requireQuotationLink: true,
-        quotationSets: [{ name: 'Set hoàn toàn khác', lines: [], subtotalExVat: 1 }],
+        quotationSets: [mkSet({ name: 'Set hoàn toàn khác', subtotalExVat: 1 })],
       },
       { itemName: 'PHẦN QUÀ TEST' },
     )
@@ -173,11 +234,20 @@ describe('V9 — link báo giá bắt buộc', () => {
     const issues = validate(
       {
         requireQuotationLink: true,
-        quotationSets: [{ name: 'Set Phần Quà Test 2026', lines: [], subtotalExVat: 1 }],
+        quotationSets: [mkSet({ name: 'Set Phần Quà Test 2026', subtotalExVat: 1 })],
       },
       { itemName: 'PHẦN QUÀ TEST' },
     )
     expect(errorsOf(issues).filter((i) => i.code === 'V9')).toHaveLength(0)
+  })
+  it('không link được + requireQuotationLink=false → warning W9 (NQ4: gán tay ở preview)', () => {
+    const issues = validate(
+      { quotationSets: [mkSet({ name: 'Set hoàn toàn khác', subtotalExVat: 1 })] },
+      { itemName: 'PHẦN QUÀ TEST' },
+    )
+    const w9 = warningsOf(issues).filter((i) => i.code === 'W9' && i.field === 'quotation')
+    expect(w9).toHaveLength(1)
+    expect(w9[0].message).toContain('gán tay')
   })
 })
 
@@ -215,7 +285,7 @@ describe('W1/W2/W4/W5/W6 — cảnh báo', () => {
 })
 
 describe('W7/W8/W9/W10 — đối chiếu báo giá', () => {
-  const sets = [{ name: 'Set Phần Quà Test', lines: [{ itemCode: 'I0000001' }], subtotalExVat: 110000 }]
+  const sets = [mkSet({ name: 'Set Phần Quà Test', lines: [mkLine({ itemCode: 'I0000001' })], subtotalExVat: 110000 })]
   it('W7: lệch giá >1% (NQ3) → cảnh báo kèm số lệch', () => {
     const issues = validate({ quotationSets: sets }, { itemName: 'PHẦN QUÀ TEST', priceExVat: 100000 })
     const w7 = warningsOf(issues).filter((i) => i.code === 'W7')
@@ -224,7 +294,7 @@ describe('W7/W8/W9/W10 — đối chiếu báo giá', () => {
   })
   it('W7: lệch trong 1% → không cảnh báo', () => {
     const issues = validate(
-      { quotationSets: [{ name: 'Set Phần Quà Test', lines: [], subtotalExVat: 100500 }] },
+      { quotationSets: [mkSet({ name: 'Set Phần Quà Test', subtotalExVat: 100500 })] },
       { itemName: 'PHẦN QUÀ TEST', priceExVat: 100000 },
     )
     expect(warningsOf(issues).filter((i) => i.code === 'W7')).toHaveLength(0)
@@ -236,7 +306,7 @@ describe('W7/W8/W9/W10 — đối chiếu báo giá', () => {
     const issues = validate(
       {
         quotationSets: sets,
-        costing: [{ itemCode: 'CB-001', margin: 0.3 }],
+        costing: [mkCosting({ itemCode: 'CB-001', margin: 0.3 })],
       },
       p as never,
     )
@@ -244,32 +314,32 @@ describe('W7/W8/W9/W10 — đối chiếu báo giá', () => {
   })
   it('W9: mã con thiếu ở báo giá → cảnh báo liệt kê mã', () => {
     const issues = validate(
-      { quotationSets: [{ name: 'Set Phần Quà Test', lines: [{ itemCode: 'I9999999' }], subtotalExVat: 100000 }] },
+      { quotationSets: [mkSet({ name: 'Set Phần Quà Test', lines: [mkLine({ itemCode: 'I9999999' })], subtotalExVat: 100000 })] },
       { itemName: 'PHẦN QUÀ TEST' },
     )
-    const w9 = warningsOf(issues).filter((i) => i.code === 'W9')
+    const w9 = warningsOf(issues).filter((i) => i.code === 'W9' && i.field === 'components')
     expect(w9).toHaveLength(1)
     expect(w9[0].message).toContain('I0000001')
   })
   it('W10: lịch giao quá khứ → cảnh báo', () => {
-    const issues = validate({ deliverySchedule: [{ date: '2000-01-01' }] })
+    const issues = validate({ deliverySchedule: [mkDelivery({ date: '2000-01-01' })] })
     expect(warningsOf(issues).some((i) => i.code === 'W10')).toBe(true)
   })
   it('W10: lịch giao tương lai → không cảnh báo', () => {
-    const issues = validate({ deliverySchedule: [{ date: '2099-01-01' }] })
+    const issues = validate({ deliverySchedule: [mkDelivery({ date: '2099-01-01' })] })
     expect(warningsOf(issues).filter((i) => i.code === 'W10')).toHaveLength(0)
   })
 })
 
 describe('linkParentToSet (NQ4)', () => {
   it('khớp theo tên chứa nhau (2 chiều)', () => {
-    const sets = [{ name: 'Set 4 — Quà Tết', lines: [], subtotalExVat: null }]
-    expect(linkParentToSet(makeParent({ itemName: 'QUÀ TẾT' }), sets)).not.toBeNull()
-    expect(linkParentToSet(makeParent({ itemName: 'Set 4 — Quà Tết 2026' }), sets)).not.toBeNull()
+    const sets = [mkSet({ name: 'Set 4 — Quà Tết' })]
+    expect(linkParentToSet(makeParent({ itemName: 'QUÀ TẾT' }), sets).set).not.toBeNull()
+    expect(linkParentToSet(makeParent({ itemName: 'Set 4 — Quà Tết 2026' }), sets).set).not.toBeNull()
   })
-  it('không khớp → null', () => {
-    const sets = [{ name: 'Set hoàn toàn khác', lines: [], subtotalExVat: null }]
-    expect(linkParentToSet(makeParent({ itemName: 'PHẦN QUÀ TEST' }), sets)).toBeNull()
+  it('không khớp → set null', () => {
+    const sets = [mkSet({ name: 'Set hoàn toàn khác' })]
+    expect(linkParentToSet(makeParent({ itemName: 'PHẦN QUÀ TEST' }), sets).set).toBeNull()
   })
 })
 
@@ -287,5 +357,111 @@ describe('helpers', () => {
       expect(['error', 'warning']).toContain(i.severity)
       expect(i.message.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('NQ4 — link parent ↔ set (tự động + gán tay)', () => {
+  const sets = [
+    mkSet({ name: 'Set 1' }),
+    mkSet({ name: 'Set 2' }),
+  ]
+  const parent = makeParent({ itemName: 'PHẦN QUÀ TEST' })
+
+  it('tên chứa nhau cả 2 chiều → link tự động', () => {
+    const r1 = linkParentToSet(makeParent({ itemName: 'Set 1' }), sets)
+    expect(r1.set?.name).toBe('Set 1')
+    expect(r1.auto).toBe(true)
+    const r2 = linkParentToSet(makeParent({ itemName: 'Quà Set 2 đặc biệt' }), sets)
+    expect(r2.set?.name).toBe('Set 2')
+  })
+  it('không khớp tên → null', () => {
+    const r = linkParentToSet(parent, sets)
+    expect(r.set).toBeNull()
+  })
+  it('gán tay được ưu tiên hơn rule tự động', () => {
+    const r = linkParentToSet(makeParent({ itemName: 'Set 1' }), sets, { 7: 'Set 2' })
+    expect(r.set?.name).toBe('Set 2')
+    expect(r.auto).toBe(false)
+  })
+  it('gán tay tên set không tồn tại → fallback về rule tự động', () => {
+    const r = linkParentToSet(makeParent({ itemName: 'Set 1' }), sets, { 7: 'Set không có' })
+    expect(r.set?.name).toBe('Set 1')
+    expect(r.auto).toBe(true)
+  })
+  it('gán tay giúp parent vượt V9 khi requireQuotationLink=true', () => {
+    const issues = validate(
+      {
+        requireQuotationLink: true,
+        quotationSets: sets,
+        manualLinks: { 7: 'Set 2' },
+      },
+      { itemName: 'PHẦN QUÀ TEST' },
+    )
+    expect(errorsOf(issues).filter((i) => i.code === 'V9')).toHaveLength(0)
+  })
+})
+
+describe('buildCrossChecks — panel đối chiếu báo giá (F5)', () => {
+  it('W7: lệch 9.09% → warn kèm số liệu', () => {
+    const doc = buildCanonicalDoc(
+      [makeParent({ itemName: 'Set 1', priceExVat: 100000 })],
+      { sourceFile: 'x.xlsx' },
+    )
+    const cc = buildCrossChecks(
+      doc,
+      { sets: [mkSet({ name: 'Set 1', subtotalExVat: 110000 })], costing: [] },
+    )
+    const w7 = cc.filter((c) => c.check === 'W7')
+    expect(w7).toHaveLength(1)
+    expect(w7[0].verdict).toBe('warn')
+    expect(w7[0].expected).toBe(110000)
+    expect(w7[0].actual).toBe(100000)
+    expect(w7[0].deviation).toBeCloseTo(9.09, 1)
+    expect(w7[0].unit).toBe('pct')
+  })
+  it('W7 trong ngưỡng → pass', () => {
+    const doc = buildCanonicalDoc(
+      [makeParent({ itemName: 'Set 1', priceExVat: 100000 })],
+      { sourceFile: 'x.xlsx' },
+    )
+    const cc = buildCrossChecks(
+      doc,
+      { sets: [mkSet({ name: 'Set 1', subtotalExVat: 100500 })], costing: [] },
+    )
+    expect(cc.filter((c) => c.check === 'W7')[0].verdict).toBe('pass')
+  })
+  it('W9: phủ dòng khớp đủ → pass; lệch → warn', () => {
+    const doc = buildCanonicalDoc([makeParent({ itemName: 'Set 1' })], { sourceFile: 'x.xlsx' })
+    const full = buildCrossChecks(
+      doc,
+      {
+        sets: [mkSet({ name: 'Set 1', lines: [mkLine({ itemCode: 'I0000001' })] })],
+        costing: [],
+      },
+    )
+    // makeParent fixture có 1 con I0000001 → khớp đủ
+    expect(full.filter((c) => c.check === 'W9')[0].verdict).toBe('pass')
+    const partial = buildCrossChecks(
+      doc,
+      {
+        sets: [mkSet({ name: 'Set 1', lines: [mkLine({ itemCode: 'I9999999' })] })],
+        costing: [],
+      },
+    )
+    expect(partial.filter((c) => c.check === 'W9')[0].verdict).toBe('warn')
+  })
+  it('W8: lệch margin theo điểm % (NQ3)', () => {
+    const p = makeParent({ itemName: 'Set 1', itemCode: 'CB-001' })
+    p.mdChecks = { ...p.mdChecks, marginPct: 0.4 }
+    const doc = buildCanonicalDoc([p], { sourceFile: 'x.xlsx' })
+    const cc = buildCrossChecks(
+      doc,
+      { sets: [], costing: [mkCosting({ itemCode: 'CB-001', margin: 0.3 })] },
+    )
+    const w8 = cc.filter((c) => c.check === 'W8')
+    expect(w8).toHaveLength(1)
+    expect(w8[0].verdict).toBe('warn')
+    expect(w8[0].deviation).toBeCloseTo(10, 5)
+    expect(w8[0].unit).toBe('pp')
   })
 })

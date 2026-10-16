@@ -15,8 +15,10 @@ import {
   verifySourceFiles,
 } from '@/lib/fm-bom-import/base-client'
 import { parseMd05FromBuffer } from '@/lib/fm-bom-import/parser-md05'
+import { parseQuotationFromBuffer } from '@/lib/fm-bom-import/parser-quotation'
 import { buildCanonicalDoc } from '@/lib/fm-bom-import/canonical'
 import {
+  buildCrossChecks,
   errorsOf,
   validateCanonical,
   warningsOf,
@@ -60,6 +62,23 @@ export async function POST(
     // F1 — parse 2-pass (values + formulas)
     const { parents, sheetUsed } = parseMd05FromBuffer(buffer)
 
+    // F19 (Sprint 2) — parse workbook báo giá IN-2 (3 sheet)
+    const in2 = sourceFiles.find((s) => s.input === 'IN-2')
+    let quotation: { sets: import('@/lib/fm-bom-import/parser-quotation').QuotationSet[]; contractTotals: import('@/lib/fm-bom-import/parser-quotation').ContractTotals | null; deliverySchedule: import('@/lib/fm-bom-import/parser-quotation').DeliveryScheduleRow[] } | undefined
+    let costing: import('@/lib/fm-bom-import/parser-quotation').CostingRow[] | undefined
+    const quotationWarnings: string[] = []
+    if (in2) {
+      const qPath = path.join(getBomImportDir(), ...in2.relPath.split('/'))
+      const qBuffer = await fs.readFile(qPath)
+      const parsed = parseQuotationFromBuffer(qBuffer)
+      quotation = { sets: parsed.sets, contractTotals: parsed.contractTotals, deliverySchedule: parsed.deliverySchedule }
+      costing = parsed.costing
+      quotationWarnings.push(...parsed.warnings)
+      if (parsed.skippedSheets.length > 0) {
+        quotationWarnings.push(`Bỏ qua sheet không parse: ${parsed.skippedSheets.join(', ')}`)
+      }
+    }
+
     // F2 — canonical v1.1
     const canonical = buildCanonicalDoc(parents, {
       sourceFile: in1.filename,
@@ -77,22 +96,38 @@ export async function POST(
         })),
       },
     })
+    if (quotation) canonical.quotation = quotation
+    if (costing) canonical.costing = costing
 
     // F3 — validation (V1–V9 fail-fast + W1–W10)
-    // Sprint 1: chưa có master B1 → V4 (mã con tồn tại) và check ĐVT theo
-    // master được bỏ qua; quotation (V9/W7–W10) parse ở Sprint 2 (F19).
+    // Sprint 2: đã có báo giá → bật V9/W7/W8/W9/W10.
+    // Vẫn bỏ qua: V4/W3/W6 (cần master B1 — Sprint 3).
     const skippedRules = [
       'V4 — kiểm tra mã NVL tồn tại trên B1 (cần Service Layer, Sprint 3)',
-      'V9/W7/W8/W9/W10 — đối chiếu báo giá (cần parse workbook, Sprint 2)',
       'W3 — ĐVT tồn kho trên B1 (cần Service Layer, Sprint 3)',
       'W6 — trùng barcode (cần master B1, Sprint 3)',
+      ...(in2
+        ? []
+        : ['V9/W7/W8/W9/W10 — đối chiếu báo giá (thiếu file IN-2 workbook báo giá)']),
     ]
     const issues = validateCanonical(canonical, {
       jobId: run.jobId,
       sourceFiles: sourceFiles.map((s) => ({ field: s.field, md5: s.md5, sha256: s.sha256 })),
+      quotationSets: quotation?.sets,
+      costing,
+      deliverySchedule: quotation?.deliverySchedule,
+      // V9 fail-fast mặc định TẮT: không link được → warning W9 + user gán tay ở preview (NQ4)
+      requireQuotationLink: false,
     })
 
-    // Lưu canonical + issues xuống đĩa (audit), canonicalRef trỏ tới file
+    // F5 — crossChecks cho panel "Đối chiếu báo giá"
+    const crossChecks = quotation
+      ? buildCrossChecks(canonical, { sets: quotation.sets, costing: costing ?? [] })
+      : []
+    canonical.crossChecks = crossChecks
+
+    // Lưu canonical + issues xuống đĩa (audit), canonicalRef trỏ tới file.
+    // Sidecar còn giữ state Sprint 2: manualLinks, generatedCodes, approvedParents.
     const jobDir = getJobDir(run.jobId)
     await fs.mkdir(jobDir, { recursive: true })
     const relRef = `${run.jobId}/${id}.canonical.json`
@@ -100,15 +135,37 @@ export async function POST(
     await fs.writeFile(
       absRef,
       JSON.stringify(
-        { savedAt: new Date().toISOString(), canonical, issues, validatedAt: new Date().toISOString() },
+        {
+          savedAt: new Date().toISOString(),
+          canonical,
+          issues,
+          validatedAt: new Date().toISOString(),
+          manualLinks: {},
+          generatedCodes: {},
+          approvedParents: [],
+          quotationWarnings,
+        },
         null,
         2,
       ),
     )
 
+    // Tóm tắt đối chiếu báo giá vào DB (Sprint 2)
+    const crossChecksSummary = {
+      sets: quotation?.sets.length ?? 0,
+      costingRows: costing?.length ?? 0,
+      deliveryRows: quotation?.deliverySchedule.length ?? 0,
+      warnChecks: crossChecks.filter((c) => c.verdict === 'warn').length,
+      warnings: quotationWarnings,
+    }
+
     const updated = await prisma.importRun.update({
       where: { id },
-      data: { status: 'validated', canonicalRef: relRef },
+      data: {
+        status: 'validated',
+        canonicalRef: relRef,
+        crossChecksSummary: JSON.stringify(crossChecksSummary),
+      },
     })
 
     const errors = errorsOf(issues)
@@ -135,6 +192,15 @@ export async function POST(
       issues,
       skippedRules,
       blocked: errors.length > 0,
+      quotation: quotation
+        ? {
+            sets: quotation.sets.map((s) => ({ name: s.name, lines: s.lines.length, subtotalExVat: s.subtotalExVat })),
+            costingRows: costing?.length ?? 0,
+            deliveryRows: quotation.deliverySchedule.length,
+            contractTotalIncVat: quotation.contractTotals?.totalIncVat ?? null,
+            warnings: quotationWarnings,
+          }
+        : null,
     })
   } catch (e) {
     if (e instanceof IngestChangedError) {
