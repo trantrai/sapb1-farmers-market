@@ -238,11 +238,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <table className="fm-table">
                 <thead>
                   <tr>
-                    <th>Số CT</th>
+                    <th>Số chứng từ</th>
                     <th>Khách hàng</th>
                     <th>Hạn giao</th>
                     <th>Trạng thái</th>
-                    <th className="fm-num">Tổng tiền</th>
+                    <th className="fm-num">Tổng chứng từ</th>
                     <th><span className="fm-sr-only">Thao tác</span></th>
                   </tr>
                 </thead>
@@ -428,12 +428,12 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
             <table className="fm-table">
               <thead>
                 <tr>
-                  <th>Số CT</th>
+                  <th>Số chứng từ</th>
                   <th>Khách hàng</th>
                   <th>Ngày chứng từ</th>
                   <th>Hạn giao</th>
                   <th>Trạng thái</th>
-                  <th className="fm-num">Tổng tiền</th>
+                  <th className="fm-num">Tổng chứng từ</th>
                 </tr>
               </thead>
               <tbody>
