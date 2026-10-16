@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { User, Lock, Database } from 'lucide-react'
+import { User, Lock, Database, Eye, EyeOff } from 'lucide-react'
 import type { SessionUser } from '@/lib/fm-shared'
 
 type LoginUser = SessionUser & { token: string }
@@ -23,6 +23,7 @@ export default function LoginView({ onLogin }: Props) {
   const [databaseId, setDatabaseId] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   // Danh sách database SAP để chọn khi đăng nhập (public endpoint)
   useEffect(() => {
@@ -105,16 +106,27 @@ export default function LoginView({ onLogin }: Props) {
             <div style={{ position: 'relative' }}>
               <input
                 id="password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 className="fm-input"
-                style={{ paddingLeft: 34 }}
+                style={{ paddingLeft: 34, paddingRight: 38 }}
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
                 required
               />
-              <Lock size={16} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} />
+              <Lock size={16} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} aria-hidden="true" />
+              <button
+                type="button"
+                className="fm-icon-btn"
+                style={{ position: 'absolute', right: 6, top: 4 }}
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-pressed={showPassword}
+                title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
           </div>
 

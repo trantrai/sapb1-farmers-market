@@ -641,7 +641,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
               <button className="fm-btn fm-btn--secondary" onClick={() => setShowCancel(false)} disabled={cancelBusy}>
                 Giữ phiếu
               </button>
-              <button className="fm-btn fm-btn--primary" onClick={() => void doCancel()} disabled={cancelBusy}>
+              <button className="fm-btn fm-btn--danger" onClick={() => void doCancel()} disabled={cancelBusy}>
                 <Ban size={16} /> {cancelBusy ? 'Đang hủy…' : 'Xác nhận hủy phiếu'}
               </button>
             </div>

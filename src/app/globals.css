@@ -188,6 +188,16 @@
   --fm-muted-line:    #8D8B89;   /* Viền/input/switch xám trung tính */
   --fm-scroll-thumb:  #C8C6C4;   /* Thanh cuộn */
 
+  /* ---------- Semantic trạng thái — bổ sung cho C1 (để worker khác map hex inline TSX) ---------- */
+  --fm-success:      #16A34A;   /* Xanh lá success — đúng sắc đang dùng trong inline style TSX (bom-import) */
+  --fm-success-bg:   #DFF6DD;   /* Nền nhạt success (= --fm-green-soft) */
+  --fm-danger-bg:    var(--fm-red-soft);   /* Nền nhạt danger — alias của red-soft */
+  --fm-warning-bg:   var(--fm-warn-soft);  /* Nền nhạt warning — alias của warn-soft */
+  --fm-slate-100:    #F1F5F9;   /* Slate nhạt — nền stepper BOM trong inline TSX */
+  --fm-slate-500:    #64748B;   /* Slate xám trung — chữ mờ stepper BOM trong inline TSX */
+
+  /* ---------- Typography ---------- */
+
   /* ---------- Typography ---------- */
   /* --fm-font trỏ về Inter đã load qua next/font (layout.tsx, biến --font-fm);
      Inter không còn là dead weight bị .fm-app-root override */
@@ -202,6 +212,13 @@
 
   /* ---------- Layout ---------- */
   --fm-sidebar-w: 250px;
+
+  /* ---------- Motion (O1) ---------- */
+  /* easing entrance chuẩn toàn app — cubic-bezier(.22,.8,.36,1) là easing đang dùng phổ biến nhất */
+  --fm-ease: cubic-bezier(.22,.8,.36,1);
+  --fm-dur-fast: .15s;  /* hover, nút, chip, backdrop fade */
+  --fm-dur-base: .24s;  /* modal pop-in, view enter, panel */
+  --fm-dur-slow: .4s;   /* progress bar, panel lớn */
 }
 
 /* Shared primitives for screens that use Tailwind utilities directly. */
@@ -267,7 +284,7 @@
   padding: 9px 12px; border-radius: var(--fm-r-md);
   color: rgba(255,255,255,.85); font-size: 14px; cursor: pointer;
   border-left: 3px solid transparent; margin-bottom: 2px;
-  transition: background .15s; display: flex; align-items: center; gap: 9px;
+  transition: background var(--fm-dur-fast); display: flex; align-items: center; gap: 9px;
 }
 .fm-menu-item svg { flex-shrink: 0; }
 .fm-menu-item:hover { background: rgba(255,255,255,.1); color: var(--fm-surface); }
@@ -489,7 +506,7 @@
 .fm-btn {
   border: none; border-radius: var(--fm-r-md); cursor: pointer;
   font-family: var(--fm-font); font-size: 12.5px; font-weight: 600;
-  padding: 8px 18px; transition: background .15s, box-shadow .15s;
+  padding: 8px 18px; transition: background var(--fm-dur-fast), box-shadow var(--fm-dur-fast);
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .fm-btn:disabled { opacity: .6; cursor: not-allowed; }
@@ -499,7 +516,7 @@
 .fm-btn--primary {
   background: var(--fm-primary); color: var(--fm-gold-ink); font-weight: 700;
   box-shadow: 0 2px 6px rgba(254, 166, 25, .25);
-  transition: background .15s, transform .15s, box-shadow .15s;
+  transition: background var(--fm-dur-fast), transform var(--fm-dur-fast), box-shadow var(--fm-dur-fast);
 }
 .fm-btn--primary:hover:not(:disabled) { background: var(--fm-primary-hover); color: var(--fm-gold-ink-hover); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(242, 183, 5, .35); } /* #5C4300 trên #D9A406 chỉ 4.1:1 → #4A3600 đạt 5.1:1 */
 .fm-btn--primary:active:not(:disabled) { transform: translateY(0); box-shadow: inset 0 2px 4px rgba(0,0,0,.15); }
@@ -510,7 +527,7 @@
 .fm-btn--secondary {
   background: var(--fm-navy-soft); color: var(--fm-text); font-weight: 600;
   border: 1px solid transparent;
-  transition: background .15s;
+  transition: background var(--fm-dur-fast);
 }
 .fm-btn--secondary:hover:not(:disabled) { background: var(--fm-navy-soft-hover); }
 .fm-btn--secondary:active:not(:disabled) { background: var(--fm-navy-soft-hover); filter: brightness(.96); }
@@ -519,7 +536,7 @@
 .fm-btn--outline {
   background: var(--fm-surface); color: var(--fm-navy); font-weight: 600;
   border: 1px solid var(--fm-navy);
-  transition: background .15s;
+  transition: background var(--fm-dur-fast);
 }
 .fm-btn--outline:hover:not(:disabled) { background: var(--fm-navy-soft); }
 .fm-btn--outline:active:not(:disabled) { background: var(--fm-navy-soft-hover); }
@@ -566,7 +583,7 @@
   background: var(--fm-surface); border: 1px solid var(--fm-muted-line); /* viền input ≥3:1 trên nền trắng */
   border-radius: var(--fm-r-sm); padding: 8px 12px;
   font-family: var(--fm-font); font-size: 12.5px; color: var(--fm-text);
-  transition: border-color .15s, box-shadow .15s;
+  transition: border-color var(--fm-dur-fast), box-shadow var(--fm-dur-fast);
 }
 .fm-input::placeholder { color: var(--fm-text-3); }
 .fm-input:focus, .fm-select:focus, .fm-datepicker:focus {
@@ -621,7 +638,7 @@
 .fm-lcard__bom { margin: 8px 0 4px; padding: 8px 10px; background: var(--fm-bom-child-bg); border-left: 3px solid var(--fm-navy); border-radius: 0 8px 8px 0; font-size: 12.5px; }
 .fm-lcard__bom-title { font-weight: 700; color: var(--fm-navy); margin-bottom: 4px; }
 .fm-lcard__bom-row { color: var(--fm-text-2); padding: 2px 0; }
-.fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 16px; padding: 8px 10px; border-radius: var(--fm-r-sm); min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; transition: background .15s, color .15s; }
+.fm-row-del { background: none; border: none; color: var(--fm-red); cursor: pointer; font-size: 16px; padding: 8px 10px; border-radius: var(--fm-r-sm); min-width: 34px; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; transition: background var(--fm-dur-fast), color var(--fm-dur-fast); }
 .fm-row-del:hover { background: var(--fm-red-soft); }
 .fm-row-del:disabled { opacity: .45; cursor: not-allowed; }
 
@@ -666,7 +683,7 @@
 .fm-chip--btn {
   border: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700;
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
-  transition: filter .15s, background .15s, color .15s;
+  transition: filter var(--fm-dur-fast), background var(--fm-dur-fast), color var(--fm-dur-fast);
 }
 .fm-chip--btn:hover:not(:disabled) { filter: brightness(.95); }
 /* Chip lọc đang chọn (Tất cả / Bán (S) / Mua (P) — màn Đồng bộ Nhóm thuế) */
@@ -689,7 +706,7 @@
   width: 100%;
   background: var(--fm-green);
   border-radius: 99px;
-  transition: width .4s ease;
+  transition: width var(--fm-dur-slow) ease;
 }
 /* Chưa biết tổng số (đang lấy dữ liệu) → thanh chạy qua lại vô định hình */
 .fm-syncbar--indet .fm-syncbar__fill {
@@ -717,7 +734,7 @@
   border: 1px solid var(--fm-line); background: var(--fm-surface);
   color: var(--fm-text-2); cursor: pointer; font-size: 12.5px;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: border-color .15s, color .15s, background .15s;
+  transition: border-color var(--fm-dur-fast), color var(--fm-dur-fast), background var(--fm-dur-fast);
 }
 .fm-page-btn:hover:not(:disabled) { border-color: var(--fm-navy); color: var(--fm-navy); }
 .fm-page-btn.is-active { background: var(--fm-navy); border-color: var(--fm-navy); color: var(--fm-surface); font-weight: 700; }
@@ -729,7 +746,7 @@
   width: 34px; height: 34px; min-width: 34px; min-height: 34px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--fm-r-md); color: var(--fm-text-2);
-  transition: background .15s, color .15s;
+  transition: background var(--fm-dur-fast), color var(--fm-dur-fast);
 }
 .fm-icon-btn:hover { background: var(--fm-navy-soft); color: var(--fm-navy); }
 .fm-icon-btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -757,8 +774,8 @@
 .fm-switch { position: relative; width: 36px; height: 20px; display: inline-block; cursor: pointer; }
 /* Input ẩn bằng mắt nhưng VẪN focus được bằng bàn phím (không dùng display:none) */
 .fm-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.fm-switch .track { position: absolute; inset: 0; background: var(--fm-muted-line); border-radius: var(--fm-r-pill); transition: background .2s; }
-.fm-switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--fm-surface); transition: transform .2s; }
+.fm-switch .track { position: absolute; inset: 0; background: var(--fm-muted-line); border-radius: var(--fm-r-pill); transition: background var(--fm-dur-base); }
+.fm-switch .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--fm-surface); transition: transform var(--fm-dur-base); }
 .fm-switch input:checked + .track { background: var(--fm-yellow); }
 .fm-switch input:checked + .track::after { transform: translateX(16px); background: var(--fm-navy); }
 
@@ -814,8 +831,10 @@
    ============================================================ */
 @media (max-width: 900px) {
   .fm-sidebar { width: 64px; padding: 12px 6px; }
-  .fm-logo__name, .fm-menu-item span { display: none; }
+  .fm-logo__name, .fm-menu-item span:not(.fm-badge-count):not(.fm-badge-dot) { display: none; }
   /* An cac khoi text de khong tran khoi icon-rail 64px */
+  /* L3: GIỮ badge đếm (fm-badge-count) + dot quá hạn (fm-badge-dot) trên rail; bỏ margin-left:auto để không tràn rail */
+  .fm-menu-item .fm-badge-count, .fm-menu-item .fm-badge-dot { margin-left: 0; }
   .fm-menu-group, .fm-session-info, .fm-sidebar__footer { display: none; }
   /* Tablet rail: GIỮ dot trạng thái SAP (ẩn chữ + icon ⇄), icon menu có title tooltip (xem app-shell.tsx) */
   .fm-sap-status { background: transparent; padding: 8px 0; margin: 8px 0 4px; justify-content: center; }
@@ -900,7 +919,7 @@
 .fm-view-detail dt { color: var(--fm-text-2); font-size: 11px; }
 .fm-view-detail dd { margin: 0; font-weight: 600; color: var(--fm-text); overflow-wrap: break-word; }
 
-.fm-login__logo { width: 96px; height: 96px; border-radius: 50%; background: var(--fm-yellow); color: var(--fm-navy-deep); font-size: 44px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; box-shadow: var(--fm-shadow); border: 4px solid var(--fm-surface); transition: transform .2s; }
+.fm-login__logo { width: 96px; height: 96px; border-radius: 50%; background: var(--fm-yellow); color: var(--fm-navy-deep); font-size: 44px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; box-shadow: var(--fm-shadow); border: 4px solid var(--fm-surface); transition: transform var(--fm-dur-base); }
 .fm-login__logo:hover { transform: scale(1.05); }
 .fm-login__title { font-size: var(--fm-fs-xl); font-weight: 800; color: var(--fm-navy); margin: 0; letter-spacing: .3px; text-transform: uppercase; }
 .fm-login__live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fm-green); font-weight: 600; margin-top: 8px; }
@@ -912,7 +931,7 @@
   border: none; border-radius: var(--fm-r-md); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   box-shadow: 0 2px 8px rgba(254, 166, 25, .3);
-  transition: transform .15s, box-shadow .15s;
+  transition: transform var(--fm-dur-fast), box-shadow var(--fm-dur-fast);
 }
 .fm-login__submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(254, 166, 25, .4); }
 .fm-login__submit:disabled { opacity: .6; cursor: not-allowed; }
@@ -982,7 +1001,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; } /* none thay vì translateY(0): tránh tạo containing block cho modal fixed */
 }
-.fm-view { animation: fm-view-in .28s cubic-bezier(.22,.8,.36,1) backwards; } /* backwards: sau animation trả transform về none, không giữ containing block cho modal fixed */
+.fm-view { animation: fm-view-in var(--fm-dur-base) cubic-bezier(.22,.8,.36,1) backwards; } /* backwards: sau animation trả transform về none, không giữ containing block cho modal fixed */
 @media (prefers-reduced-motion: reduce) {
   .fm-view, .fm-modal, .fm-backdrop, .fm-toast, .fm-login__panel, .fm-autocomplete__panel { animation: none !important; }
   /* Tắt nốt các animation lặp: spinner, dot trạng thái, skeleton */
@@ -994,15 +1013,15 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   from { opacity: 0; transform: translateY(16px) scale(.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.fm-toast { animation: fm-toast-in .3s cubic-bezier(.22,.8,.36,1) both; }
+.fm-toast { animation: fm-toast-in var(--fm-dur-base) cubic-bezier(.22,.8,.36,1) both; }
 
 @keyframes fm-pop-in {
   from { opacity: 0; transform: translateY(14px) scale(.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes fm-fade-in { from { opacity: 0; } to { opacity: 1; } }
-.fm-backdrop { animation: fm-fade-in .18s ease-out both; }
-.fm-modal    { animation: fm-pop-in .24s cubic-bezier(.22,.8,.36,1) both; }
+.fm-backdrop { animation: fm-fade-in var(--fm-dur-fast) ease-out both; }
+.fm-modal    { animation: fm-pop-in var(--fm-dur-base) cubic-bezier(.22,.8,.36,1) backwards; } /* backwards như .fm-view: trả transform về none, không giữ containing block cho fixed descendant */
 
 /* ---------- 14.5 Skeleton loading ---------- */
 @keyframes fm-shimmer {
@@ -1021,7 +1040,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 .fm-skeleton--row   { height: 34px; border-radius: var(--fm-r-sm); margin-bottom: 8px; }
 
 /* ---------- 14.6 Stat card hover ---------- */
-.fm-stat { transition: transform .18s ease, box-shadow .18s ease; }
+.fm-stat { transition: transform var(--fm-dur-fast) ease, box-shadow var(--fm-dur-fast) ease; }
 .fm-stat:hover { transform: translateY(-2px); box-shadow: var(--fm-shadow-pop); }
 
 /* ---------- 14.7 Login panel entrance ---------- */
@@ -1029,11 +1048,11 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   from { opacity: 0; transform: translateY(18px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.fm-login__panel { animation: fm-login-in .4s cubic-bezier(.22,.8,.36,1) both; }
+.fm-login__panel { animation: fm-login-in var(--fm-dur-slow) cubic-bezier(.22,.8,.36,1) both; }
 
 /* Chip tài khoản demo (bấm để điền nhanh) */
 /* ---------- 14.8 Autocomplete panel animation ---------- */
-.fm-autocomplete__panel { animation: fm-view-in .16s ease-out both; }
+.fm-autocomplete__panel { animation: fm-view-in var(--fm-dur-fast) ease-out both; }
 
 /* ---------- 14.9 Datepicker & input số ---------- */
 .fm-datepicker::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .55; }
@@ -1072,14 +1091,14 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
     position: fixed; top: 0; left: 0; bottom: 0; z-index: 80;
     width: 240px; padding: 16px 10px;
     transform: translateX(-100%);
-    transition: transform .24s cubic-bezier(.22,.8,.36,1), visibility 0s linear .24s;
+    transition: transform var(--fm-dur-base) cubic-bezier(.22,.8,.36,1), visibility 0s linear var(--fm-dur-base);
     visibility: hidden; /* không focusable khi đang ẩn */
     box-shadow: none;
   }
   .fm-sidebar.is-open {
     transform: translateX(0);
     visibility: visible;
-    transition: transform .24s cubic-bezier(.22,.8,.36,1);
+    transition: transform var(--fm-dur-base) cubic-bezier(.22,.8,.36,1);
     box-shadow: 0 0 40px rgba(0,0,0,.25);
   }
   .fm-logo__name, .fm-menu-item span { display: block; } /* ghi đè quy tắc 900px */
@@ -1087,7 +1106,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-drawer-backdrop {
     position: fixed; inset: 0; z-index: 70;
     background: rgba(0,0,0,.4);
-    animation: fm-fade-in .2s ease-out both;
+    animation: fm-fade-in var(--fm-dur-base) ease-out both;
   }
 }
 
@@ -1137,7 +1156,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
     font-family: var(--fm-font); font-size: 10px; font-weight: 600;
     letter-spacing: .2px; padding: 6px 2px; cursor: pointer;
     border-radius: var(--fm-r-sm); min-height: 48px;
-    transition: color .15s, background .15s;
+    transition: color var(--fm-dur-fast), background var(--fm-dur-fast);
   }
   .fm-bottomnav__item svg { flex-shrink: 0; }
   .fm-bottomnav__item:active { background: var(--fm-chip-closed-bg); }
@@ -1155,7 +1174,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
     background: var(--fm-surface); padding: 12px 14px; margin-bottom: 10px;
     cursor: pointer; box-shadow: var(--fm-shadow);
     position: relative; overflow: hidden;
-    transition: background .15s;
+    transition: background var(--fm-dur-fast);
   }
   .fm-ocard::before {
     content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
@@ -1173,7 +1192,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
     padding: 8px; border-radius: var(--fm-r-sm); display: inline-flex;
     align-items: center; justify-content: center;
     min-width: 44px; min-height: 44px; /* vùng chạm ≥44px */
-    transition: background .15s;
+    transition: background var(--fm-dur-fast);
   }
   .fm-ocard__del:active { background: var(--fm-red-soft); }
   /* Nút "Đẩy" (đẩy delivery sang SAP) trên mobile card — nhất quán kích thước
@@ -1195,7 +1214,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
     display: inline-flex; align-items: center; justify-content: center;
     background: none; border: none; border-radius: var(--fm-r-sm);
     color: var(--fm-text-2); cursor: pointer;
-    transition: background .15s;
+    transition: background var(--fm-dur-fast);
   }
   .fm-ocard__more:active { background: #F0F0F0; }
 }
@@ -1292,7 +1311,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   background: none; border: none; cursor: pointer; padding: 4px 0;
   color: var(--fm-navy); font-weight: 700; font-size: 12.5px; font-family: var(--fm-font);
   text-decoration: underline; text-underline-offset: 2px;
-  transition: color .15s;
+  transition: color var(--fm-dur-fast);
 }
 .fm-toast__action:hover { color: var(--fm-primary-text); }
 @media (max-width: 640px) {
@@ -1516,7 +1535,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   min-height: 48px; padding: 12px 14px; border: 0; background: none;
   border-radius: 10px; font-size: 16px; font-weight: 600;
   color: var(--fm-text); cursor: pointer; text-align: left;
-  transition: background .15s;
+  transition: background var(--fm-dur-fast);
 }
 .fm-sheet__item:hover, .fm-sheet__item:focus-visible { background: var(--fm-navy-soft); }
 /* (.fm-spin + @keyframes fm-spin đã định nghĩa ở mục §5 — không trùng lặp) */
@@ -1538,7 +1557,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   min-width: 130px; padding: 12px 16px; border-radius: var(--fm-r-xl);
   background: var(--fm-surface); border: 2px solid var(--fm-line);
   border-top: 4px solid var(--rel-color, var(--fm-navy));
-  cursor: pointer; transition: box-shadow .15s, transform .15s;
+  cursor: pointer; transition: box-shadow var(--fm-dur-fast), transform var(--fm-dur-fast);
   font-family: inherit; text-align: center;
 }
 .fm-relmap__node:not(:disabled):hover { box-shadow: var(--fm-shadow); transform: translateY(-2px); }

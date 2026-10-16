@@ -65,6 +65,12 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  /** Từ khóa đã debounce 300ms — API chỉ gọi theo giá trị này (D5: tránh 1 API call/ký tự) */
+  const [debouncedQ, setDebouncedQ] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 300)
+    return () => clearTimeout(t)
+  }, [q])
   const [status, setStatus] = useState('')
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -77,15 +83,19 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
     if (alert) alertRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [alert])
 
+  // D5: race guard — filter đổi nhanh → response cũ về sau bị bỏ, không đè dữ liệu mới
+  const loadSeq = useRef(0)
   const load = useCallback(async (fresh = false) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       const p = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
-      if (q.trim()) p.set('q', q.trim())
+      if (debouncedQ.trim()) p.set('q', debouncedQ.trim())
       if (status) p.set('status', status)
       // fresh = bỏ qua cache 45s phía server, tải mới trực tiếp từ SAP B1
       if (fresh) p.set('fresh', '1')
       const r = await api(`/api/deliveries?${p}`)
+      if (seq !== loadSeq.current) return
       const j = await r.json()
       if (r.ok && j.ok) {
         setRows(j.data ?? [])
@@ -97,11 +107,12 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
         setAlert({ type: 'error', msg: j.error ?? 'Không tải được danh sách' })
       }
     } catch {
+      if (seq !== loadSeq.current) return
       setAlert({ type: 'error', msg: 'Không kết nối được máy chủ' })
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
-  }, [page, pageSize, q, status])
+  }, [page, pageSize, debouncedQ, status])
 
   useEffect(() => { void load() }, [load, refreshKey])
 
@@ -304,8 +315,10 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                 <tr
                   key={d.id}
                   tabIndex={0}
-                  title="Chuột phải để xem sơ đồ liên kết"
-                  aria-label={`Phiếu giao hàng #${d.docNum} — ${d.cardName}. Chuột phải để xem sơ đồ liên kết`}
+                  style={{ cursor: 'pointer' }}
+                  title="Bấm để xem chi tiết — Chuột phải để xem sơ đồ liên kết"
+                  aria-label={`Xem chi tiết phiếu giao hàng #${d.docNum} — ${d.cardName}`}
+                  onClick={() => onGoDetail(d.id)}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     openerRef.current = e.currentTarget
@@ -319,6 +332,12 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       openerRef.current = e.currentTarget
                       const r = e.currentTarget.getBoundingClientRect()
                       openCtxMenu(d, r.left + 80, r.bottom - 20)
+                      return
+                    }
+                    // Enter/Space: mở chi tiết — cùng pattern với orders-list-view
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onGoDetail(d.id)
                     }
                   }}
                 >
@@ -333,7 +352,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       <button
                         type="button"
                         className="fm-link"
-                        onClick={() => onGoOrderDetail(d.sourceOrder!.id)}
+                        onClick={(e) => { e.stopPropagation(); onGoOrderDetail(d.sourceOrder!.id) }}
                         title={`Xem Sale Order #${d.sourceOrder.docNum}`}
                       >
                         SO #{d.sourceOrder.docNum}
@@ -355,7 +374,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                     )}
                   </td>
                   <td className="fm-num"><b>{formatVND(d.grandTotal)}</b></td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button
                         type="button"
@@ -365,6 +384,16 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                         aria-label={`Xem chi tiết phiếu ${d.docNum}`}
                       >
                         <Eye size={16} />
+                      </button>
+                      {/* W26: nút Sơ đồ liên kết hiển thị rõ trên mỗi dòng (desktop), tái dùng modal của context menu */}
+                      <button
+                        type="button"
+                        className="fm-btn fm-btn--ghost fm-btn--sm"
+                        onClick={() => setRelMapDelivery({ id: d.id, docNum: d.docNum })}
+                        title="Sơ đồ liên kết"
+                        aria-label={`Sơ đồ liên kết phiếu ${d.docNum}`}
+                      >
+                        <Network size={16} />
                       </button>
                       {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                         <button

@@ -5,6 +5,7 @@ import { useFocusTrap } from './use-focus-trap'
 import * as XLSX from 'xlsx'
 import { Plus, Pencil, Trash2, Download, Star, X, Save } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import ConfirmDialog from './confirm-dialog'
 import PageHeader from './page-header'
 
 /** Các trường đơn hàng có thể map từ cột Excel */
@@ -43,9 +44,8 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   const [nameErr, setNameErr] = useState(false) // tên template lỗi khi lưu (mục 45)
   const [confirmDelete, setConfirmDelete] = useState<ExcelTemplate | null>(null)
 
-  // Focus trap + Escape cho 2 dialog
+  // Focus trap + Escape cho dialog form
   const formTrapRef = useFocusTrap<HTMLDivElement>(showForm, () => setShowForm(false))
-  const delTrapRef = useFocusTrap<HTMLDivElement>(!!confirmDelete, () => setConfirmDelete(null))
 
   // Form state
   const [formName, setFormName] = useState('')
@@ -363,25 +363,17 @@ actions={
         </div>
       )}
 
-      {/* Xác nhận xóa */}
+      {/* Xác nhận xóa — dùng ConfirmDialog chuẩn của app */}
       {confirmDelete && (
-        <div className="fm-backdrop" onClick={() => setConfirmDelete(null)}>
-          <div ref={delTrapRef} className="fm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Xác nhận xóa">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 className="fm-modal__title">Xác nhận xóa</h3>
-              <button className="fm-icon-btn" onClick={() => setConfirmDelete(null)} aria-label="Đóng"><X size={16} /></button>
-            </div>
-            <div>
-              <p>Bạn có chắc muốn xóa template <b>"{confirmDelete.name}"</b>?</p>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button className="fm-btn fm-btn--secondary" onClick={() => setConfirmDelete(null)}>Hủy</button>
-              <button className="fm-btn fm-btn--danger" onClick={deleteTemplate}>
-                <Trash2 size={14} /> Xóa
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          open
+          title="Xác nhận xóa"
+          message={`Bạn có chắc muốn xóa template "${confirmDelete.name}"?\nHành động không thể hoàn tác.`}
+          confirmLabel="Xóa"
+          tone="danger"
+          onConfirm={() => { void deleteTemplate() }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
     </div>
   )

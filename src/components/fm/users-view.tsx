@@ -188,14 +188,6 @@ actions={<>
       </div>
 
       <div className="fm-card">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
-          {canCreate && (
-            <button className="fm-btn fm-btn--primary" onClick={() => setModal({ mode: 'create' })}>
-              <UserPlus size={16} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm người dùng
-            </button>
-          )}
-        </div>
-
         <div className="fm-filterbar">
           <div style={{ position: 'relative', flex: '1 1 240px' }} data-search>
             <input

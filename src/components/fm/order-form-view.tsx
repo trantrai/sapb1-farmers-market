@@ -1850,7 +1850,17 @@ export default function OrderFormView({
         }}
       >
         {isEdit ? (
-          <button className="fm-btn fm-btn--secondary" onClick={() => { clearDraft(); onCancel?.() }} disabled={saving}>
+          <button
+            className="fm-btn fm-btn--secondary"
+            onClick={() => setConfirmCfg({
+              title: 'Hủy thay đổi?',
+              message: 'Xóa bản nháp và bỏ mọi thay đổi chưa lưu trên form này?\nĐơn hàng gốc trên hệ thống không bị thay đổi.',
+              confirmLabel: 'Hủy thay đổi',
+              tone: 'warning',
+              run: () => { clearDraft(); onCancel?.() },
+            })}
+            disabled={saving}
+          >
             Hủy — không lưu thay đổi
           </button>
         ) : (

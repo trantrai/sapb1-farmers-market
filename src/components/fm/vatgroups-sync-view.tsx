@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Percent, RefreshCw, Trash2, Search, DatabaseZap, Square } from 'lucide-react'
+import { Percent, RefreshCw, Trash2, Search, DatabaseZap, Square, RotateCcw } from 'lucide-react'
 import { api, safeJson } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import { useSyncProgress, SyncProgressCard, type SyncProgress } from './sync-progress'
@@ -171,7 +171,7 @@ export default function VatGroupsSyncView() {
         title="Quản lý đồng bộ nhóm thuế"
         badge="Cập nhật tức thời"
         actions={<>
-<button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ nhóm thuế từ SAP B1 về CSDL local">
+          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ nhóm thuế từ SAP B1 về CSDL local">
             <RefreshCw size={14} className={busy === 'sync' ? 'fm-spin' : ''} />
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
@@ -180,8 +180,11 @@ export default function VatGroupsSyncView() {
               <Square size={14} /> {cancelling ? 'Đang dừng…' : 'Dừng'}
             </button>
           )}
+          <button className="fm-btn fm-btn--secondary" onClick={() => load(1, q, cat)} title="Tải lại danh mục từ CSDL local">
+            <RotateCcw size={14} /> Tải lại
+          </button>
           <button className="fm-btn fm-btn--secondary" disabled={busy !== null || (st?.count ?? 0) === 0} onClick={() => setConfirmClear(true)} title="Xóa toàn bộ dữ liệu nhóm thuế đã đồng bộ trong CSDL local">
-            <Trash2 size={14} /> Xóa dữ liệu
+            <Trash2 size={14} /> Xóa cache local
           </button>
         </>}
       />
@@ -266,7 +269,13 @@ export default function VatGroupsSyncView() {
             </thead>
             <tbody>
               {rows === null && (
-                <tr><td colSpan={5}><div className="fm-empty">Đang tải danh mục…</div></td></tr>
+                <tr><td colSpan={5} style={{ padding: 8 }}>
+                  <div aria-busy="true">
+                    {Array.from({ length: 6 }, (_, i) => (
+                      <div key={i} className="fm-skeleton fm-skeleton--row" />
+                    ))}
+                  </div>
+                </td></tr>
               )}
               {rows !== null && rows.length === 0 && total === 0 && (
                 <tr>

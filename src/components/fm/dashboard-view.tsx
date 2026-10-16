@@ -137,7 +137,8 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
       <PageHeader
         breadcrumb={['Chức năng chính', 'Tổng quan hệ thống']}
         title="Tổng quan hệ thống"
-        badge="Tự động làm mới"
+        badge="Dữ liệu cache 45s"
+        badgeHint="Số liệu từ SAP B1 được cache tối đa 45 giây — bấm “Tải lại số liệu” để lấy mới nhất"
         actions={
           <>
             <button type="button" className="fm-btn fm-btn--secondary" onClick={load}>

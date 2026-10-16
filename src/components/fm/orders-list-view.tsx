@@ -185,6 +185,12 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [loading, setLoading] = useState(true)
 
   const [q, setQ] = useState('')
+  /** Từ khóa đã debounce 300ms — API chỉ gọi theo giá trị này (D5: tránh 1 API call/ký tự) */
+  const [debouncedQ, setDebouncedQ] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 300)
+    return () => clearTimeout(t)
+  }, [q])
   const [status, setStatus] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -202,7 +208,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     const seq = ++loadSeq.current
     try {
       const sp = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
-      if (q) sp.set('q', q)
+      if (debouncedQ) sp.set('q', debouncedQ)
       if (status) sp.set('status', status)
       if (from) sp.set('from', from)
       if (to) sp.set('to', to)
@@ -232,7 +238,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [page, pageSize, q, status, from, to, dueFilter])
+  }, [page, pageSize, debouncedQ, status, from, to, dueFilter])
 
   useEffect(() => { load() }, [load, refreshKey])
 
@@ -269,78 +275,125 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     })
   }
 
-  /** Xuất Excel danh sách đơn hàng theo bộ lọc hiện tại */
+  /** Tham số bộ lọc chung cho xuất Excel — xuất TOÀN BỘ kết quả đã lọc, không chỉ trang hiện tại (D3) */
+  const filterParams = () => {
+    const sp = new URLSearchParams()
+    if (debouncedQ) sp.set('q', debouncedQ)
+    if (status) sp.set('status', status)
+    if (from) sp.set('from', from)
+    if (to) sp.set('to', to)
+    if (dueFilter) sp.set('due', dueFilter)
+    return sp
+  }
+
+  /** Tải toàn bộ đơn theo bộ lọc hiện tại — API giới hạn pageSize 50 nên vòng lặp theo trang */
+  const fetchAllFiltered = async (): Promise<Order[]> => {
+    const sp = filterParams()
+    const fetchPage = async (p: number): Promise<{ data?: Order[]; totalPages?: number; error?: string }> => {
+      const res = await api(`/api/orders?page=${p}&pageSize=50&${sp.toString()}`)
+      let json: { data?: Order[]; totalPages?: number; error?: string }
+      try {
+        const text = await res.text()
+        json = text ? JSON.parse(text) : {}
+      } catch {
+        json = {}
+      }
+      if (!res.ok) throw new Error(json.error ?? `Tải dữ liệu xuất thất bại (HTTP ${res.status})`)
+      return json
+    }
+    const first = await fetchPage(1)
+    const all = [...(first.data ?? [])]
+    const totalPages = first.totalPages ?? 1
+    for (let p = 2; p <= totalPages; p++) {
+      const j = await fetchPage(p)
+      all.push(...(j.data ?? []))
+    }
+    return all
+  }
+
+  const [exporting, setExporting] = useState(false)
+
+  /** Xuất Excel danh sách đơn hàng — TOÀN BỘ kết quả đã lọc (minh bạch, không im lặng 8 dòng) */
   const exportExcel = async () => {
-    if (orders.length === 0) {
-      setAlert({ type: 'error', msg: 'Không có đơn hàng nào để xuất' })
-      return
-    }
-    // B4: lazy load xlsx chỉ khi xuất
-    const XLSX = await import('xlsx')
-    const statusLabel = (s: string) => (s === 'Open' ? 'Mở' : s === 'Closed' ? 'Đóng' : s === 'Cancelled' ? 'Hủy' : s)
-
-    // Sheet 1: Danh sách đơn hàng
-    const headerRows = orders.map((o, i) => ({
-      'STT': i + 1,
-      'Số CT': o.docNum,
-      'Ngày CT': formatDateVN(o.docDate),
-      'Ngày giao': formatDateVN(o.docDueDate),
-      'Mã KH': o.cardCode,
-      'Tên khách hàng': o.cardName,
-      'Trạng thái': statusLabel(o.status),
-      'Tổng tiền': o.grandTotal,
-      'Ghi chú': o.remarks ?? '',
-    }))
-    const ws1 = XLSX.utils.json_to_sheet(headerRows)
-
-    // Sheet 2: Chi tiết dòng hàng
-    const detailRows: Record<string, string | number>[] = []
-    for (const o of orders) {
-      for (const l of o.lines) {
-        detailRows.push({
-          'Số CT': o.docNum,
-          'Mã hàng': l.itemCode,
-          'Tên hàng': l.itemName,
-          'Số lượng': l.quantity,
-          'Đơn vị': l.uom,
-          'Đơn giá': l.unitPrice,
-          'CK%': l.discPct,
-          'VAT%': l.vatPct,
-          'Thành tiền': l.grandTotal,
-        })
+    if (exporting) return
+    setExporting(true)
+    try {
+      const all = await fetchAllFiltered()
+      if (all.length === 0) {
+        setAlert({ type: 'error', msg: 'Không có đơn hàng nào phù hợp bộ lọc để xuất' })
+        return
       }
-    }
-    const ws2 = XLSX.utils.json_to_sheet(detailRows)
+      // B4: lazy load xlsx chỉ khi xuất
+      const XLSX = await import('xlsx')
+      const statusLabel = (s: string) => (s === 'Open' ? 'Mở' : s === 'Closed' ? 'Đóng' : s === 'Cancelled' ? 'Hủy' : s)
 
-    // Style header: in đậm + nền vàng nhạt
-    const headerStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'FFFDE7' } } }
-    for (const ws of [ws1, ws2]) {
-      const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: 0, c })]
-        if (cell) cell.s = headerStyle
+      // Sheet 1: Danh sách đơn hàng
+      const headerRows = all.map((o, i) => ({
+        'STT': i + 1,
+        'Số CT': o.docNum,
+        'Ngày CT': formatDateVN(o.docDate),
+        'Ngày giao': formatDateVN(o.docDueDate),
+        'Mã KH': o.cardCode,
+        'Tên khách hàng': o.cardName,
+        'Trạng thái': statusLabel(o.status),
+        'Tổng tiền': o.grandTotal,
+        'Ghi chú': o.remarks ?? '',
+      }))
+      const ws1 = XLSX.utils.json_to_sheet(headerRows)
+
+      // Sheet 2: Chi tiết dòng hàng
+      const detailRows: Record<string, string | number>[] = []
+      for (const o of all) {
+        for (const l of o.lines) {
+          detailRows.push({
+            'Số CT': o.docNum,
+            'Mã hàng': l.itemCode,
+            'Tên hàng': l.itemName,
+            'Số lượng': l.quantity,
+            'Đơn vị': l.uom,
+            'Đơn giá': l.unitPrice,
+            'CK%': l.discPct,
+            'VAT%': l.vatPct,
+            'Thành tiền': l.grandTotal,
+          })
+        }
       }
+      const ws2 = XLSX.utils.json_to_sheet(detailRows)
+
+      // Style header: in đậm + nền vàng nhạt
+      const headerStyle = { font: { bold: true }, fill: { fgColor: { rgb: 'FFFDE7' } } }
+      for (const ws of [ws1, ws2]) {
+        const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({ r: 0, c })]
+          if (cell) cell.s = headerStyle
+        }
+      }
+
+      // Độ rộng cột
+      ws1['!cols'] = [
+        { wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+        { wch: 32 }, { wch: 12 }, { wch: 16 }, { wch: 30 },
+      ]
+      ws2['!cols'] = [
+        { wch: 10 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, { wch: 10 },
+        { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 16 },
+      ]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws1, 'Don hang')
+      XLSX.utils.book_append_sheet(wb, ws2, 'Chi tiet')
+
+      const now = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const fname = `DonHang_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.xlsx`
+      XLSX.writeFile(wb, fname)
+      setAlert({ type: 'success', msg: `Đã xuất ${all.length} đơn hàng (toàn bộ kết quả đã lọc) ra file ${fname}` })
+    } catch (e) {
+      setAlert({ type: 'error', msg: e instanceof Error ? e.message : 'Xuất Excel thất bại' })
+    } finally {
+      setExporting(false)
     }
-
-    // Độ rộng cột
-    ws1['!cols'] = [
-      { wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-      { wch: 32 }, { wch: 12 }, { wch: 16 }, { wch: 30 },
-    ]
-    ws2['!cols'] = [
-      { wch: 10 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, { wch: 10 },
-      { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 16 },
-    ]
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws1, 'Don hang')
-    XLSX.utils.book_append_sheet(wb, ws2, 'Chi tiet')
-
-    const now = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const fname = `DonHang_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.xlsx`
-    XLSX.writeFile(wb, fname)
-    setAlert({ type: 'success', msg: `Đã xuất ${orders.length} đơn hàng ra file ${fname}` })
   }
 
   const canEdit = user.permissions.orders?.edit
@@ -439,10 +492,10 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       <PageHeader
         breadcrumb={['Chức năng chính', 'Danh sách đơn hàng']}
         title="Danh sách Sale Order"
-        badge="Cập nhật tức thời"
+        badge="Làm mới mỗi 45 giây"
         actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => load()}><RefreshCw size={14} /> Tải lại</button>
-          <button className="fm-btn fm-btn--secondary" onClick={exportExcel}><Download size={14} /> Xuất Excel</button>
+          <button className="fm-btn fm-btn--secondary" onClick={exportExcel} disabled={exporting}><Download size={14} /> {exporting ? 'Đang xuất…' : 'Xuất Excel'}</button>
         </>}
       />
       {alert && (
@@ -601,6 +654,10 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
                       <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                        {/* W26: nút Sơ đồ liên kết hiển thị rõ trên mỗi dòng (desktop), tái dùng modal của context menu */}
+                        <button className="fm-icon-btn" title="Sơ đồ liên kết" aria-label={`Sơ đồ liên kết đơn ${o.docNum}`} onClick={() => setRelMapOrder({ id: o.id, docNum: o.docNum })}>
+                          <Network size={14} />
+                        </button>
                         {editable(o) && (
                           <button className="fm-icon-btn" title="Sửa đơn hàng" aria-label={`Sửa đơn hàng ${o.docNum}`} onClick={() => onGoEdit(toEditData(o))}>
                             <Pencil size={14} />

@@ -187,7 +187,7 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
         title="Quản lý đồng bộ khách hàng"
         badge="Cập nhật tức thời"
         actions={<>
-<button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ khách hàng từ SAP B1 về CSDL local">
+          <button className="fm-btn fm-btn--primary" disabled={busy !== null} onClick={doSync} title="Tải toàn bộ khách hàng từ SAP B1 về CSDL local">
             <RefreshCw size={14} className={busy === 'sync' ? 'fm-spin' : ''} />
             {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay từ SAP B1'}
           </button>
@@ -267,7 +267,13 @@ export default function PartnersSyncView({ initialQuery = '' }: { initialQuery?:
             </thead>
             <tbody>
               {rows === null && (
-                <tr><td colSpan={7}><div className="fm-empty">Đang tải danh mục…</div></td></tr>
+                <tr><td colSpan={7} style={{ padding: 8 }}>
+                  <div aria-busy="true">
+                    {Array.from({ length: 6 }, (_, i) => (
+                      <div key={i} className="fm-skeleton fm-skeleton--row" />
+                    ))}
+                  </div>
+                </td></tr>
               )}
               {rows !== null && rows.length === 0 && total === 0 && (
                 <tr>

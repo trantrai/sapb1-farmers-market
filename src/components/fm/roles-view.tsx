@@ -4,6 +4,7 @@ import { useCallback, useEffect, useEffectEvent, useState } from 'react'
 import { Save, ShieldCheck, UsersRound, ArrowRight } from 'lucide-react'
 import { MODULE_LABELS, ACTION_LABELS, parsePerm, ActionKey, ModuleKey, SessionUser } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
+import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PageHeader from './page-header'
 
 interface RoleRow {
@@ -39,6 +40,15 @@ export default function RolesView({ user, onGoUsers }: Props) {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
 
+  // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
+  const [confirmCfg, setConfirmCfg] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: ConfirmTone
+    run: () => void
+  } | null>(null)
+
   const load = useCallback(async () => {
     const res = await api('/api/roles')
     if (res.status === 401) { window.location.reload(); return }
@@ -60,13 +70,19 @@ export default function RolesView({ user, onGoUsers }: Props) {
     return () => window.removeEventListener('beforeunload', onBefore)
   }, [dirty])
 
+  // Reset draft quyền về trạng thái đã lưu — hàm thuần, gọi được từ
+  // event handler (nút "Hủy thay đổi") lẫn effect khởi tạo bên dưới.
+  const resetDraft = (roleId: string | null, roleList: typeof roles) => {
+    const role = roleId ? roleList.find((r) => r.id === roleId) : undefined
+    setPermDraft(role ? parsePerm(role.permissions) : null)
+    setDirty(false)
+  }
+
   // Đồng bộ draft quyền theo role được chọn — là EVENT khởi tạo (không phải
   // effect phản ứng), bọc bằng useEffectEvent để rõ ý định và tránh render
   // dây chuyền khi roles ref đổi sau mỗi lần lưu.
   const syncDraft = useEffectEvent((roleId: string | null, roleList: typeof roles) => {
-    const role = roleId ? roleList.find((r) => r.id === roleId) : undefined
-    setPermDraft(role ? parsePerm(role.permissions) : null)
-    setDirty(false)
+    resetDraft(roleId, roleList)
   })
 
   useEffect(() => {
@@ -84,19 +100,31 @@ export default function RolesView({ user, onGoUsers }: Props) {
     setDirty(true)
   }
 
-  const save = async () => {
+  /** Hiện cảnh báo tự khóa (thay window.confirm) trước khi lưu ma trận quyền */
+  const askSave = () => {
     if (!selectedId || !permDraft) return
-
     // Cảnh báo tự khóa: sửa vai trò Admin mà tắt quyền xem/sửa phân quyền hoặc quản lý người dùng
     const selected = roles.find((r) => r.id === selectedId)
     const selfLock =
       selected?.name === 'Admin' && user.role === 'Admin' &&
       (!permDraft.roles.view || !permDraft.roles.edit || !permDraft.users.view)
-    if (selfLock && !window.confirm(
-      'CẢNH BÁO: Bạn đang tắt quyền "Phân quyền" hoặc "Người dùng" của vai trò Admin — vai trò của chính bạn. ' +
-      'Sau khi lưu, bạn có thể mất khả năng truy cập lại các trang này.\n\nTiếp tục lưu?',
-    )) return
+    if (selfLock) {
+      setConfirmCfg({
+        title: 'Cảnh báo: tự khóa quyền của chính bạn',
+        message: 'Bạn đang tắt quyền "Phân quyền" hoặc "Người dùng" của vai trò Admin — vai trò của chính bạn.\n\nSau khi lưu, bạn có thể mất khả năng truy cập lại các trang này. Tiếp tục lưu?',
+        confirmLabel: 'Tiếp tục lưu',
+        tone: 'danger',
+        run: () => { void doSave() },
+      })
+      return
+    }
+    void doSave()
+  }
 
+  const doSave = async () => {
+    if (!selectedId || !permDraft) return
+
+    setConfirmCfg(null) // đóng dialog trước khi lưu (pattern như các view khác)
     setSaving(true)
     setMsg(null)
     try {
@@ -249,10 +277,15 @@ actions={<>
               </div>
 
               <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || saving}>
+                <button className="fm-btn fm-btn--primary" onClick={askSave} disabled={!canEdit || saving || !dirty}>
                   <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
                   {saving ? 'Đang lưu…' : 'Lưu phân quyền'}
                 </button>
+                {dirty && canEdit && (
+                  <button className="fm-btn fm-btn--ghost" onClick={() => resetDraft(selectedId, roles)} disabled={saving}>
+                    Hủy thay đổi
+                  </button>
+                )}
                 {dirty && !saving && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
                 {!canEdit && (
                   <span className="fm-chip fm-chip--perm-d">Bạn không có quyền sửa phân quyền</span>
@@ -272,6 +305,19 @@ actions={<>
           )}
         </div>
       </div>
+
+      {/* Dialog xác nhận chung thay window.confirm() */}
+      {confirmCfg && (
+        <ConfirmDialog
+          open
+          title={confirmCfg.title}
+          message={confirmCfg.message}
+          confirmLabel={confirmCfg.confirmLabel}
+          tone={confirmCfg.tone}
+          onConfirm={confirmCfg.run}
+          onCancel={() => setConfirmCfg(null)}
+        />
+      )}
     </div>
   )
 }

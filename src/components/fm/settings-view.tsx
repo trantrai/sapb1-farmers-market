@@ -53,6 +53,8 @@ const emptyForm: DbForm = {
 
 export default function SettingsView({ canEdit }: { canEdit: boolean }) {
   const [s, setS] = useState<SettingsData | null>(null)
+  /** Snapshot lúc load/lưu xong — so với s để tính dirty (tracking thay đổi chưa lưu) */
+  const [sSaved, setSSaved] = useState<SettingsData | null>(null)
   const [dbs, setDbs] = useState<SapDb[]>([])
   const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -77,13 +79,15 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
     const json = await res.json()
     // KHÔNG nạp mật khẩu đã che vào state — giữ ô mật khẩu rỗng,
     // server sẽ giữ mật khẩu cũ khi gửi chuỗi rỗng → không bao giờ ghi đè nhầm.
-    setS({
+    const initial: SettingsData = {
       ...json.settings,
       smtpPass: '',
       hasSmtpPass: Boolean(json.hasSmtpPass),
       baseToken: '',
       hasBaseToken: Boolean(json.hasBaseToken),
-    })
+    }
+    setS(initial)
+    setSSaved(initial)
   }
   const loadDbs = async () => {
     const res = await api('/api/sap-databases')
@@ -94,6 +98,19 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
   useEffect(() => { load(); loadDbs() }, [])
 
   const update = (patch: Partial<SettingsData>) => setS((cur) => (cur ? { ...cur, ...patch } : cur))
+
+  /** true = có thay đổi chưa lưu so với snapshot lúc load/lưu (W13 — pattern như roles-view) */
+  const dirty = Boolean(s && sSaved && JSON.stringify(s) !== JSON.stringify(sSaved))
+
+  // Cảnh báo khi rời trang mà còn thay đổi chưa lưu
+  useEffect(() => {
+    if (!dirty) return
+    const onBefore = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBefore)
+    return () => window.removeEventListener('beforeunload', onBefore)
+  }, [dirty])
   const [fieldErr, setFieldErr] = useState<string | null>(null) // tên field lỗi trong modal DB (mục 45)
   const updateForm = (patch: Partial<DbForm>) => { setFieldErr(null); setForm((cur) => (cur ? { ...cur, ...patch } : cur)) }
 
@@ -112,7 +129,9 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         setMsg({ type: 'error', text: json.error ?? 'Không thể lưu cài đặt' })
         return
       }
-      setS({ ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass), baseToken: '', hasBaseToken: Boolean(json.hasBaseToken) })
+      const saved: SettingsData = { ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass), baseToken: '', hasBaseToken: Boolean(json.hasBaseToken) }
+      setS(saved)
+      setSSaved(saved)
       setMsg({ type: 'success', text: 'Đã lưu cài đặt' })
     } finally {
       setBusy(false)
@@ -414,11 +433,12 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
             <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
         </div>
       </div>
 
@@ -501,11 +521,12 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
             <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
           {!canEdit && (
             <span className="fm-chip fm-chip--role" style={{ alignSelf: 'center' }}>
               Vai trò của bạn chỉ được xem cài đặt
@@ -538,11 +559,12 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               disabled={!canEdit}
             />
           </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-            <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
               <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
               {busy ? 'Đang lưu…' : 'Lưu'}
             </button>
+            {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
             {!canEdit && (
               <span className="fm-chip fm-chip--role" style={{ alignSelf: 'center' }}>
                 Vai trò của bạn chỉ được xem cài đặt

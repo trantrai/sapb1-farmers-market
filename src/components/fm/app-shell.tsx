@@ -192,13 +192,32 @@ export default function AppShell({ user, onLogout }: Props) {
       }
       return next
     })
-    setTimeout(() => dismissToast(id), ms)
+    // A4 — toast có action (vd "Xem đơn vừa tạo") thì KHÔNG tự đóng: user bàn phím
+    // cần thời gian Tab tới nút action. Chỉ toast không action mới tự đóng theo type.
+    if (!action) setTimeout(() => dismissToast(id), ms)
   }
 
   const go = (v: ViewKey) => {
     setView(v)
     setDrawerOpen(false)
     window.scrollTo({ top: 0 })
+    // A1 — chuyển view thì đưa focus vào nội dung mới để keyboard/screen reader theo kịp.
+    // BỎ QUA khi có dialog/modal đang mở (guard) để không phá focus trap của modal.
+    requestAnimationFrame(() => {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], dialog[open], [aria-modal="true"]')) return
+      const main = document.getElementById('fm-main')
+      if (!main) return
+      const h1 = main.querySelector('h1')
+      if (h1 instanceof HTMLElement) {
+        // <h1> của view (qua PageHeader) chưa focusable — gắn tabIndex=-1 tạm thời rồi focus.
+        // .fm-view có key={view} nên remount mỗi lần chuyển, attribute không rò rỉ sang view khác.
+        h1.setAttribute('tabindex', '-1')
+        h1.focus({ preventScroll: false })
+      } else {
+        // Fallback: <main id="fm-main"> đã có tabIndex={-1}
+        main.focus({ preventScroll: false })
+      }
+    })
   }
 
   // Chọn kết quả từ command palette tìm kiếm
@@ -275,7 +294,7 @@ export default function AppShell({ user, onLogout }: Props) {
             <span>SAP Service Layer</span>
           </div>
           <span className="fm-sap-status__live" style={sapStatus === 'none' ? { opacity: 0.6 } : sapStatus === 'error' ? { color: 'var(--fm-red)' } : undefined}>
-            <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: '#9aa0a6' } : sapStatus === 'error' ? { background: 'var(--fm-red)' } : undefined} />
+            <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: 'var(--fm-muted-line)' } : sapStatus === 'error' ? { background: 'var(--fm-red)' } : undefined} />
             {sapStatus === 'ok' ? 'Live' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi'}
           </span>
         </div>
