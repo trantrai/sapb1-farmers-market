@@ -123,8 +123,10 @@ export function parseBarcode(raw: string | null): CanonicalBarcode {
 export function detectBomKind(raw: string | null): BomKind | null {
   if (!raw) return null
   const s = raw.toUpperCase()
-  if (/1\./.test(s) || s.includes('BOM PRODUCT')) return 'BOM_PRODUCT'
+  // Kiểm tra ASSEMBLY trước vì "BOM ASEMBLY (COMBO)" cũng chứa chuỗi "BOM"
   if (/2\./.test(s) || s.includes('COMBO') || s.includes('ASEMBLY')) return 'BOM_ASSEMBLY'
+  // "BOM" đơn lẻ (file thật ghi "BOM" thay vì "1. BOM PRODUCT") → BOM_PRODUCT
+  if (/1\./.test(s) || s.includes('BOM PRODUCT') || s.includes('BOM')) return 'BOM_PRODUCT'
   return null
 }
 
@@ -207,6 +209,7 @@ export function parseMd05Workbook(
         itemName,
         itemNameEn: normText(row[C.itemNameEn]),
         itemTypeLetter: normText(row[C.itemTypeLetter]),
+        bomKindRaw: normText(row[C.bomKindRaw]),
         bomKind: detectBomKind(normText(row[C.bomKindRaw])),
         barcode,
         primaryBarcode: primaryBarcodeOf(barcode),

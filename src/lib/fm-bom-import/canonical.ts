@@ -55,6 +55,8 @@ export interface CanonicalParent {
   /** I | M | N | W — chỉ lưu canonical, không map B1 (Q3) */
   itemTypeLetter: string | null
   bomKind: BomKind | null
+  /** Giá trị gốc cột C — dùng để báo lỗi V1 chi tiết khi không nhận diện được */
+  bomKindRaw: string | null
   barcode: CanonicalBarcode
   /** Barcode chính theo Q2a: thương mại → đầu 8 → đầu I */
   primaryBarcode: string | null

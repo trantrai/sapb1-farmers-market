@@ -114,6 +114,14 @@ describe('T7 — nhận diện bomKind', () => {
     expect(detectBomKind('XYZ lạ')).toBeNull()
     expect(detectBomKind(null)).toBeNull()
   })
+  it('"BOM" đơn lẻ (giá trị thật trong file) → BOM_PRODUCT', () => {
+    expect(detectBomKind('BOM')).toBe('BOM_PRODUCT')
+    expect(detectBomKind('bom')).toBe('BOM_PRODUCT')
+  })
+  it('"BOM ASEMBLY (COMBO)" → BOM_ASSEMBLY (ưu tiên assembly vì chứa "BOM")', () => {
+    expect(detectBomKind('BOM ASEMBLY (COMBO)')).toBe('BOM_ASSEMBLY')
+    expect(detectBomKind('COMBO')).toBe('BOM_ASSEMBLY')
+  })
 })
 
 describe('parseNumber — số kiểu Việt Nam', () => {

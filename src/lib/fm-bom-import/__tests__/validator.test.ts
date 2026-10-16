@@ -23,9 +23,11 @@ describe('V1 — fail-fast cấu trúc', () => {
     const issues = validate({}, { itemName: '' })
     expect(errorsOf(issues).some((i) => i.code === 'V1' && i.field === 'itemName')).toBe(true)
   })
-  it('bomKind null → lỗi V1', () => {
-    const issues = validate({}, { bomKind: null })
-    expect(errorsOf(issues).some((i) => i.code === 'V1' && i.field === 'bomKind')).toBe(true)
+  it('bomKind null → lỗi V1 kèm giá trị ô gốc', () => {
+    const issues = validate({}, { bomKind: null, bomKindRaw: 'XYZ lạ' })
+    const v1 = errorsOf(issues).find((i) => i.code === 'V1' && i.field === 'bomKind')
+    expect(v1).toBeDefined()
+    expect(v1!.message).toContain('XYZ lạ')
   })
   it('không có component → lỗi V1', () => {
     const issues = validate({}, { components: [] })

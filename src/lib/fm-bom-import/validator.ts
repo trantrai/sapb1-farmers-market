@@ -145,7 +145,13 @@ export function validateCanonical(
   for (const p of doc.parents) {
     // ---- V1 ----
     if (!p.itemName) err('V1', p.rowNo, 'itemName', 'Tên mặt hàng (cột E) trống')
-    if (!p.bomKind) err('V1', p.rowNo, 'bomKind', 'Không nhận diện được loại BOM/COMBO (cột C)')
+    if (!p.bomKind)
+      err(
+        'V1',
+        p.rowNo,
+        'bomKind',
+        `Không nhận diện được loại BOM/COMBO (cột C) — giá trị ô: ${JSON.stringify(p.bomKindRaw)}`,
+      )
     if (p.components.length === 0)
       err('V1', p.rowNo, 'components', 'Mã cha không có thành phần con nào')
 

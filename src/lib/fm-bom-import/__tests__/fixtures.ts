@@ -110,6 +110,7 @@ export function makeParent(over: Partial<CanonicalParent> = {}): CanonicalParent
     itemNameEn: null,
     itemTypeLetter: 'I',
     bomKind: 'BOM_PRODUCT',
+    bomKindRaw: '1. BOM PRODUCT (BOM)',
     barcode: { trade: '8931234567890', internal8: null, internalI: null },
     primaryBarcode: '8931234567890',
     categoryLevel7: null,
