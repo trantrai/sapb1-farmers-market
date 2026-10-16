@@ -57,3 +57,5 @@ prisma/mock-demo.ts
 
 # File BOM tải từ Base Workflow (dữ liệu thật công ty — không commit)
 /data/
+
+db/

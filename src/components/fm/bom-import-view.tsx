@@ -776,7 +776,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
             <div className="fm-card__head"><Download size={18} /> Ingest từ Base Workflow (F18)</div>
             <div className="fm-card__body">
               <div className="fm-row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <div className="fm-field" style={{ minWidth: 240 }}>
+                <div className="fm-field" style={{ minWidth: 240, marginBottom: 0 }}>
                   <label className="fm-label" htmlFor="fm-bom-jobid">Job ID Base Workflow</label>
                   <input
                     id="fm-bom-jobid"
