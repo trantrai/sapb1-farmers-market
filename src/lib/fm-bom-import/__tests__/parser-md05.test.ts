@@ -67,6 +67,9 @@ describe('parseMd05Workbook — nhận diện cấu trúc', () => {
     expect(parents[0].itemName).toBe('PHẦN QUÀ TEST 01')
     expect(parents[1].itemName).toBe('COMBO QUÀ TEST 02')
     expect(parents[0].components).toHaveLength(4)
+    // rowNo = số dòng Excel thật (giữ dòng trống): cha 1 ở dòng 7
+    expect(parents[0].rowNo).toBe(7)
+    expect(parents[0].components[0].rowNo).toBe(7) // T8: con đầu ở dòng cha
   })
 })
 

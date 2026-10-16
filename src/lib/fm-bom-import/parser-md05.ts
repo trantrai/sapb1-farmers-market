@@ -52,13 +52,11 @@ export const MD05_SHEET_NAME = 'Template IT up hệ thống'
 
 /**
  * Tìm chỉ số dòng bắt đầu dữ liệu (động, không dùng số cứng).
- * sheet_to_json với blankrows:false đã loại bỏ các dòng trống của Excel,
- * nên chỉ số mảng lệch so với số dòng Excel gốc — file thật bắt đầu dữ liệu
- * ở index 5 chứ không phải 6 (bug: từng làm mất mã cha đầu tiên, chỉ parse
- * được mã cha sau cùng).
  * Quy tắc: dòng header cột là dòng có ô E = "Item name" (không phân biệt
  * hoa/thường); dữ liệu bắt đầu ngay dòng sau. Không tìm thấy → fallback
  * HEADER_ROWS của template chuẩn.
+ * (Trước đây từng dùng blankrows:false + hằng số 6 làm mất mã cha đầu tiên;
+ * giờ giữ dòng trống nên rowNo = số dòng Excel thật.)
  */
 function findDataStart(rows: unknown[][]): number {
   const idx = rows.findIndex(
@@ -172,15 +170,20 @@ export function parseMd05Workbook(
   const sheetUsed = wb.SheetNames.includes(want) ? want : wb.SheetNames[0]
   if (!sheetUsed) throw new Error('Workbook không có sheet nào')
   const ws = wb.Sheets[sheetUsed]
-  // Pass 1 — values
+  // Pass 1 — values.
+  // GIỮ các dòng trống (không dùng blankrows:false): rowNo = số dòng Excel thật,
+  // cần cho tính năng xuất Excel điền mã cha (điền đúng ô) và đọc formula
+  // đúng địa chỉ ở pass 2. Dòng trống được bỏ qua tự nhiên trong vòng lặp.
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
     header: 1,
     raw: true,
     defval: null,
-    blankrows: false,
   })
   const vatRates = opts.vatRates ?? DEFAULT_VAT_RATES
   const batchQtyDefault = opts.batchQtyDefault ?? 1
+  // Dòng Excel thật = range.s.r + i + 1 (!ref có thể không bắt đầu từ dòng 1;
+  // file thật bắt đầu từ A2). Cần cho xuất Excel điền mã cha + đọc formula đúng ô.
+  const rangeStart = XLSX.utils.decode_range(ws['!ref'] ?? 'A1').s.r
 
   const parents: CanonicalParent[] = []
   let current: CanonicalParent | null = null
@@ -200,12 +203,12 @@ export function parseMd05Workbook(
     parents.push(p)
   }
 
-  // Pass 2 — formulas được đọc trực tiếp từ ws qua cellFormula() khi cần
-  // (dataStart tìm động vì blankrows:false làm lệch chỉ số mảng)
+  // Pass 2 — formulas được đọc trực tiếp từ ws qua cellFormula() khi cần.
+  // i = chỉ số dòng Excel 0-based (giữ dòng trống) nên địa chỉ formula đúng.
   const dataStart = findDataStart(rows)
   for (let i = dataStart; i < rows.length; i++) {
     const row = rows[i] || []
-    const rowNo = i + 1 // 1-based như Excel
+    const rowNo = rangeStart + i + 1 // 1-based = số dòng Excel thật
     const itemName = normText(row[C.itemName])
 
     if (itemName) {
@@ -246,10 +249,10 @@ export function parseMd05Workbook(
         priceCheckQ: parseNumber(row[C.priceQ]),
         priceCheckS: parseNumber(row[C.priceS]),
         formulas: {
-          ...(cellFormula(ws, i, C.priceQ) ? { q: cellFormula(ws, i, C.priceQ) } : {}),
-          ...(cellFormula(ws, i, C.priceR) ? { r: cellFormula(ws, i, C.priceR) } : {}),
-          ...(cellFormula(ws, i, C.priceS) ? { s: cellFormula(ws, i, C.priceS) } : {}),
-          ...(cellFormula(ws, i, C.priceT) ? { t: cellFormula(ws, i, C.priceT) } : {}),
+          ...(cellFormula(ws, rangeStart + i, C.priceQ) ? { q: cellFormula(ws, rangeStart + i, C.priceQ) } : {}),
+          ...(cellFormula(ws, rangeStart + i, C.priceR) ? { r: cellFormula(ws, rangeStart + i, C.priceR) } : {}),
+          ...(cellFormula(ws, rangeStart + i, C.priceS) ? { s: cellFormula(ws, rangeStart + i, C.priceS) } : {}),
+          ...(cellFormula(ws, rangeStart + i, C.priceT) ? { t: cellFormula(ws, rangeStart + i, C.priceT) } : {}),
         },
         supplier: {
           name: normText(row[C.supplierName]),
@@ -289,7 +292,10 @@ export function parseMd05Workbook(
   }
   if (current) pushParent(current)
 
-  return { parents, sheetUsed, dataRows: Math.max(0, rows.length - dataStart) }
+  const dataRows = rows
+    .slice(dataStart)
+    .filter((r) => (r || []).some((c) => c !== null && c !== undefined && String(c).trim() !== '')).length
+  return { parents, sheetUsed, dataRows }
 
   /** Cộng dồn Z × X cho costTotal */
   function accumulateCost(row: unknown[]): void {

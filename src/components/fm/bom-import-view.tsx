@@ -464,6 +464,35 @@ export default function BomImportView({ user }: { user: SessionUser }) {
     }
   }
 
+  // F4-export — tải file Excel BOM gốc đã điền mã cha (cột D)
+  const doExportCodes = async () => {
+    if (!run || previewBusy) return
+    setPreviewBusy(true)
+    setMsg(null)
+    try {
+      const res = await api(`/api/bom-import/runs/${run.id}/export-codes`)
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({} as { error?: string }))
+        setMsg({ type: 'error', text: json.error ?? 'Xuất Excel thất bại' })
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disp = res.headers.get('content-disposition') ?? ''
+      const m = disp.match(/filename\*=UTF-8''([^;]+)/)
+      a.download = m ? decodeURIComponent(m[1]) : 'bom-dien-ma-cha.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setMsg({ type: 'success', text: 'Đã xuất file Excel BOM đã điền mã cha (cột D — Mã hàng).' })
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
   const doApply = async () => {
     if (!run || previewBusy) return
     setPreviewBusy(true)
@@ -865,6 +894,15 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         disabled={previewBusy || !canCreate || !firstCode.trim()}
                       >
                         Sinh mã các cha còn lại
+                      </button>
+                      <button
+                        className="fm-btn fm-btn--secondary"
+                        onClick={doExportCodes}
+                        disabled={previewBusy || Object.keys(preview.generatedCodes ?? {}).length === 0}
+                        title="Tải file Excel BOM gốc đã điền mã cha vào cột D (Mã hàng)"
+                      >
+                        <Download size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                        Xuất Excel điền mã cha
                       </button>
                       <span className="fm-hint" style={{ flexBasis: '100%' }}>
                         Các mã còn lại tự tăng dần theo phần số cuối (giữ zero-padding); trùng → tăng tiếp tối đa 10 lần.
