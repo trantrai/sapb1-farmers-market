@@ -13,10 +13,11 @@ import { useCallback, useEffect, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import {
   Download, CheckCircle2, XCircle, AlertTriangle, FileSpreadsheet,
-  ListChecks, Lock, ChevronRight, ChevronDown, RefreshCw, Ban, Eye, Link2,
+  ListChecks, Lock, ChevronRight, ChevronDown, RefreshCw, Ban, Eye, Link2, X,
 } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import { useFocusTrap } from './use-focus-trap'
 import type { SessionUser } from '@/lib/fm-shared'
 
 const NAVY = '#1E3A5F'
@@ -44,6 +45,8 @@ interface Run {
   startedBy: string
   createdAt: string
   finishedAt: string | null
+  /** Key đã tạo trên B1 bởi run này (cho rollback) */
+  createdKeys?: { type: 'tree' | 'item'; code: string }[]
 }
 
 interface Issue {
@@ -175,6 +178,92 @@ function stepIndexFor(status: string): number {
   }
 }
 
+/**
+ * Modal xác nhận Apply/Rollback (review UX — thay window.confirm).
+ * Luôn hiện database đích để tránh apply nhầm DB.
+ */
+function ActionConfirmModal({
+  kind,
+  dbLabel,
+  applyCodes,
+  rollbackKeyCount,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  kind: 'apply' | 'rollback'
+  dbLabel: string
+  applyCodes: string[]
+  rollbackKeyCount: number
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+  const isApply = kind === 'apply'
+  return (
+    <div className="fm-backdrop" onClick={onCancel}>
+      <div
+        ref={trapRef}
+        className="fm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={isApply ? 'Xác nhận Apply lên SAP B1' : 'Xác nhận Rollback'}
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 560 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 className="fm-modal__title">{isApply ? 'Xác nhận Apply lên SAP B1' : 'Xác nhận Rollback run này'}</h3>
+          <button className="fm-icon-btn" onClick={onCancel} aria-label="Đóng">
+            <X size={16} />
+          </button>
+        </div>
+        <dl className="fm-view-detail" style={{ marginBottom: 12 }}>
+          <div>
+            <dt>Database đích</dt>
+            <dd><span className="fm-chip fm-chip--sap">{dbLabel}</span></dd>
+          </div>
+          {isApply ? (
+            <div>
+              <dt>Mã cha sẽ apply</dt>
+              <dd style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                {applyCodes.length} mã: {applyCodes.join(', ')}
+              </dd>
+            </div>
+          ) : (
+            <div>
+              <dt>Key sẽ xóa</dt>
+              <dd>{rollbackKeyCount} key do run này tạo trên B1</dd>
+            </div>
+          )}
+        </dl>
+        <div className={`fm-alert fm-alert--${isApply ? 'warning' : 'error'}`} role="alert" style={{ marginBottom: 16 }}>
+          {isApply
+            ? 'Thao tác tạo Items + ProductTrees THẬT trên SAP B1. Kiểm tra kỹ database đích trước khi bấm. Có thể rollback bằng nút "Rollback run này".'
+            : 'Thao tác xóa Items + ProductTrees trên SAP B1. Không thể hoàn tác.'}
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="fm-btn fm-btn--secondary" onClick={onCancel} disabled={busy}>
+            Hủy
+          </button>
+          <button
+            className={`fm-btn ${isApply ? 'fm-btn--primary' : 'fm-btn--danger'}`}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {isApply ? 'Apply lên SAP B1' : 'Rollback'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const fmtBytes = (n: number) =>
   n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`
 const fmtDate = (iso: string) => {
@@ -222,6 +311,8 @@ export default function BomImportView({ user }: { user: SessionUser }) {
     failed: number
     results: { rowNo: number; code: string; item: string; tree: string; error?: string }[]
   } | null>(null)
+  // Review UX — modal xác nhận Apply/Rollback (thay window.confirm), hiện tên DB đích
+  const [confirmAction, setConfirmAction] = useState<'apply' | 'rollback' | null>(null)
   // Major #1 — tóm tắt canonical khi mở lại run đã validated (tránh bảng trống gây hiểu lầm)
   const [canonicalSummary, setCanonicalSummary] = useState<{
     parents: number; components: number; errors: number; warnings: number; validatedAt: string | null
@@ -361,6 +452,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
   const loadPreview = async (runId: string) => {
     setPreviewBusy(true)
+    setApplyResult(null) // kết quả apply cũ không còn đúng sau khi preview đổi
     try {
       const res = await api(`/api/bom-import/runs/${runId}/preview`)
       const json = await res.json()
@@ -510,10 +602,12 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
   const doApply = async () => {
     if (!run || previewBusy) return
-    if (!window.confirm(
-      `Apply ${preview?.approvedCount ?? 0} mã cha đã duyệt lên SAP B1?\n` +
-      `Thao tác tạo Items + ProductTrees THẬT trên SAP và không thể hoàn tác tự động (có nút Rollback riêng).`,
-    )) return
+    setConfirmAction('apply')
+  }
+
+  const executeApply = async () => {
+    if (!run) return
+    setConfirmAction(null)
     setPreviewBusy(true)
     setMsg(null)
     setApplyResult(null)
@@ -529,7 +623,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
         type: json.failed > 0 ? 'error' : 'success',
         text: json.failed > 0
           ? `Apply xong ${json.succeeded}/${json.total} cha — ${json.failed} cha lỗi (dừng cả đợt, có thể retry).`
-          : `Apply thành công ${json.succeeded}/${json.total} mã cha lên SAP B1.`,
+          : `Apply thành công ${json.succeeded}/${json.total} mã cha lên SAP B1. Vào menu Đồng bộ để tải Items/ProductTrees mới về app.`,
       })
       // Tải lại run để cập nhật trạng thái stepper
       await openRun(run.id)
@@ -540,9 +634,12 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
   const doRollback = async () => {
     if (!run || previewBusy) return
-    if (!window.confirm(
-      `Rollback run này?\nXóa các Items + ProductTrees do run tạo trên SAP B1 (theo createdKeys). Không thể hoàn tác.`,
-    )) return
+    setConfirmAction('rollback')
+  }
+
+  const executeRollback = async () => {
+    if (!run) return
+    setConfirmAction(null)
     setPreviewBusy(true)
     setMsg(null)
     try {
@@ -1039,9 +1136,9 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                     <select
                                       className="fm-input"
                                       value={p.linkedSet ?? ''}
-                                      disabled={!canCreate || previewBusy}
+                                      disabled={!canCreate || previewBusy || preview.blocked}
                                       onChange={(e) => doLink(p.rowNo, e.target.value)}
-                                      title={p.linkAuto ? 'Link tự động theo tên (NQ4) — chọn để gán tay' : 'Đã gán tay — chọn trống để về tự động'}
+                                      title={preview.blocked ? 'Còn lỗi fail-fast — xử lý xong mới gán link' : p.linkAuto ? 'Link tự động theo tên (NQ4) — chọn để gán tay' : 'Đã gán tay — chọn trống để về tự động'}
                                       style={{ fontSize: 12, padding: '4px 6px' }}
                                       aria-label={`Link set báo giá cho dòng ${p.rowNo}`}
                                     >
@@ -1152,11 +1249,19 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       <button
                         className="fm-btn fm-btn--primary"
                         onClick={doApply}
-                        disabled={previewBusy || !canCreate || !preview.canApply}
+                        disabled={previewBusy || !canCreate || !preview.canApply || run?.status === 'applied' || run?.status === 'applying'}
                         title={preview.applyNote ?? 'Apply các mã cha đã duyệt lên SAP B1'}
                       >
-                        Apply {preview.approvedCount > 0 ? `${preview.approvedCount} mã đã duyệt` : ''} lên SAP B1
+                        {run?.status === 'applied'
+                          ? 'Đã apply lên SAP B1'
+                          : run?.status === 'applying'
+                            ? 'Đang apply…'
+                            : `Apply${preview.approvedCount > 0 ? ` ${preview.approvedCount} mã đã duyệt` : ''} lên SAP B1`}
                       </button>
+                      {/* Review UX Major #1 — luôn hiện DB đích cạnh nút Apply */}
+                      <span className="fm-chip fm-chip--sap" title="Mọi ghi B1 của run này dùng đúng database này">
+                        DB: {user.databaseLabel ?? 'mặc định'}
+                      </span>
                       {(run?.status === 'applied' || run?.status === 'failed') && (
                         <button
                           className="fm-btn fm-btn--secondary"
@@ -1164,7 +1269,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                           disabled={previewBusy || !canCreate}
                           title="Xóa các Items + ProductTrees do run này tạo trên SAP B1 (theo createdKeys)"
                         >
-                          Rollback run này
+                          Rollback run này{(run.createdKeys?.length ?? 0) > 0 ? ` (${run.createdKeys!.length} key)` : ''}
                         </button>
                       )}
                       {preview.applyNote && <span className="fm-hint">{preview.applyNote}</span>}
@@ -1190,13 +1295,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                 <td><b>{r.code}</b></td>
                                 <td>{r.rowNo}</td>
                                 <td>
-                                  {r.item === 'created' ? <span className="fm-chip fm-chip--open">Đã tạo</span>
-                                    : r.item === 'exists' ? <span className="fm-chip fm-chip--closed">Đã tồn tại</span>
+                                  {r.item === 'created' ? <span className="fm-chip" style={{ background: '#16A34A', color: '#fff' }}>Đã tạo</span>
+                                    : r.item === 'exists' ? <span className="fm-chip" style={{ background: '#E2E8F0', color: '#475569' }}>Đã tồn tại</span>
                                       : <span className="fm-chip fm-chip--error">Lỗi</span>}
                                 </td>
                                 <td>
-                                  {r.tree === 'created' ? <span className="fm-chip fm-chip--open">Đã tạo</span>
-                                    : r.tree === 'exists' ? <span className="fm-chip fm-chip--closed">Đã tồn tại</span>
+                                  {r.tree === 'created' ? <span className="fm-chip" style={{ background: '#16A34A', color: '#fff' }}>Đã tạo</span>
+                                    : r.tree === 'exists' ? <span className="fm-chip" style={{ background: '#E2E8F0', color: '#475569' }}>Đã tồn tại</span>
                                       : r.tree === 'skipped' ? <span className="fm-hint">Bỏ qua</span>
                                         : <span className="fm-chip fm-chip--error">Lỗi</span>}
                                 </td>
@@ -1209,8 +1314,17 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     )}
                     <p className="fm-hint" style={{ marginTop: 8 }}>
                       Báo giá: {preview.summary.sets} set · {preview.summary.costingRows} dòng Final Cost · {preview.summary.deliveryRows} dòng lịch giao (chỉ lưu trace).
-                      Dry-run không gọi API B1 ghi dữ liệu.
+                      <br />
+                      <strong style={{ color: CORAL }}>
+                        Apply ghi THẬT Items + ProductTrees lên SAP B1 (DB: {user.databaseLabel ?? 'mặc định'})
+                      </strong>
+                      {' '}— kiểm tra kỹ DB đích trước khi bấm. Có thể rollback theo run bằng nút "Rollback run này".
                     </p>
+                    {applyResult && applyResult.failed === 0 && (
+                      <p className="fm-hint" style={{ marginTop: 4 }}>
+                        Mã mới đã nằm trên B1 — vào menu <strong>Đồng bộ</strong> để tải Items/ProductTrees mới về app.
+                      </p>
+                    )}
                   </>
                 )}
               </div>
@@ -1270,6 +1384,19 @@ export default function BomImportView({ user }: { user: SessionUser }) {
             )}
           </div>
         </>
+      )}
+
+      {/* Modal xác nhận Apply/Rollback — luôn hiện DB đích */}
+      {confirmAction && (
+        <ActionConfirmModal
+          kind={confirmAction}
+          dbLabel={user.databaseLabel ?? 'mặc định'}
+          applyCodes={(preview?.parents ?? []).filter((p) => p.approved).map((p) => p.itemCode ?? `(dòng ${p.rowNo})`)}
+          rollbackKeyCount={run?.createdKeys?.length ?? 0}
+          busy={previewBusy}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={confirmAction === 'apply' ? executeApply : executeRollback}
+        />
       )}
     </div>
   )
