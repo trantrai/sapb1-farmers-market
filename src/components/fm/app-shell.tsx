@@ -256,7 +256,7 @@ export default function AppShell({ user, onLogout }: Props) {
       }}
     >
       {m.icon}
-      <span>{m.label}</span>
+      <span className="fm-menu-item__label">{m.label}</span>
       {m.badge && <span className="fm-badge-count">{m.badge}</span>}
       {m.key === 'orders' && overdueCount > 0 && (
         <span className="fm-badge-dot" title={`${overdueCount} đơn quá hạn giao`}>{overdueCount > 99 ? '99+' : overdueCount}</span>
@@ -299,19 +299,19 @@ export default function AppShell({ user, onLogout }: Props) {
           </span>
         </div>
 
-        {mainMenu.length > 0 && <div className="fm-menu-group">Chức Năng Chính</div>}
+        {mainMenu.length > 0 && <div className="fm-menu-group">Chức năng chính</div>}
         <nav aria-label="Menu chức năng chính">{mainMenu.map(renderNavItem)}</nav>
 
         {syncMenu.length > 0 && (
           <>
-            <div className="fm-menu-group" style={{ marginTop: 10 }}>Đồng Bộ Dữ Liệu</div>
+            <div className="fm-menu-group" style={{ marginTop: 10 }}>Đồng bộ dữ liệu</div>
             <nav aria-label="Menu đồng bộ">{syncMenu.map(renderNavItem)}</nav>
           </>
         )}
 
         {adminMenu.length > 0 && (
           <>
-            <div className="fm-menu-group" style={{ marginTop: 10 }}>Quản Trị &amp; Hệ Thống</div>
+            <div className="fm-menu-group" style={{ marginTop: 10 }}>Quản trị &amp; hệ thống</div>
             <nav aria-label="Menu quản trị">{adminMenu.map(renderNavItem)}</nav>
           </>
         )}

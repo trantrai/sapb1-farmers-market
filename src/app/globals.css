@@ -211,7 +211,7 @@
   --fm-shadow-pop: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11);
 
   /* ---------- Layout ---------- */
-  --fm-sidebar-w: 250px;
+  --fm-sidebar-w: 268px;
 
   /* ---------- Motion (O1) ---------- */
   /* easing entrance chuẩn toàn app — cubic-bezier(.22,.8,.36,1) là easing đang dùng phổ biến nhất */
@@ -279,28 +279,29 @@
 .fm-logo__name { font-weight: 700; font-size: 12.5px; line-height: 1.25; letter-spacing: .4px; color: var(--fm-surface); }
 .fm-logo__name small { display: block; font-weight: 400; font-size: 11px; color: rgba(255,255,255,.7); }
 
-.fm-menu-group { font-size: 11px; font-weight: 600; letter-spacing: .8px; color: rgba(255,255,255,.65); padding: 14px 12px 6px; } /* .5 chỉ 4.1:1 → .65 đạt 5.9:1 (WCAG AA) */
+.fm-menu-group { font-size: 10px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: rgba(255,255,255,.55); padding: 16px 12px 6px; } /* header nhóm hiện đại: nhỏ, cách chữ rộng */
 .fm-menu-item {
-  padding: 9px 12px; border-radius: var(--fm-r-md);
+  padding: 10px 12px; border-radius: var(--fm-r-md);
   color: rgba(255,255,255,.85); font-size: 14px; cursor: pointer;
-  border-left: 3px solid transparent; margin-bottom: 2px;
-  transition: background var(--fm-dur-fast); display: flex; align-items: center; gap: 9px;
+  border-left: 3px solid transparent; margin-bottom: 3px;
+  transition: background var(--fm-dur-fast), color var(--fm-dur-fast); display: flex; align-items: center; gap: 10px;
 }
 .fm-menu-item svg { flex-shrink: 0; }
+.fm-menu-item__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; } /* nhãn 1 dòng, không gãy */
 .fm-menu-item:hover { background: rgba(255,255,255,.1); color: var(--fm-surface); }
 .fm-menu-item.is-active {
   background: var(--fm-primary); color: var(--fm-gold-ink);
-  border-left-color: transparent; font-weight: 700;
+  border-left-color: var(--fm-navy); font-weight: 700; /* thanh indicator navy trên nền gold */
 }
 .fm-menu-item.is-disabled { opacity: .4; cursor: not-allowed; } /* ẩn theo RBAC thì render none */
 .fm-menu-item .fm-chip { margin-left: auto; }
 
-/* Box trạng thái SAP Service Layer */
+/* Box trạng thái SAP Service Layer — gọn 1 dòng */
 .fm-sap-status {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--fm-green-soft); color: var(--fm-green);
-  border-radius: var(--fm-r-md); padding: 8px 12px; margin: 12px 0 4px;
-  font-size: 12px; font-weight: 600;
+  border-radius: var(--fm-r-md); padding: 6px 10px; margin: 10px 0 2px;
+  font-size: 11.5px; font-weight: 600;
 }
 .fm-sap-status__icon { font-size: 16px; }
 .fm-sap-status__live {
@@ -939,7 +940,8 @@
 
 /* (định nghĩa .fm-menu-item đã gộp vào mục sidebar ở trên) */
 
-.fm-badge-count { background: var(--fm-warn-text); color: var(--fm-surface); font-weight: 700; border-radius: var(--fm-r-pill); font-size: 11px; padding: 1px 8px; margin-left: auto; }
+.fm-badge-count { background: rgba(255,255,255,.14); color: var(--fm-surface); font-weight: 600; border-radius: var(--fm-r-pill); font-size: 10px; line-height: 18px; padding: 0 7px; margin-left: auto; flex-shrink: 0; letter-spacing: .4px; } /* badge gọn, tinh tế trên nền sidebar */
+.fm-menu-item.is-active .fm-badge-count { background: rgba(30,58,95,.14); color: var(--fm-gold-ink); } /* badge trên nền gold active */
 
 .fm-empty { text-align: center; padding: 40px 16px; color: var(--fm-text-3); font-size: 12.5px; }
 .fm-empty svg { width: 40px; height: 40px; margin: 0 auto 10px; display: block; opacity: .5; }
