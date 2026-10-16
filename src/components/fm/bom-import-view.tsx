@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState, Fragment } from 'react'
+import type { CSSProperties } from 'react'
 import {
   Download, CheckCircle2, XCircle, AlertTriangle, FileSpreadsheet,
   ListChecks, Lock, ChevronRight, ChevronDown, RefreshCw, Ban, Eye, Link2,
@@ -177,6 +178,15 @@ const fmtDate = (iso: string) => {
   }
 }
 
+// Minor #7 — cột sticky khi scroll ngang bảng Preview (17 cột).
+// Độ rộng cố định: Duyệt 36 + mở rộng 40 + Dòng 56 = 132; Mã cha 150; Tên 200.
+const STICKY_DUYET: CSSProperties = { position: 'sticky', left: 0, zIndex: 3, background: NAVY, width: 36 }
+const STICKY_MACHA_TH: CSSProperties = { position: 'sticky', left: 132, zIndex: 3, background: NAVY, width: 150 }
+const STICKY_TEN_TH: CSSProperties = { position: 'sticky', left: 282, zIndex: 3, background: NAVY, minWidth: 200 }
+const stickyTd = (left: number, bg: string): CSSProperties => ({
+  position: 'sticky', left, zIndex: 2, background: bg,
+})
+
 export default function BomImportView({ user }: { user: SessionUser }) {
   const canCreate = Boolean(user.permissions.bomImport?.create)
   const [tab, setTab] = useState<'runs' | 'decisions'>('runs')
@@ -197,12 +207,22 @@ export default function BomImportView({ user }: { user: SessionUser }) {
   const [firstCode, setFirstCode] = useState('')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [previewBusy, setPreviewBusy] = useState(false)
+  // Major #1 — tóm tắt canonical khi mở lại run đã validated (tránh bảng trống gây hiểu lầm)
+  const [canonicalSummary, setCanonicalSummary] = useState<{
+    parents: number; components: number; errors: number; warnings: number; validatedAt: string | null
+  } | null>(null)
+  // Minor #8 — phân trang lịch sử runs
+  const [runsPage, setRunsPage] = useState(1)
+  const [runsTotal, setRunsTotal] = useState(0)
+  const RUNS_PAGE_SIZE = 10
 
-  const loadRuns = useCallback(async () => {
-    const res = await api('/api/bom-import/runs?pageSize=10')
+  const loadRuns = useCallback(async (page = 1) => {
+    const res = await api(`/api/bom-import/runs?pageSize=${RUNS_PAGE_SIZE}&page=${page}`)
     if (!res.ok) return
     const json = await res.json()
     setRuns(json.runs ?? [])
+    setRunsTotal(json.total ?? 0)
+    setRunsPage(json.page ?? page)
   }, [])
 
   const loadDecisions = useCallback(async () => {
@@ -226,6 +246,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
     setPreview(null)
     setFirstCode('')
     setExpanded(new Set())
+    setCanonicalSummary(json.canonicalSummary ?? null)
+    // Major #1: mở lại run đã validated → tải preview ngay để thấy đủ dữ liệu
+    if (json.run?.status === 'validated') {
+      await loadPreview(id)
+    }
   }
 
   const startIngest = async (force = false) => {
@@ -411,6 +436,34 @@ export default function BomImportView({ user }: { user: SessionUser }) {
     }
   }
 
+  // Minor #6 — duyệt / bỏ duyệt tất cả mã cha (gate 2)
+  const doApproveAll = async (approve: boolean) => {
+    if (!run || !preview || previewBusy) return
+    const next = approve ? preview.parents.map((p) => p.rowNo) : []
+    setPreviewBusy(true)
+    try {
+      const res = await api(`/api/bom-import/runs/${run.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: next }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setMsg({ type: 'error', text: json.error ?? 'Duyệt thất bại' })
+        return
+      }
+      setMsg({
+        type: 'success',
+        text: approve
+          ? `Đã duyệt tất cả ${next.length} mã cha (gate 2)`
+          : 'Đã bỏ duyệt tất cả mã cha',
+      })
+      await loadPreview(run.id)
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
   const doApply = async () => {
     if (!run || previewBusy) return
     setPreviewBusy(true)
@@ -490,7 +543,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           onClick={() => setTab('decisions')}
         >
           <ListChecks size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-          Quyết định (17)
+          Quyết định{decisions.length > 0 ? ` (${decisions.length})` : ''}
         </button>
       </div>
 
@@ -520,7 +573,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
       {tab === 'decisions' ? (
         <div className="fm-card">
-          <div className="fm-card__head"><ListChecks size={18} /> 17 quyết định đã chốt (2026-10-16)</div>
+          <div className="fm-card__head"><ListChecks size={18} /> {decisions.length > 0 ? `${decisions.length} quyết định đã chốt` : 'Đang tải quyết định…'}</div>
           <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
             <table className="fm-table">
               <thead>
@@ -622,16 +675,52 @@ export default function BomImportView({ user }: { user: SessionUser }) {
             </div>
           )}
 
+          {/* Major #2 — run kẹt ở confirmed (đã xác nhận nhưng parse chưa chạy xong): cho parse lại */}
+          {run && run.status === 'confirmed' && (
+            <div className="fm-card" style={{ marginBottom: 16, borderLeft: `4px solid ${GOLD}` }}>
+              <div className="fm-card__head">
+                <RefreshCw size={18} /> Đã xác nhận — chờ parse
+              </div>
+              <div className="fm-card__body">
+                <p className="fm-hint" style={{ marginBottom: 12 }}>
+                  Run đã qua gate 1 nhưng bước parse chưa hoàn tất (có thể do rớt mạng hoặc đóng trang giữa chừng).
+                </p>
+                <button
+                  className="fm-btn fm-btn--primary"
+                  onClick={() => doParse(run.id)}
+                  disabled={busy || !canCreate}
+                >
+                  <RefreshCw size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                  {busy ? 'Đang parse…' : 'Parse lại'}
+                </button>
+                {!canCreate && <span className="fm-hint" style={{ marginLeft: 8 }}>Bạn chỉ có quyền xem (cần quyền Tạo để parse).</span>}
+              </div>
+            </div>
+          )}
+
           {/* Kết quả parse + validate */}
           {run && (run.status === 'validated' || parents.length > 0) && (
             <div className="fm-card" style={{ marginBottom: 16 }}>
               <div className="fm-card__head">
-                <CheckCircle2 size={18} /> Parse & Validate — {parents.length} mã cha
-                {blocked && <span className="fm-chip" style={{ background: CORAL, color: '#fff' }}>{errors.length} lỗi fail-fast</span>}
-                {!blocked && <span className="fm-chip" style={{ background: '#16A34A', color: '#fff' }}>Không lỗi fail-fast</span>}
-                {warnings.length > 0 && <span className="fm-chip" style={{ background: GOLD, color: '#1E293B' }}>{warnings.length} cảnh báo</span>}
+                <CheckCircle2 size={18} /> Parse & Validate — {parents.length > 0 ? parents.length : (canonicalSummary?.parents ?? 0)} mã cha
+                {parents.length > 0 && blocked && <span className="fm-chip" style={{ background: CORAL, color: '#fff' }}>{errors.length} lỗi fail-fast</span>}
+                {parents.length > 0 && !blocked && <span className="fm-chip" style={{ background: '#16A34A', color: '#fff' }}>Không lỗi fail-fast</span>}
+                {parents.length > 0 && warnings.length > 0 && <span className="fm-chip" style={{ background: GOLD, color: '#1E293B' }}>{warnings.length} cảnh báo</span>}
               </div>
               <div className="fm-card__body">
+                {parents.length === 0 && canonicalSummary ? (
+                  /* Major #1: mở lại run cũ — hiện tóm tắt thay vì bảng trống gây hiểu lầm */
+                  <div>
+                    <p>
+                      Run đã parse{canonicalSummary.validatedAt ? ` lúc ${fmtDate(canonicalSummary.validatedAt)}` : ''}:{' '}
+                      <strong>{canonicalSummary.parents}</strong> mã cha ·{' '}
+                      <strong>{canonicalSummary.components}</strong> dòng con ·{' '}
+                      {canonicalSummary.errors} lỗi fail-fast · {canonicalSummary.warnings} cảnh báo.
+                    </p>
+                    <p className="fm-hint">Chi tiết dry-run xem ở mục Preview bên dưới (đang tự tải…).</p>
+                  </div>
+                ) : (
+                <>
                 <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
                   <table className="fm-table">
                     <thead>
@@ -680,8 +769,10 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 )}
                 {skippedRules.length > 0 && (
                   <p className="fm-hint" style={{ marginTop: 12 }}>
-                    Bỏ qua ở Sprint 1: {skippedRules.join(' · ')}
+                    Tạm bỏ qua (chờ B1 test): {skippedRules.join(' · ')}
                   </p>
+                )}
+                </>
                 )}
               </div>
             </div>
@@ -707,6 +798,23 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     <span className="fm-chip" style={{ background: NAVY, color: '#fff' }}>
                       {preview.approvedCount}/{preview.parents.length} đã duyệt
                     </span>
+                    {/* Minor #6 — duyệt / bỏ duyệt tất cả */}
+                    <button
+                      className="fm-btn fm-btn--ghost fm-btn--sm"
+                      onClick={() => doApproveAll(true)}
+                      disabled={!canCreate || previewBusy || preview.blocked}
+                      title="Duyệt tất cả mã cha (gate 2)"
+                    >
+                      Duyệt tất cả
+                    </button>
+                    <button
+                      className="fm-btn fm-btn--ghost fm-btn--sm"
+                      onClick={() => doApproveAll(false)}
+                      disabled={!canCreate || previewBusy || preview.approvedCount === 0}
+                      title="Bỏ duyệt tất cả mã cha"
+                    >
+                      Bỏ duyệt
+                    </button>
                     {preview.warnings > 0 && (
                       <span className="fm-chip" style={{ background: GOLD, color: '#1E293B' }}>
                         {preview.warnings} cảnh báo
@@ -775,11 +883,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       <table className="fm-table">
                         <thead>
                           <tr>
-                            <th style={{ width: 36 }}>Duyệt</th>
-                            <th style={{ width: 36 }}></th>
-                            <th>Dòng</th>
-                            <th>Mã cha</th>
-                            <th>Tên</th>
+                            <th style={STICKY_DUYET}>Duyệt</th>
+                            <th style={{ width: 40 }}></th>
+                            <th style={{ width: 56 }}>Dòng</th>
+                            <th style={STICKY_MACHA_TH}>Mã cha</th>
+                            <th style={STICKY_TEN_TH}>Tên</th>
                             <th>Loại</th>
                             <th>Name Level 7</th>
                             <th>ĐVT đầu vào</th>
@@ -795,13 +903,16 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                           </tr>
                         </thead>
                         <tbody>
-                          {preview.parents.map((p) => {
+                          {preview.parents.map((p, pi) => {
                             const w7 = p.crossChecks.find((c) => c.check === 'W7')
                             const isOpen = expanded.has(p.rowNo)
+                            // Minor #7 — nền sticky khớp zebra (dòng cha i ở vị trí DOM 2i + số dòng con đang mở trước nó)
+                            const openBefore = preview.parents.slice(0, pi).filter((q) => expanded.has(q.rowNo)).length
+                            const stickyBg = p.approved ? '#F0FDF4' : ((2 * pi + openBefore) % 2 === 1 ? '#FFFDF5' : '#FFFFFF')
                             return (
                               <Fragment key={p.rowNo}>
                                 <tr style={p.approved ? { background: '#F0FDF4' } : undefined}>
-                                  <td style={{ textAlign: 'center' }}>
+                                  <td style={{ textAlign: 'center', ...stickyTd(0, stickyBg) }}>
                                     <input
                                       type="checkbox"
                                       checked={p.approved}
@@ -820,11 +931,11 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                       {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                     </button>
                                   </td>
-                                  <td style={{ fontFamily: 'monospace' }}>{p.rowNo}</td>
-                                  <td style={{ fontFamily: 'monospace' }}>
+                                  <td style={{ fontFamily: 'monospace', width: 56 }}>{p.rowNo}</td>
+                                  <td style={{ fontFamily: 'monospace', ...stickyTd(132, stickyBg) }}>
                                     {p.itemCode ?? <em style={{ color: '#94A3B8' }}>(chờ nhập)</em>}
                                   </td>
-                                  <td>{p.itemName}</td>
+                                  <td style={{ ...stickyTd(282, stickyBg) }}>{p.itemName}</td>
                                   <td>{p.bomKind === 'BOM_PRODUCT' ? 'BOM' : p.bomKind === 'BOM_ASSEMBLY' ? 'COMBO' : '?'}</td>
                                   <td style={{ fontSize: 12 }} title={p.categoryLevel7 ?? undefined}>{p.categoryLevel7 ?? '—'}</td>
                                   <td>{p.uomPurchase ?? '—'}</td>
@@ -953,7 +1064,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         disabled={previewBusy || !canCreate || !preview.canApply}
                         title={preview.applyNote ?? 'Apply các mã cha đã duyệt lên SAP B1'}
                       >
-                        Apply {preview.approvedCount > 0 ? `${preview.approvedCount} mã đã duyệt` : ''} lên SAP B1
+                        Apply {preview.approvedCount > 0 ? `${preview.approvedCount} mã đã duyệt` : ''} lên SAP B1 (Sprint 3)
                       </button>
                       {preview.applyNote && <span className="fm-hint">{preview.applyNote}</span>}
                       {!preview.canApply && !preview.applyNote && (
@@ -974,7 +1085,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           <div className="fm-card">
             <div className="fm-card__head">
               <RefreshCw size={18} /> Lịch sử lượt chạy
-              <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={loadRuns}>Tải lại</button>
+              <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} onClick={() => loadRuns(runsPage)}>Tải lại</button>
             </div>
             <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
               <table className="fm-table">
@@ -999,6 +1110,28 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 </tbody>
               </table>
             </div>
+            {/* Minor #8 — phân trang */}
+            {runsTotal > RUNS_PAGE_SIZE && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px' }}>
+                <span className="fm-hint">
+                  Trang {runsPage} / {Math.max(1, Math.ceil(runsTotal / RUNS_PAGE_SIZE))} · {runsTotal} lượt
+                </span>
+                <button
+                  className="fm-btn fm-btn--ghost fm-btn--sm"
+                  disabled={runsPage <= 1}
+                  onClick={() => loadRuns(runsPage - 1)}
+                >
+                  ← Trước
+                </button>
+                <button
+                  className="fm-btn fm-btn--ghost fm-btn--sm"
+                  disabled={runsPage >= Math.ceil(runsTotal / RUNS_PAGE_SIZE)}
+                  onClick={() => loadRuns(runsPage + 1)}
+                >
+                  Sau →
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
