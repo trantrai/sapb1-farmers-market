@@ -129,7 +129,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const lineTotals = picked.map((x) => Math.round(x.line.unitPrice * x.qty))
+    // lineTotal = sau CK dòng (làm tròn từng dòng, đồng bộ công thức POST /api/deliveries)
+    const clampPct = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
+    const lineTotals = picked.map((x) => {
+      const lt = Math.round(x.line.unitPrice * x.qty)
+      return lt - Math.round((lt * clampPct(Number(x.line.discPct ?? 0))) / 100)
+    })
     const grandTotal = lineTotals.reduce((s, t) => s + t, 0)
 
     let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
@@ -142,6 +147,7 @@ export async function POST(req: NextRequest) {
             docNum,
             cardCode: quotation.cardCode,
             cardName: quotation.cardName,
+            warehouseCode: quotation.warehouseCode ?? null,
             remarks: `Sao chép từ báo giá bán hàng #${quotation.docNum}`,
             sourceOrderId: null,
             sourceQuotationId: quotation.id,
@@ -157,7 +163,10 @@ export async function POST(req: NextRequest) {
                 uom: x.line.uom || '',
                 unitPrice: x.line.unitPrice,
                 lineTotal: lineTotals[i],
+                taxCode: x.line.taxCode ?? null,
+                discPct: clampPct(Number(x.line.discPct ?? 0)),
                 sourceQuotationLineId: x.line.id,
+                warehouseCode: x.line.warehouseCode ?? quotation.warehouseCode ?? null,
               })),
             },
           },

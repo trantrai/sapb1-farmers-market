@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy, Paperclip } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND, formatNum, formatDateVN } from '@/lib/fm-shared'
@@ -83,6 +83,29 @@ export interface EditOrderData {
   version?: number
   /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực */
   isDraft?: boolean
+  // ---------- B2B / SAP B1 (Đợt 2+3) ----------
+  /** Nhân viên bán hàng (SAP SalesPersonCode) */
+  salesPersonCode?: number | null
+  /** Điều khoản thanh toán (SAP PaymentGroupCode) */
+  paymentGroupCode?: number | null
+  /** Địa chỉ giao hàng (SAP ShipToCode) */
+  shipToCode?: string | null
+  /** Địa chỉ ghi hóa đơn (SAP BillToCode) */
+  billToCode?: string | null
+  /** Số PO / tham chiếu của KH (SAP NumAtCard) */
+  numAtCard?: string | null
+  /** Ngày tính thuế (SAP TaxDate) — ISO date */
+  taxDate?: string | null
+  /** Tiền tệ chứng từ (SAP DocCurrency) */
+  docCurrency?: string | null
+  /** Tỷ giá (SAP DocRate) */
+  docRate?: number | null
+  /** Mã dự án (SAP ProjectCode) */
+  projectCode?: string | null
+  /** Đính kèm JSON [{name,url}] */
+  attachmentsJson?: string | null
+  /** Ngày cần giao (SAP ReqDate) — ISO date */
+  reqDate?: string | null
   lines: EditOrderLine[]
 }
 
@@ -123,6 +146,18 @@ export interface EditOrderSource {
   localId?: string | null
   /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực (API: ?isDraft=) */
   isDraft?: boolean
+  // ---------- B2B / SAP B1 (Đợt 2+3) ----------
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  reqDate?: string | null
   lines: EditOrderSourceLine[]
 }
 
@@ -147,6 +182,17 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
   sapSyncStatus: o.sapSyncStatus ?? (o.source === 'sap' ? 'synced' : 'none'),
   version: o.version,
   isDraft: o.isDraft ?? false,
+  salesPersonCode: o.salesPersonCode ?? null,
+  paymentGroupCode: o.paymentGroupCode ?? null,
+  shipToCode: o.shipToCode ?? null,
+  billToCode: o.billToCode ?? null,
+  numAtCard: o.numAtCard ?? null,
+  taxDate: o.taxDate ? String(o.taxDate).slice(0, 10) : null,
+  docCurrency: o.docCurrency ?? null,
+  docRate: o.docRate ?? null,
+  projectCode: o.projectCode ?? null,
+  attachmentsJson: o.attachmentsJson ?? null,
+  reqDate: o.reqDate ? String(o.reqDate).slice(0, 10) : null,
   lines: o.lines.map((l) => ({
     dbId: o.source === 'sap' ? undefined : l.id,
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
@@ -165,6 +211,451 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
     bomQtyPerParent: l.bomQtyPerParent ?? null,
   })),
 })
+
+// ============================================================
+// THÔNG TIN B2B / SAP B1 (Đợt 2+3) — dùng chung cho form Đơn hàng & Giao hàng
+// ============================================================
+
+/** Tiền tệ chứng từ được phép (SAP DocCurrency) */
+export const B2B_CURRENCIES = ['VND', 'USD', 'EUR', 'JPY'] as const
+
+/** Trạng thái các ô nhập của khu vực "Thông tin B2B / SAP B1" trên form */
+export interface B2BFormState {
+  /** Mã NVBH dạng chuỗi ('' = chưa chọn) — bind trực tiếp vào dropdown/number input */
+  salesPersonCode: string
+  /** Mã ĐKTT dạng chuỗi ('' = chưa chọn) */
+  paymentGroupCode: string
+  /** Số PO / tham chiếu của KH */
+  numAtCard: string
+  /** Ngày tính thuế (yyyy-mm-dd) */
+  taxDate: string
+  /** true = user đã tự sửa Ngày tính thuế → không tự đồng bộ theo Ngày chứng từ nữa */
+  taxDateManual: boolean
+  /** Tiền tệ chứng từ */
+  docCurrency: string
+  /** Tỷ giá dạng chuỗi (chỉ dùng khi tiền tệ ≠ VND) */
+  docRate: string
+  /** Mã dự án */
+  projectCode: string
+  /** Địa chỉ giao hàng (ShipToCode) */
+  shipToCode: string
+  /** Địa chỉ ghi hóa đơn (BillToCode) */
+  billToCode: string
+  /** Ngày cần giao (yyyy-mm-dd) */
+  reqDate: string
+  /** Danh sách đính kèm {name, url} */
+  attachments: { name: string; url: string }[]
+}
+
+export const defaultB2BForm = (docDate: string): B2BFormState => ({
+  salesPersonCode: '',
+  paymentGroupCode: '',
+  numAtCard: '',
+  taxDate: (docDate || '').slice(0, 10),
+  taxDateManual: false,
+  docCurrency: 'VND',
+  docRate: '',
+  projectCode: '',
+  shipToCode: '',
+  billToCode: '',
+  reqDate: '',
+  attachments: [],
+})
+
+/** Parse attachmentsJson → mảng {name, url} (lỗi → mảng rỗng) */
+export function parseB2BAttachments(json?: string | null): { name: string; url: string }[] {
+  if (!json || typeof json !== 'string') return []
+  try {
+    const arr = JSON.parse(json)
+    if (!Array.isArray(arr)) return []
+    return arr
+      .filter((a) => a && typeof a === 'object')
+      .map((a) => ({ name: String((a as { name?: unknown }).name ?? ''), url: String((a as { url?: unknown }).url ?? '') }))
+      .filter((a) => a.name || a.url)
+      .slice(0, 50)
+  } catch {
+    return []
+  }
+}
+
+/** Dựng B2BFormState từ dữ liệu đơn/phiếu đã lưu (chế độ sửa) */
+export function b2bFromSaved(
+  docDate: string,
+  o: {
+    salesPersonCode?: number | null; paymentGroupCode?: number | null
+    numAtCard?: string | null; taxDate?: string | null; docCurrency?: string | null
+    docRate?: number | null; projectCode?: string | null; shipToCode?: string | null
+    billToCode?: string | null; reqDate?: string | null; attachmentsJson?: string | null
+  },
+): B2BFormState {
+  const tax = (o.taxDate || '').slice(0, 10)
+  const doc = (docDate || '').slice(0, 10)
+  const cur = (o.docCurrency || '').toUpperCase()
+  return {
+    salesPersonCode: o.salesPersonCode != null ? String(o.salesPersonCode) : '',
+    paymentGroupCode: o.paymentGroupCode != null ? String(o.paymentGroupCode) : '',
+    numAtCard: o.numAtCard ?? '',
+    taxDate: tax || doc,
+    taxDateManual: Boolean(tax) && tax !== doc,
+    docCurrency: (B2B_CURRENCIES as readonly string[]).includes(cur) ? cur : 'VND',
+    docRate: o.docRate != null && Number.isFinite(o.docRate) ? String(o.docRate) : '',
+    projectCode: o.projectCode ?? '',
+    shipToCode: o.shipToCode ?? '',
+    billToCode: o.billToCode ?? '',
+    reqDate: (o.reqDate || '').slice(0, 10),
+    attachments: parseB2BAttachments(o.attachmentsJson),
+  }
+}
+
+export interface B2BPayload {
+  salesPersonCode: number | null
+  paymentGroupCode: number | null
+  shipToCode: string | null
+  billToCode: string | null
+  numAtCard: string | null
+  taxDate: string | null
+  docCurrency: string
+  docRate: number | null
+  projectCode: string | null
+  attachmentsJson: string | null
+  reqDate: string | null
+}
+
+/** Chuyển B2BFormState → payload gửi API (kèm validate; lỗi → { error }) */
+export function buildB2BPayload(b: B2BFormState): { payload: B2BPayload; error?: string } {
+  const intOrNull = (v: string): number | null => {
+    const t = v.trim()
+    if (!t) return null
+    const n = Number(t)
+    return Number.isFinite(n) ? Math.trunc(n) : null
+  }
+  const strOrNull = (v: string): string | null => {
+    const t = v.trim()
+    return t === '' ? null : t
+  }
+  const currency = (B2B_CURRENCIES as readonly string[]).includes(b.docCurrency) ? b.docCurrency : 'VND'
+  let docRate: number | null = null
+  if (currency !== 'VND') {
+    const r = Number(b.docRate)
+    if (!Number.isFinite(r) || r <= 0) {
+      return { payload: null as unknown as B2BPayload, error: 'Tỷ giá phải là số lớn hơn 0 khi tiền tệ khác VND' }
+    }
+    docRate = r
+  }
+  const attachments = (b.attachments ?? [])
+    .map((a) => ({ name: (a.name ?? '').trim(), url: (a.url ?? '').trim() }))
+    .filter((a) => a.name || a.url)
+    .slice(0, 50)
+  return {
+    payload: {
+      salesPersonCode: intOrNull(b.salesPersonCode),
+      paymentGroupCode: intOrNull(b.paymentGroupCode),
+      shipToCode: strOrNull(b.shipToCode),
+      billToCode: strOrNull(b.billToCode),
+      numAtCard: strOrNull(b.numAtCard),
+      taxDate: strOrNull(b.taxDate),
+      docCurrency: currency,
+      docRate,
+      projectCode: strOrNull(b.projectCode),
+      attachmentsJson: attachments.length > 0 ? JSON.stringify(attachments) : null,
+      reqDate: strOrNull(b.reqDate),
+    },
+  }
+}
+
+/** Địa chỉ đối tác từ BusinessPartner.addressesJson — shape [{code,name,detail,type:'B'|'S'}] */
+export interface B2BAddress {
+  code: string
+  name: string
+  detail?: string
+  /** 'S' = địa chỉ giao hàng (ShipTo), 'B' = địa chỉ ghi hóa đơn (BillTo) */
+  type?: string
+}
+
+export function parseB2BAddresses(json?: string | null): B2BAddress[] {
+  if (!json || typeof json !== 'string') return []
+  try {
+    const arr = JSON.parse(json)
+    if (!Array.isArray(arr)) return []
+    return arr
+      .filter((a) => a && typeof a === 'object' && ((a as B2BAddress).code || (a as B2BAddress).name))
+      .map((a) => {
+        const x = a as B2BAddress
+        return { code: String(x.code ?? ''), name: String(x.name ?? ''), detail: x.detail ? String(x.detail) : undefined, type: x.type ? String(x.type) : undefined }
+      })
+  } catch {
+    return []
+  }
+}
+
+// ============================================================
+// KHU VỰC "THÔNG TIN B2B / SAP B1" — dùng chung cho form Đơn hàng & Giao hàng
+// ============================================================
+
+interface B2BSectionProps {
+  b2b: B2BFormState
+  onChange: <K extends keyof B2BFormState>(key: K, value: B2BFormState[K]) => void
+  saving: boolean
+  /** Tiền tố id cho các ô nhập (tránh trùng id khi có nhiều form) */
+  idPrefix: string
+  salesPersons: { code: number; name: string }[]
+  /** true = không tải được danh mục NVBH → dùng ô nhập số (fallback) */
+  spListFailed: boolean
+  paymentTerms: { code: number; name: string }[]
+  /** true = không tải được danh mục ĐKTT → dùng ô nhập số (fallback) */
+  ptListFailed: boolean
+  /** Địa chỉ của KH (từ addressesJson) — rỗng → ẩn 2 dropdown địa chỉ */
+  addresses: B2BAddress[]
+}
+
+/** Khu vực "Thông tin B2B / SAP B1" trên form chứng từ: NVBH, ĐKTT, PO KH,
+ *  ngày tính thuế, tiền tệ/tỷ giá, dự án, địa chỉ giao/ghi hóa đơn, đính kèm. */
+export function B2BFieldsSection({
+  b2b, onChange, saving, idPrefix,
+  salesPersons, spListFailed, paymentTerms, ptListFailed, addresses,
+}: B2BSectionProps) {
+  const shipAddrs = addresses.filter((a) => !a.type || a.type === 'S')
+  const billAddrs = addresses.filter((a) => !a.type || a.type === 'B')
+  const addrLabel = (a: B2BAddress) => (a.code ? `${a.code} · ${a.name}` : a.name)
+
+  const setAttachment = (idx: number, patch: Partial<{ name: string; url: string }>) => {
+    onChange('attachments', b2b.attachments.map((a, i) => (i === idx ? { ...a, ...patch } : a)))
+  }
+  const addAttachment = () => onChange('attachments', [...b2b.attachments, { name: '', url: '' }])
+  const removeAttachment = (idx: number) =>
+    onChange('attachments', b2b.attachments.filter((_, i) => i !== idx))
+
+  /** Dropdown NVBH/ĐKTT: có danh mục → select; 404/lỗi → ô nhập số (fallback) */
+  const renderCodeSelect = (
+    id: string,
+    label: string,
+    title: string,
+    value: string,
+    rows: { code: number; name: string }[],
+    listFailed: boolean,
+    field: 'salesPersonCode' | 'paymentGroupCode',
+  ) => (
+    <div className="fm-field">
+      <label className="fm-label" htmlFor={id} title={title}>{label}</label>
+      {listFailed ? (
+        <input
+          id={id}
+          type="number"
+          className="fm-input"
+          min={0}
+          step={1}
+          inputMode="numeric"
+          placeholder="Nhập mã số…"
+          value={value}
+          onChange={(e) => onChange(field, e.target.value)}
+          disabled={saving}
+          title={`${title} — chưa tải được danh mục, nhập mã số trực tiếp`}
+        />
+      ) : (
+        <select
+          id={id}
+          className="fm-input"
+          value={value}
+          onChange={(e) => onChange(field, e.target.value)}
+          disabled={saving}
+          title={title}
+        >
+          <option value="">— Chưa chọn —</option>
+          {rows.map((r) => (
+            <option key={r.code} value={r.code}>
+              {r.code} · {r.name}
+            </option>
+          ))}
+          {/* Mã đã lưu nhưng không có trong danh mục (vd danh mục chưa đồng bộ) */}
+          {value && !rows.some((r) => String(r.code) === value) && (
+            <option value={value}>{value} (mã đã lưu)</option>
+          )}
+        </select>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="fm-card" style={{ marginBottom: 16 }}>
+      <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Paperclip size={18} /> Thông tin B2B / SAP B1
+      </h2>
+      <div className="fm-form-grid">
+        {renderCodeSelect(
+          `${idPrefix}-sp`, 'Nhân viên bán hàng', 'Nhân viên bán hàng (SAP: SalesPersonCode)',
+          b2b.salesPersonCode, salesPersons, spListFailed, 'salesPersonCode',
+        )}
+        {renderCodeSelect(
+          `${idPrefix}-pt`, 'Điều khoản thanh toán', 'Điều khoản thanh toán (SAP: PaymentGroupCode)',
+          b2b.paymentGroupCode, paymentTerms, ptListFailed, 'paymentGroupCode',
+        )}
+        <div className="fm-field">
+          <label className="fm-label" htmlFor={`${idPrefix}-numatcard`} title="Số PO / tham chiếu của khách hàng (SAP: NumAtCard)">Số PO / Tham chiếu KH</label>
+          <input
+            id={`${idPrefix}-numatcard`}
+            type="text"
+            className="fm-input"
+            placeholder="VD: PO-2026-001"
+            value={b2b.numAtCard}
+            onChange={(e) => onChange('numAtCard', e.target.value)}
+            disabled={saving}
+            maxLength={100}
+          />
+        </div>
+        <div className="fm-field">
+          <label className="fm-label" htmlFor={`${idPrefix}-taxdate`} title="Ngày tính thuế (SAP: TaxDate) — mặc định = ngày chứng từ">Ngày tính thuế</label>
+          <input
+            id={`${idPrefix}-taxdate`}
+            type="date"
+            className="fm-datepicker"
+            value={b2b.taxDate}
+            onChange={(e) => { onChange('taxDate', e.target.value); onChange('taxDateManual', true) }}
+            disabled={saving}
+          />
+        </div>
+        <div className="fm-field">
+          <label className="fm-label" htmlFor={`${idPrefix}-reqdate`} title="Ngày cần giao hàng cho khách (SAP: ReqDate)">Ngày cần giao</label>
+          <input
+            id={`${idPrefix}-reqdate`}
+            type="date"
+            className="fm-datepicker"
+            value={b2b.reqDate}
+            onChange={(e) => onChange('reqDate', e.target.value)}
+            disabled={saving}
+          />
+        </div>
+        <div className="fm-field">
+          <label className="fm-label" htmlFor={`${idPrefix}-currency`} title="Tiền tệ chứng từ (SAP: DocCurrency)">Tiền tệ</label>
+          <select
+            id={`${idPrefix}-currency`}
+            className="fm-input"
+            value={b2b.docCurrency}
+            onChange={(e) => onChange('docCurrency', e.target.value)}
+            disabled={saving}
+          >
+            {B2B_CURRENCIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+        {b2b.docCurrency !== 'VND' && (
+          <div className="fm-field">
+            <label className="fm-label" htmlFor={`${idPrefix}-rate`} title="Tỷ giá quy đổi sang VND (SAP: DocRate)">Tỷ giá <span className="fm-label__req">*</span></label>
+            <input
+              id={`${idPrefix}-rate`}
+              type="number"
+              className="fm-input"
+              min={0}
+              step="any"
+              inputMode="decimal"
+              placeholder="VD: 26000"
+              value={b2b.docRate}
+              onChange={(e) => onChange('docRate', e.target.value)}
+              disabled={saving}
+            />
+          </div>
+        )}
+        <div className="fm-field">
+          <label className="fm-label" htmlFor={`${idPrefix}-project`} title="Mã dự án (SAP: ProjectCode)">Mã dự án</label>
+          <input
+            id={`${idPrefix}-project`}
+            type="text"
+            className="fm-input"
+            value={b2b.projectCode}
+            onChange={(e) => onChange('projectCode', e.target.value)}
+            disabled={saving}
+            maxLength={50}
+          />
+        </div>
+        {addresses.length > 0 && (
+          <>
+            <div className="fm-field">
+              <label className="fm-label" htmlFor={`${idPrefix}-shipto`} title="Địa chỉ giao hàng của khách (SAP: ShipToCode)">Địa chỉ giao hàng</label>
+              <select
+                id={`${idPrefix}-shipto`}
+                className="fm-input"
+                value={b2b.shipToCode}
+                onChange={(e) => onChange('shipToCode', e.target.value)}
+                disabled={saving}
+              >
+                <option value="">— Chưa chọn —</option>
+                {shipAddrs.map((a) => (
+                  <option key={a.code || a.name} value={a.code} title={a.detail || addrLabel(a)}>
+                    {addrLabel(a)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="fm-field">
+              <label className="fm-label" htmlFor={`${idPrefix}-billto`} title="Địa chỉ ghi hóa đơn của khách (SAP: BillToCode)">Địa chỉ ghi hóa đơn</label>
+              <select
+                id={`${idPrefix}-billto`}
+                className="fm-input"
+                value={b2b.billToCode}
+                onChange={(e) => onChange('billToCode', e.target.value)}
+                disabled={saving}
+              >
+                <option value="">— Chưa chọn —</option>
+                {billAddrs.map((a) => (
+                  <option key={a.code || a.name} value={a.code} title={a.detail || addrLabel(a)}>
+                    {addrLabel(a)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+        <div className="fm-field" style={{ gridColumn: '1 / -1' }}>
+          <span className="fm-label" id={`${idPrefix}-attachments-label`}>Đính kèm</span>
+          {b2b.attachments.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }} role="group" aria-labelledby={`${idPrefix}-attachments-label`}>
+              {b2b.attachments.map((a, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    className="fm-input"
+                    placeholder="Tên file…"
+                    value={a.name}
+                    onChange={(e) => setAttachment(i, { name: e.target.value })}
+                    disabled={saving}
+                    style={{ flex: '1 1 180px', minWidth: 0 }}
+                    aria-label={`Tên đính kèm ${i + 1}`}
+                    maxLength={200}
+                  />
+                  <input
+                    className="fm-input"
+                    placeholder="URL…"
+                    value={a.url}
+                    onChange={(e) => setAttachment(i, { url: e.target.value })}
+                    disabled={saving}
+                    style={{ flex: '2 1 260px', minWidth: 0 }}
+                    aria-label={`URL đính kèm ${i + 1}`}
+                    maxLength={500}
+                  />
+                  <button
+                    type="button"
+                    className="fm-icon-btn fm-icon-btn--danger"
+                    onClick={() => removeAttachment(i)}
+                    disabled={saving}
+                    title="Xóa đính kèm"
+                    aria-label={`Xóa đính kèm ${i + 1}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div>
+            <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" onClick={addAttachment} disabled={saving}>
+              <Plus size={14} /> Thêm đính kèm
+            </button>
+          </div>
+          <div className="fm-hint">Tên + đường dẫn URL của file đính kèm (lưu gọn thay cho AttachmentEntry của SAP B1)</div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ---------- ATP check (tồn kho khả dụng từ SAP B1 /InventoryItems) ----------
 interface StockRow {
@@ -220,6 +711,19 @@ export default function OrderFormView({
   /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) — áp cho toàn đơn */
   const [headerDiscPct, setHeaderDiscPct] = useState(0)
   const [atp, setAtp] = useState<Record<number, AtpState>>({})
+
+  // ---------- Thông tin B2B / SAP B1 (Đợt 2+3) ----------
+  const [b2b, setB2b] = useState<B2BFormState>(() => defaultB2BForm(new Date().toISOString().slice(0, 10)))
+  const setB2bField = <K extends keyof B2BFormState>(key: K, value: B2BFormState[K]) =>
+    setB2b((b) => ({ ...b, [key]: value }))
+  /** NVBH: GET /api/sales-persons → [{code, name}]; 404/lỗi → ô nhập số (fallback) */
+  const [salesPersons, setSalesPersons] = useState<{ code: number; name: string }[]>([])
+  const [spListFailed, setSpListFailed] = useState(false)
+  /** ĐKTT: GET /api/payment-terms → [{code, name}]; 404/lỗi → ô nhập số (fallback) */
+  const [paymentTerms, setPaymentTerms] = useState<{ code: number; name: string }[]>([])
+  const [ptListFailed, setPtListFailed] = useState(false)
+  /** Địa chỉ của KH đã chọn (từ BusinessPartner.addressesJson) — rỗng → ẩn 2 dropdown địa chỉ */
+  const [b2bAddresses, setB2bAddresses] = useState<B2BAddress[]>([])
 
   const [lines, setLines] = useState<DraftLine[]>([
     { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 },
@@ -381,6 +885,7 @@ export default function OrderFormView({
     setConfirmCfg(null)
     setPartner(null); setRemarks('')
     setHeaderDiscPct(0)
+    setB2b(defaultB2BForm(docDate))
     setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
     setAtp({})
     setError('')
@@ -735,6 +1240,7 @@ export default function OrderFormView({
     setRemarks(o.remarks ?? '')
     setHeaderWh(o.warehouseCode ?? '')
     setHeaderDiscPct(o.headerDiscPct ?? 0)
+    setB2b(b2bFromSaved((o.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), o))
     const prefilled: DraftLine[] = (o.lines ?? []).map((l) => ({
       key: nextKey(),
       item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
@@ -785,6 +1291,8 @@ export default function OrderFormView({
     setRemarks(p.remarks ?? '')
     setHeaderWh(p.warehouseCode ?? '')
     setHeaderDiscPct(p.headerDiscPct ?? 0)
+    // Copy-from: mang theo B2B của chứng từ nguồn (nếu API prefill có trả)
+    setB2b(b2bFromSaved((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), p as unknown as Parameters<typeof b2bFromSaved>[1]))
     const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
       key: nextKey(),
       item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
@@ -850,6 +1358,8 @@ export default function OrderFormView({
     remarks: string
     headerWh: string
     headerDiscPct: number
+    /** Thông tin B2B / SAP B1 (Đợt 2+3) */
+    b2b?: B2BFormState
     lines: OrderDraftLine[]
   }
   const draftKey = userId
@@ -884,6 +1394,13 @@ export default function OrderFormView({
       setRemarks(d.remarks ?? '')
       setHeaderWh(d.headerWh ?? '')
       setHeaderDiscPct(typeof d.headerDiscPct === 'number' ? d.headerDiscPct : 0)
+      if (d.b2b) {
+        const nb = { ...defaultB2BForm(d.docDate || ''), ...d.b2b }
+        // sanitize nhẹ — tránh nháp cũ hỏng làm vỡ form
+        if (!(B2B_CURRENCIES as readonly string[]).includes(nb.docCurrency)) nb.docCurrency = 'VND'
+        if (!Array.isArray(nb.attachments)) nb.attachments = []
+        setB2b(nb)
+      }
       const restored: DraftLine[] = d.lines.map((l) => ({
         key: nextKey(),
         item: l.item ? { code: l.item.code, name: l.item.name, uom: l.item.uom ?? '', taxCode: l.item.taxCode ?? '' } : null,
@@ -922,6 +1439,7 @@ export default function OrderFormView({
           remarks,
           headerWh,
           headerDiscPct,
+          b2b,
           lines: lines.map((l) => ({
             item: l.item ? { code: l.item.code, name: l.item.name, uom: l.item.uom, taxCode: l.item.taxCode } : null,
             quantity: l.quantity,
@@ -943,7 +1461,7 @@ export default function OrderFormView({
       } catch { /* quota đầy → bỏ qua */ }
     }, 800)
     return () => clearTimeout(t)
-  }, [draftKey, partner, docDate, docDueDate, remarks, headerWh, headerDiscPct, lines])
+  }, [draftKey, partner, docDate, docDueDate, remarks, headerWh, headerDiscPct, b2b, lines])
 
   // Bỏ nháp: xóa nháp + reset form về trạng thái ban đầu
   const discardDraft = () => {
@@ -960,6 +1478,7 @@ export default function OrderFormView({
       setRemarks('')
       setHeaderWh('')
       setHeaderDiscPct(0)
+      setB2b(defaultB2BForm(new Date().toISOString().slice(0, 10)))
       setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
       setError('')
       setFieldErr({})
@@ -1144,6 +1663,81 @@ export default function OrderFormView({
     setLines((ls) => ls.map((l) => ({ ...l, warehouseCode: code || undefined })))
   }
 
+  // ---- B2B: tải danh mục NVBH (SalesPersons) — lỗi/404 → dùng ô nhập số (fallback) ----
+  useEffect(() => {
+    let cancelled = false
+    api('/api/sales-persons')
+      .then(async (r) => {
+        if (cancelled) return
+        if (!r.ok) { setSpListFailed(true); return }
+        const j = await r.json().catch(() => null)
+        const arr = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : []
+        const rows = arr
+          .map((x: { code?: unknown; name?: unknown }) => ({ code: Number(x.code), name: String(x.name ?? '') }))
+          .filter((x: { code: number }) => Number.isFinite(x.code))
+        setSalesPersons(rows)
+        if (rows.length === 0) setSpListFailed(true)
+      })
+      .catch(() => { if (!cancelled) setSpListFailed(true) })
+    return () => { cancelled = true }
+  }, [])
+
+  // ---- B2B: tải danh mục ĐKTT (PaymentTerms) — lỗi/404 → dùng ô nhập số (fallback) ----
+  useEffect(() => {
+    let cancelled = false
+    api('/api/payment-terms')
+      .then(async (r) => {
+        if (cancelled) return
+        if (!r.ok) { setPtListFailed(true); return }
+        const j = await r.json().catch(() => null)
+        const arr = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : []
+        const rows = arr
+          .map((x: { code?: unknown; name?: unknown }) => ({ code: Number(x.code), name: String(x.name ?? '') }))
+          .filter((x: { code: number }) => Number.isFinite(x.code))
+        setPaymentTerms(rows)
+        if (rows.length === 0) setPtListFailed(true)
+      })
+      .catch(() => { if (!cancelled) setPtListFailed(true) })
+    return () => { cancelled = true }
+  }, [])
+
+  // ---- B2B: địa chỉ giao/ghi hóa đơn của KH đã chọn (BusinessPartner.addressesJson) ----
+  // Rỗng → ẩn 2 dropdown địa chỉ. Đồng bộ lại shipTo/billTo nếu mã đã chọn
+  // không còn trong danh sách (tránh lưu mã địa chỉ không thuộc KH này).
+  useEffect(() => {
+    const code = partner?.code
+    if (!code) { setB2bAddresses([]); return }
+    let cancelled = false
+    api(`/api/bpartners/sync?q=${encodeURIComponent(code)}&pageSize=5`)
+      .then(async (r) => {
+        if (cancelled) return
+        const addrs: B2BAddress[] = []
+        if (r.ok) {
+          const j = await r.json().catch(() => null)
+          const rows: Array<{ cardCode?: string; addressesJson?: string | null }> = Array.isArray(j?.data) ? j.data : []
+          const rec = rows.find((d) => String(d.cardCode ?? '').toLowerCase() === code.toLowerCase()) ?? rows[0]
+          const parsed = parseB2BAddresses(rec?.addressesJson ?? null)
+          addrs.push(...parsed)
+        }
+        setB2bAddresses(addrs)
+        const codes = new Set(addrs.map((a) => a.code))
+        setB2b((b) => ({
+          ...b,
+          shipToCode: b.shipToCode && codes.has(b.shipToCode) ? b.shipToCode : '',
+          billToCode: b.billToCode && codes.has(b.billToCode) ? b.billToCode : '',
+        }))
+      })
+      .catch(() => { if (!cancelled) setB2bAddresses([]) })
+    return () => { cancelled = true }
+  }, [partner?.code])
+
+  // Đổi ngày chứng từ → Ngày tính thuế (SAP TaxDate) mặc định theo;
+  // chỉ tự đồng bộ khi user chưa sửa tay ô Ngày tính thuế
+  const onDocDateChange = (v: string) => {
+    setDocDate(v)
+    setB2b((b) => (b.taxDateManual ? b : { ...b, taxDate: v }))
+  }
+
   // Giải đơn giá theo quy tắc: GIÁ ĐẶC BIỆT theo Mặt hàng + Khách hàng (OSPP) →
   // tìm thấy thì dùng; không tìm thấy → giá từ Price List 1 (source 'special' | 'pricelist')
   const resolvePrice = async (key: number, itemCode: string, cardCode: string | null) => {
@@ -1180,6 +1774,12 @@ export default function OrderFormView({
       setError(`Đơn giá không được âm (dòng ${negPrice.item?.code ?? ''}) — hãy sửa lại trước khi lưu`)
       return
     }
+    // B2B / SAP B1: validate + dựng payload (tỷ giá bắt buộc > 0 khi tiền tệ ≠ VND)
+    const { payload: b2bPayload, error: b2bError } = buildB2BPayload(b2b)
+    if (b2bError) {
+      setError(b2bError)
+      return
+    }
 
     setSaving(true)
     try {
@@ -1191,6 +1791,7 @@ export default function OrderFormView({
         remarks,
         warehouseCode: headerWh || undefined,
         headerDiscPct: clampPct(headerDiscPct),
+        ...b2bPayload,
         ...(isEdit && typeof editOrder!.version === 'number' ? { version: editOrder!.version } : {}),
         lines: valid.map((l) => ({
           ...(isEdit ? { dbId: l.dbId, sapLineNum: l.sapLineNum } : {}),
@@ -1482,7 +2083,7 @@ export default function OrderFormView({
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-date">Ngày chứng từ <span className="fm-label__req">*</span></label>
-            <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => setDocDate(e.target.value)} disabled={saving} />
+            <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => onDocDateChange(e.target.value)} disabled={saving} />
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-due-date">Ngày giao hàng <span className="fm-label__req">*</span></label>
@@ -1531,6 +2132,19 @@ export default function OrderFormView({
           <textarea id="fm-remarks" className="fm-input" rows={2} placeholder="Yêu cầu giao hàng, hóa đơn VAT…" value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={saving} />
         </div>
       </div>
+
+      {/* Thông tin B2B / SAP B1 (Đợt 2+3) */}
+      <B2BFieldsSection
+        b2b={b2b}
+        onChange={setB2bField}
+        saving={saving}
+        idPrefix="fm-b2b"
+        salesPersons={salesPersons}
+        spListFailed={spListFailed}
+        paymentTerms={paymentTerms}
+        ptListFailed={ptListFailed}
+        addresses={b2bAddresses}
+      />
 
       {/* Bước 2 — Dòng hàng hóa (CK% + VAT% theo từng dòng) */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
@@ -1706,7 +2320,15 @@ export default function OrderFormView({
                     </td>
                     <td data-label="Đơn vị tính">
                       {l.item ? (
-                        <span className="fm-line-meta" title="Đơn vị tính (SalesUnit) tải từ SAP B1">{l.uom || l.item.uom || '—'}</span>
+                        <input
+                          className="fm-line-input"
+                          style={{ maxWidth: 80 }}
+                          value={l.uom || l.item.uom || ''}
+                          onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
+                          disabled={saving}
+                          title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
+                          aria-label={`Đơn vị tính dòng ${l.key}`}
+                        />
                       ) : (
                         '—'
                       )}

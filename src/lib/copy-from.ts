@@ -72,6 +72,8 @@ export interface PrefillLine {
   bomQtyPerParent?: number | null
   /** Tương đương BaseLine của SAP: id dòng chứng từ nguồn */
   sourceLineId?: string | null
+  /** Mã tài khoản kế toán (chỉ có ý nghĩa khi target là hóa đơn dịch vụ) */
+  accountCode?: string | null
 }
 
 /**

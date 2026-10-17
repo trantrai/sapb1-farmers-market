@@ -11,14 +11,22 @@ import { UDF_LOCAL_ID } from './sap-push-order'
 import {
   getSourceLineSpec,
   resolveSourceLineBase,
+  sapDocHeaderExtras,
   type SapLineBase,
+  type SapDocHeaderExtras,
 } from './sap-push-document'
 
 export interface SapDeliveryLine {
   itemCode: string
   quantity: number
   unitPrice: number
+  /** Mã nhóm thuế SAP (VatGroup) */
+  taxCode?: string | null
+  /** Chiết khấu % của dòng (SAP: DiscountPercent) */
+  discPct?: number | null
   warehouseCode?: string | null
+  /** Đơn vị tính của dòng (SAP: MeasureUnit) — rỗng thì bỏ qua, SAP dùng mặc định của mặt hàng */
+  uom?: string | null
   /**
    * Local id dòng đơn hàng nguồn (DeliveryLine.sourceOrderLineId).
    * Khi đẩy sẽ tra thành BaseType=17/BaseEntry/BaseLine; nguồn chưa lên
@@ -31,14 +39,28 @@ export interface SapDeliveryLine {
    * SAP → CHẶN đẩy.
    */
   sourceQuotationLineId?: string | null
+  /**
+   * Số lô của dòng (Đợt 2+3) — khi có giá trị, payload gửi
+   * DocumentLines.BatchNumbers = [{ BatchNumber }]; trống → bỏ qua.
+   */
+  batchNumber?: string | null
 }
 
-export interface SapDeliveryInput {
+export interface SapDeliveryInput extends SapDocHeaderExtras {
   /** Id SapDatabase đích */
   databaseId?: string | null
   cardCode: string
   docDate: string
   comments?: string | null
+  /** Kho xuất hàng header (SAP DeliveryNotes.WarehouseCode) — rỗng = để SAP mặc định */
+  warehouseCode?: string | null
+  /**
+   * CK đầu phiếu % (Đợt 2+3 — Delivery đã có headerDiscPct trên DB):
+   * LUÔN gửi (kể cả 0), theo cùng quy tắc với buildSapDocPayload.
+   */
+  headerDiscPct?: number
+  /** Ghi chú soạn/đóng gói (Đợt 2+3 — SAP DeliveryNotes.PickAndPackNotes) */
+  pickAndPackNotes?: string | null
   lines: SapDeliveryLine[]
   /** Id delivery local — idempotency qua UDF U_FM_LocalId */
   localId?: string
@@ -63,6 +85,15 @@ function buildPayload(input: SapDeliveryInput, withUdf = false, bases?: (SapLine
     CardCode: input.cardCode,
     DocDate: onlyDate(input.docDate),
     ...(input.comments?.trim() ? { Comments: input.comments.trim().slice(0, 254) } : {}),
+    ...(input.warehouseCode?.trim() ? { WarehouseCode: input.warehouseCode.trim() } : {}),
+    // CK đầu phiếu: LUÔN gửi (kể cả 0) — đồng bộ quy tắc với chứng từ bán hàng
+    DiscountPercent: Math.min(100, Math.max(0, Number(input.headerDiscPct) || 0)),
+    // Ghi chú soạn/đóng gói (Đợt 2+3)
+    ...(input.pickAndPackNotes?.trim() ? { PickAndPackNotes: input.pickAndPackNotes.trim().slice(0, 254) } : {}),
+    // Header mở rộng Đợt 2+3 (SalesPersonCode, PaymentGroupCode, ShipToCode,
+    // BillToCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
+    // — chỉ gửi khi có giá trị
+    ...sapDocHeaderExtras(input),
     ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),
     DocumentLines: input.lines.map((l, i) => {
       const b = bases?.[i]
@@ -72,8 +103,15 @@ function buildPayload(input: SapDeliveryInput, withUdf = false, bases?: (SapLine
         ...(b ? { BaseType: b.baseType, BaseEntry: b.baseEntry, BaseLine: b.baseLine } : {}),
         ItemCode: l.itemCode,
         Quantity: l.quantity,
+        // Đơn vị tính: chỉ gửi khi có giá trị — rỗng thì SAP dùng mặc định của mặt hàng
+        ...(l.uom?.trim() ? { MeasureUnit: l.uom.trim() } : {}),
         UnitPrice: l.unitPrice,
+        // VatGroup = mã nhóm thuế của dòng; DiscountPercent = CK % của dòng
+        DiscountPercent: Number(l.discPct) || 0,
+        ...(l.taxCode?.trim() ? { VatGroup: l.taxCode.trim() } : {}),
         ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
+        // Lô hàng (SAP: DocumentLines.BatchNumbers) — chỉ dòng có batchNumber
+        ...(l.batchNumber?.trim() ? { BatchNumbers: [{ BatchNumber: l.batchNumber.trim() }] } : {}),
       }
     }),
   }

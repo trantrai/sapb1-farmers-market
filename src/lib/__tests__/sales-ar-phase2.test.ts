@@ -17,7 +17,7 @@ import { Prisma } from '@prisma/client'
 import { db as prisma } from '@/lib/db'
 import { nextDocNum } from '@/lib/doc-num'
 import { buildSapDocPayload, pushDocumentToSap } from '@/lib/sap-push-document'
-import { INVOICE_CFG, SalesDocError } from '@/lib/sales-ar'
+import { INVOICE_CFG, SalesDocError, validateServiceLineAccounts } from '@/lib/sales-ar'
 
 // Chỉ chạy test DB khi có FM_PHASE2_TEST_DB trỏ tới DB tạm
 const describeDb = process.env.FM_PHASE2_TEST_DB ? describe : describe.skip
@@ -215,4 +215,26 @@ describeDb('setup', () => {
 
 afterAll(async () => {
   await prisma.$disconnect()
+})
+
+describe('validateServiceLineAccounts — hóa đơn dịch vụ bắt buộc Tài khoản', () => {
+  const okLines = [
+    { itemCode: 'DV-001', accountCode: '5111' },
+    { itemCode: 'DV-002', accountCode: ' 5113 ' },
+  ]
+  it('docType=Item/Reserve/null → null (không yêu cầu tài khoản)', () => {
+    expect(validateServiceLineAccounts('Item', [{ itemCode: 'A' }])).toBeNull()
+    expect(validateServiceLineAccounts('Reserve', [{ itemCode: 'A' }])).toBeNull()
+    expect(validateServiceLineAccounts(undefined, [{ itemCode: 'A' }])).toBeNull()
+  })
+  it('docType=Service + mọi dòng có tài khoản → null', () => {
+    expect(validateServiceLineAccounts('Service', okLines)).toBeNull()
+  })
+  it('docType=Service + dòng thiếu tài khoản → lỗi tiếng Việt nêu số dòng', () => {
+    const err = validateServiceLineAccounts('Service', [...okLines, { itemCode: 'DV-003', accountCode: '  ' }])
+    expect(err).toMatch(/dòng 3/)
+    expect(err).toMatch(/DV-003/)
+    expect(err).toMatch(/Tài khoản/)
+    expect(err).toMatch(/AccountCode/)
+  })
 })

@@ -102,6 +102,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           quantity: Number(l.quantity),
           unitPrice: Number(l.unitPrice),
           discPct: Number(l.discPct),
+          uom: l.uom,
           taxCode: l.taxCode,
           warehouseCode: l.warehouseCode,
         })),

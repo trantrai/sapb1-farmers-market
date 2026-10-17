@@ -5,6 +5,117 @@ import { rateLimit } from '@/lib/rate-limit'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapDeliveries, clearSapDeliveriesCache, type SapDeliveryRow } from '@/lib/sap-deliveries'
 
+// ============================================================
+// B2B / SAP B1 (Đợt 2+3): whitelist + chuẩn hóa các trường header
+// (bản sao của helper trong src/app/api/orders/route.ts — tách riêng để
+//  mỗi resource tự chủ, tránh import chéo giữa các route)
+// ============================================================
+const B2B_CURRENCIES = ['VND', 'USD', 'EUR', 'JPY']
+
+interface B2BHeaderData {
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: Date | null
+  docCurrency?: string
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  reqDate?: Date | null
+}
+
+/** Đọc + validate các trường B2B từ body.
+ *  Key vắng mặt → undefined (Prisma bỏ qua: giữ default khi tạo, giữ cũ khi sửa).
+ *  Trả { data, error }: error != null → 400. */
+export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeaderData; error?: string } {
+  const data: B2BHeaderData = {}
+
+  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode', label: string): string | undefined => {
+    if (!(key in body)) return undefined
+    const v = body[key]
+    if (v === null || v === undefined || v === '') { data[key] = null; return undefined }
+    const n = Number(v)
+    if (!Number.isFinite(n)) return `${label} không hợp lệ`
+    data[key] = Math.trunc(n)
+    return undefined
+  }
+  const optStr = (key: 'shipToCode' | 'billToCode' | 'numAtCard' | 'projectCode', max: number): string | undefined => {
+    if (!(key in body)) return undefined
+    const s = String(body[key] ?? '').trim()
+    if (s.length > max) return `Trường ${key} vượt quá ${max} ký tự`
+    data[key] = s === '' ? null : s
+    return undefined
+  }
+  const optDate = (key: 'taxDate' | 'reqDate', label: string): string | undefined => {
+    if (!(key in body)) return undefined
+    const v = body[key]
+    if (v === null || v === undefined || String(v).trim() === '') { data[key] = null; return undefined }
+    const d = new Date(String(v))
+    if (Number.isNaN(d.getTime())) return `${label} không hợp lệ`
+    data[key] = d
+    return undefined
+  }
+
+  let err: string | undefined
+  err = optInt('salesPersonCode', 'Mã nhân viên bán hàng')
+  if (err) return { data, error: err }
+  err = optInt('paymentGroupCode', 'Mã điều khoản thanh toán')
+  if (err) return { data, error: err }
+  err = optStr('shipToCode', 50)
+  if (err) return { data, error: err }
+  err = optStr('billToCode', 50)
+  if (err) return { data, error: err }
+  err = optStr('numAtCard', 100)
+  if (err) return { data, error: err }
+  err = optStr('projectCode', 50)
+  if (err) return { data, error: err }
+  err = optDate('taxDate', 'Ngày tính thuế')
+  if (err) return { data, error: err }
+  err = optDate('reqDate', 'Ngày cần giao')
+  if (err) return { data, error: err }
+
+  if ('docCurrency' in body) {
+    const c = String(body.docCurrency ?? '').trim().toUpperCase()
+    data.docCurrency = B2B_CURRENCIES.includes(c) ? c : 'VND'
+  }
+  if ('docRate' in body) {
+    const v = body.docRate
+    if (v === null || v === undefined || v === '') {
+      data.docRate = null
+    } else {
+      const r = Number(v)
+      if (!Number.isFinite(r) || r <= 0) return { data, error: 'Tỷ giá phải là số lớn hơn 0' }
+      data.docRate = r
+    }
+  }
+  if ('attachmentsJson' in body) {
+    const v = body.attachmentsJson
+    if (v === null || v === undefined || v === '') {
+      data.attachmentsJson = null
+    } else {
+      let arr: unknown
+      if (typeof v === 'string') {
+        try { arr = JSON.parse(v) } catch { return { data, error: 'Đính kèm không phải JSON hợp lệ' } }
+      } else {
+        arr = v
+      }
+      if (!Array.isArray(arr)) return { data, error: 'Đính kèm phải là mảng [{name,url}]' }
+      const clean = arr
+        .filter((a) => a && typeof a === 'object')
+        .map((a) => ({
+          name: String((a as { name?: unknown }).name ?? '').trim().slice(0, 200),
+          url: String((a as { url?: unknown }).url ?? '').trim().slice(0, 500),
+        }))
+        .filter((a) => a.name || a.url)
+        .slice(0, 50)
+      data.attachmentsJson = clean.length > 0 ? JSON.stringify(clean) : null
+    }
+  }
+  return { data }
+}
+
 // GET /api/deliveries — danh sách (filter: q, status, page, pageSize)
 // Khi đã cấu hình SAP B1 → lấy TOÀN BỘ phiếu TRỰC TIẾP từ Service Layer
 // (GET /DeliveryNotes) rồi gộp với các phiếu local CHƯA đẩy sang SAP
@@ -75,6 +186,7 @@ export async function GET(req: NextRequest) {
     where.OR = [
       { cardCode: { contains: q } },
       { cardName: { contains: q } },
+      { numAtCard: { contains: q } },
       ...(isNaN(Number(q)) ? [] : [{ docNum: Number(q) }]),
     ]
   }
@@ -128,8 +240,16 @@ export async function POST(req: NextRequest) {
 
   let body: {
     cardCode?: string; cardName?: string; docDate?: string; remarks?: string
-    sourceOrderId?: string
-    lines?: Array<{ itemCode: string; itemName: string; quantity: number; uom?: string; unitPrice?: number; sourceOrderLineId?: string }>
+    sourceOrderId?: string; warehouseCode?: string
+    /** B2B / SAP B1 (Đợt 2+3) — parse chi tiết bằng parseB2BHeader (whitelist) */
+    salesPersonCode?: unknown; paymentGroupCode?: unknown; shipToCode?: unknown; billToCode?: unknown
+    numAtCard?: unknown; taxDate?: unknown; docCurrency?: unknown; docRate?: unknown
+    projectCode?: unknown; attachmentsJson?: unknown; reqDate?: unknown
+    /** Ghi chú soạn/đóng gói (SAP PickAndPackNotes) */
+    pickAndPackNotes?: string
+    /** CK đầu chứng từ % (SAP DiscountPercent) */
+    headerDiscPct?: number
+    lines?: Array<{ itemCode: string; itemName: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string }>
   }
   try {
     body = await req.json()
@@ -141,6 +261,24 @@ export async function POST(req: NextRequest) {
   if (!cardCode || !cardName) {
     return NextResponse.json({ error: 'Vui lòng nhập mã và tên khách hàng' }, { status: 400 })
   }
+  // B2B / SAP B1 (Đợt 2+3): whitelist + validate các trường header mới
+  const { data: b2b, error: b2bError } = parseB2BHeader(body as unknown as Record<string, unknown>)
+  if (b2bError) {
+    return NextResponse.json({ error: b2bError }, { status: 400 })
+  }
+  // CK đầu chứng từ % (SAP DiscountPercent) — 0–100
+  let headerDiscPct = 0
+  if (body.headerDiscPct !== undefined && body.headerDiscPct !== null && String(body.headerDiscPct) !== '') {
+    const hp = Number(body.headerDiscPct)
+    if (!Number.isFinite(hp) || hp < 0 || hp > 100) {
+      return NextResponse.json({ error: 'Chiết khấu đầu chứng từ phải từ 0 đến 100%' }, { status: 400 })
+    }
+    headerDiscPct = hp
+  }
+  // Ghi chú soạn/đóng gói (SAP PickAndPackNotes)
+  const pickAndPackNotes = String(body.pickAndPackNotes ?? '').trim() || null
+  // Kho xuất hàng header (SAP DeliveryNotes.WarehouseCode) — rỗng = để SAP tự mặc định
+  const headerWarehouseCode = String(body.warehouseCode ?? '').trim() || null
   // Giới hạn 200 dòng / phiếu
   if (Array.isArray(body.lines) && body.lines.length > 200) {
     return NextResponse.json({ error: 'Phiếu giao hàng tối đa 200 dòng' }, { status: 400 })
@@ -158,6 +296,8 @@ export async function POST(req: NextRequest) {
   }
   // Ép kiểu + validate từng dòng: quantity phải là số hữu hạn > 0,
   // unitPrice phải là số hữu hạn và >= 0 (tránh string lọt vào Prisma gây 500).
+  // lineTotal = thành tiền SAU chiết khấu dòng (làm tròn từng dòng, đồng bộ với order-calc).
+  const clampPct = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
   const lines = (Array.isArray(body.lines) ? body.lines : [])
     .map((l) => ({
       itemCode: String(l?.itemCode ?? '').trim(),
@@ -165,7 +305,12 @@ export async function POST(req: NextRequest) {
       quantity: Number(l?.quantity),
       uom: String(l?.uom ?? ''),
       unitPrice: Number(l?.unitPrice ?? 0),
+      taxCode: String(l?.taxCode ?? '').trim() || null,
+      discPct: clampPct(Number(l?.discPct ?? 0)),
       sourceOrderLineId: String(l?.sourceOrderLineId ?? '').trim() || null,
+      warehouseCode: String(l?.warehouseCode ?? '').trim() || headerWarehouseCode,
+      /** Số lô (SAP BatchNumbers) — truy xuất nguồn gốc */
+      batchNumber: String(l?.batchNumber ?? '').trim().slice(0, 50) || null,
       lineTotal: 0,
     }))
     .filter(
@@ -174,7 +319,10 @@ export async function POST(req: NextRequest) {
         Number.isFinite(l.quantity) && l.quantity > 0 &&
         Number.isFinite(l.unitPrice) && l.unitPrice >= 0,
     )
-    .map((l) => ({ ...l, lineTotal: Math.round(l.quantity * l.unitPrice) }))
+    .map((l) => {
+      const lt = Math.round(l.quantity * l.unitPrice)
+      return { ...l, lineTotal: lt - Math.round((lt * l.discPct) / 100) }
+    })
   if (lines.length === 0) {
     return NextResponse.json({ error: 'Phiếu giao hàng cần ít nhất 1 dòng' }, { status: 400 })
   }
@@ -187,10 +335,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // grandTotal = tổng các lineTotal đã round (không tính lại từ unitPrice*qty)
+  // grandTotal = tổng các lineTotal đã round TRỪ chiết khấu đầu chứng từ
+  // (headerDiscPct = 0 → giữ nguyên cách tính cũ)
   // Phase 2: ?draft=true → lưu nháp (isDraft=true, docNum=null, KHÔNG đẩy SAP)
   const isDraft = req.nextUrl.searchParams.get('draft') === 'true'
-  const grandTotal = lines.reduce((s, l) => s + l.lineTotal, 0)
+  const subTotal = lines.reduce((s, l) => s + l.lineTotal, 0)
+  const grandTotal = subTotal - Math.round((subTotal * headerDiscPct) / 100)
   let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
   for (let attempt = 0; attempt < 5 && !delivery; attempt++) {
     try {
@@ -204,8 +354,12 @@ export async function POST(req: NextRequest) {
           cardName,
           docDate,
           remarks: String(body.remarks ?? '').trim() || null,
+          warehouseCode: headerWarehouseCode,
           sourceOrderId,
           sapDatabaseId: user.databaseId,
+          ...b2b,
+          pickAndPackNotes,
+          headerDiscPct,
           grandTotal,
           createdBy: user.id,
           lines: {
@@ -217,7 +371,11 @@ export async function POST(req: NextRequest) {
               uom: l.uom || '',
               unitPrice: l.unitPrice ?? 0,
               lineTotal: l.lineTotal,
+              taxCode: l.taxCode,
+              discPct: l.discPct,
               sourceOrderLineId: l.sourceOrderLineId,
+              warehouseCode: l.warehouseCode,
+              batchNumber: l.batchNumber,
             })),
           },
         },

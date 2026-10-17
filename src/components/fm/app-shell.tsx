@@ -6,6 +6,7 @@ import {
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
   FileText, Receipt, FileMinus2, Undo2, HandCoins, BarChart3, FileClock,
+  UserCheck, CalendarClock,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -32,6 +33,8 @@ const SapAuditView = dynamic(() => import('./sap-audit-view'), { ssr: false, loa
 const ItemsSyncView = dynamic(() => import('./items-sync-view'), { ssr: false, loading: ViewLoading })
 const VatGroupsSyncView = dynamic(() => import('./vatgroups-sync-view'), { ssr: false, loading: ViewLoading })
 const PartnersSyncView = dynamic(() => import('./bpartners-sync-view'), { ssr: false, loading: ViewLoading })
+const SalesPersonsSyncView = dynamic(() => import('./sales-persons-sync-view'), { ssr: false, loading: ViewLoading })
+const PaymentTermsSyncView = dynamic(() => import('./payment-terms-sync-view'), { ssr: false, loading: ViewLoading })
 const ExcelTemplatesView = dynamic(() => import('./excel-templates-view'), { ssr: false, loading: ViewLoading })
 const BomImportView = dynamic(() => import('./bom-import-view'), { ssr: false, loading: ViewLoading })
 const QuotationsListView = dynamic(() => import('./quotations-list-view'), { ssr: false, loading: ViewLoading })
@@ -57,7 +60,7 @@ import type { EditOrderData } from './order-form-view'
 import { toEditData } from './order-form-view'
 import type { CopyTarget } from './sales-doc-shared'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'deliveryNew' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates' | 'bomImport' | 'quotations' | 'quotationNew' | 'quotationDetail' | 'invoices' | 'invoiceNew' | 'invoiceDetail' | 'creditMemos' | 'creditMemoNew' | 'creditMemoDetail' | 'returns' | 'returnNew' | 'returnDetail' | 'downPayments' | 'downPaymentNew' | 'downPaymentDetail' | 'salesReport' | 'arAgingReport'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'deliveryNew' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'salesPersons' | 'paymentTerms' | 'excelTemplates' | 'bomImport' | 'quotations' | 'quotationNew' | 'quotationDetail' | 'invoices' | 'invoiceNew' | 'invoiceDetail' | 'creditMemos' | 'creditMemoNew' | 'creditMemoDetail' | 'returns' | 'returnNew' | 'returnDetail' | 'downPayments' | 'downPaymentNew' | 'downPaymentDetail' | 'salesReport' | 'arAgingReport'
 
 interface MenuItem {
   key: ViewKey
@@ -85,6 +88,8 @@ const MENU: MenuItem[] = [
   { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
   { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
   { key: 'partners', module: 'settings', label: 'Đồng bộ Đối tác kinh doanh', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
+  { key: 'salesPersons', module: 'settings', label: 'Đồng bộ Nhân viên bán hàng', short: 'NVBH', icon: <UserCheck size={16} />, group: 'sync', badge: 'NVBH' },
+  { key: 'paymentTerms', module: 'settings', label: 'Đồng bộ Điều khoản thanh toán', short: 'ĐKTT', icon: <CalendarClock size={16} />, group: 'sync', badge: 'ĐKTT' },
   { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync', badge: 'BOM' },
   { key: 'users', module: 'users', label: 'Quản lý người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
   { key: 'roles', module: 'roles', label: 'Quản lý ủy quyền', short: 'Ủy quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
@@ -106,6 +111,8 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   items: 'Quản lý đồng bộ Mặt hàng',
   vatGroups: 'Quản lý đồng bộ Nhóm thuế (Sale VAT Group)',
   partners: 'Quản lý đồng bộ Khách hàng',
+  salesPersons: 'Quản lý đồng bộ Nhân viên bán hàng (OSLP)',
+  paymentTerms: 'Quản lý đồng bộ Điều khoản thanh toán (OCTG)',
   roles: 'Ủy quyền',
   excelTemplates: 'Quản lý mẫu Excel',
   bomImport: 'Import BOM/Combo từ Base Workflow',
@@ -751,6 +758,8 @@ export default function AppShell({ user, onLogout }: Props) {
             {view === 'items' && <ItemsSyncView key={`items-${prefillFor('items') ?? ''}`} initialQuery={prefillFor('items')} />}
             {view === 'vatGroups' && <VatGroupsSyncView />}
             {view === 'partners' && <PartnersSyncView key={`partners-${prefillFor('partners') ?? ''}`} initialQuery={prefillFor('partners')} />}
+            {view === 'salesPersons' && <SalesPersonsSyncView />}
+            {view === 'paymentTerms' && <PaymentTermsSyncView />}
             {view === 'roles' && <RolesView user={user} onGoUsers={() => go('users')} />}
             {view === 'excelTemplates' && <ExcelTemplatesView />}
             {view === 'bomImport' && <BomImportView user={user} />}

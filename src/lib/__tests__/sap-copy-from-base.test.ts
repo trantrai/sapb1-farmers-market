@@ -166,6 +166,31 @@ describe('resolveCopyFromBases', () => {
     const r = await resolveCopyFromBases('DownPayments', [{ sourceLineId: 'ql2' }])
     expect(r).toEqual({ ok: true, bases: [{ baseType: 23, baseEntry: 606, baseLine: 2 }] })
   })
+
+  it('orders ← báo giá đã synced: BaseType 23, BaseLine = sapLineNum', async () => {
+    fu().quotationLine.mockResolvedValue({ id: 'ql3', quotationId: 'q3', lineNum: 1, sapLineNum: 0 })
+    fu().quotation.mockResolvedValue({ sapDocEntry: 707, docNum: 8 })
+    const r = await resolveCopyFromBases('Orders', [{ sourceLineId: 'ql3' }])
+    expect(r).toEqual({ ok: true, bases: [{ baseType: 23, baseEntry: 707, baseLine: 0 }] })
+  })
+
+  it('orders ← báo giá chưa synced → ok:false + lỗi 400 đúng pattern', async () => {
+    fu().quotationLine.mockResolvedValue({ id: 'ql4', quotationId: 'q4', lineNum: 1, sapLineNum: 0 })
+    fu().quotation.mockResolvedValue({ sapDocEntry: null, docNum: 8 })
+    const r = await resolveCopyFromBases('Orders', [{ sourceLineId: 'ql4' }])
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toMatch(/báo giá bán hàng nguồn #8/)
+      expect(r.error).toMatch(/chưa được đẩy lên SAP B1/)
+      expect(r.error).toMatch(/Hãy đẩy báo giá bán hàng nguồn lên SAP trước, rồi đẩy lại/)
+    }
+  })
+
+  it('orders: dòng không có sourceLineId → base null (đơn độc lập, tương thích ngược)', async () => {
+    const r = await resolveCopyFromBases('Orders', [{ sourceLineId: null }])
+    expect(r).toEqual({ ok: true, bases: [null] })
+    expect(fu().quotationLine).not.toHaveBeenCalled()
+  })
 })
 
 describe('resolveSourceLineBase (dùng cho delivery)', () => {
@@ -198,5 +223,60 @@ describe('resolveSourceLineBase (dùng cho delivery)', () => {
     const r = await resolveSourceLineBase(getSourceLineSpec('salesOrderLine')!, 'khong-co', 'phiếu giao hàng')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/Không tìm thấy dòng đơn hàng bán nguồn/)
+  })
+})
+
+describe('buildSapLines — hóa đơn dịch vụ (AccountCode thay ItemCode)', () => {
+  const line = { itemCode: 'DV-VANCHUYEN', accountCode: '5113', quantity: 1, unitPrice: 500000 }
+
+  it('không truyền invoiceDocType → gửi ItemCode (tương thích ngược)', () => {
+    const [l] = buildSapLines([line]) as any[]
+    expect(l).toMatchObject({ ItemCode: 'DV-VANCHUYEN' })
+    expect(l).not.toHaveProperty('AccountCode')
+  })
+
+  it("invoiceDocType='Service' → gửi AccountCode, KHÔNG gửi ItemCode", () => {
+    const [l] = buildSapLines([line], undefined, undefined, 'Service') as any[]
+    expect(l).toMatchObject({ AccountCode: '5113' })
+    expect(l).not.toHaveProperty('ItemCode')
+  })
+
+  it("invoiceDocType='Reserve' → vẫn gửi ItemCode (hóa đơn dự trữ là chứng từ hàng)", () => {
+    const [l] = buildSapLines([line], undefined, undefined, 'Reserve') as any[]
+    expect(l).toMatchObject({ ItemCode: 'DV-VANCHUYEN' })
+    expect(l).not.toHaveProperty('AccountCode')
+  })
+
+  it('Service + base → giữ Base* và dùng AccountCode', () => {
+    const [l] = buildSapLines([line], [0], [{ baseType: 15, baseEntry: 44, baseLine: 1 }], 'Service') as any[]
+    expect(l).toMatchObject({ AccountCode: '5113', BaseType: 15, BaseEntry: 44, BaseLine: 1 })
+    expect(l).not.toHaveProperty('ItemCode')
+  })
+})
+
+describe('buildSapDocPayload — hóa đơn dịch vụ', () => {
+  it("invoiceDocType='Service' → DocType=dDocument_Service và dòng dùng AccountCode", () => {
+    const p = buildSapDocPayload({
+      cardCode: 'C20001',
+      docDate: '2026-10-17',
+      docDueDate: '2026-10-24',
+      invoiceDocType: 'Service',
+      lines: [{ itemCode: 'DV-VANCHUYEN', accountCode: '5113', quantity: 1, unitPrice: 500000 }],
+    }) as any
+    expect(p).toMatchObject({ DocType: 'dDocument_Service' })
+    expect(p.DocumentLines[0]).toMatchObject({ AccountCode: '5113' })
+    expect(p.DocumentLines[0]).not.toHaveProperty('ItemCode')
+  })
+
+  it("không có invoiceDocType → không có DocType và dòng dùng ItemCode", () => {
+    const p = buildSapDocPayload({
+      cardCode: 'C20001',
+      docDate: '2026-10-17',
+      docDueDate: '2026-10-24',
+      lines: [{ itemCode: 'FM-RAU-001', quantity: 1, unitPrice: 1000 }],
+    }) as any
+    expect(p).not.toHaveProperty('DocType')
+    expect(p.DocumentLines[0]).toMatchObject({ ItemCode: 'FM-RAU-001' })
+    expect(p.DocumentLines[0]).not.toHaveProperty('AccountCode')
   })
 })

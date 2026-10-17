@@ -122,6 +122,10 @@ export interface SalesDocConfig {
   sourceFks: string[]
   /** Hooks mở rộng theo loại chứng từ (Phase 2) */
   hooks?: SalesDocHooks
+  /** Đợt 2 — loại chứng từ có cột paidAmount/paymentStatus (hóa đơn / ghi có / đặt cọc) */
+  supportsPayment?: boolean
+  /** Đợt 2 — dòng chứng từ có cột batchNumber (phiếu trả hàng) */
+  lineBatchNumber?: boolean
 }
 
 export const QUOTATION_CFG: SalesDocConfig = {
@@ -144,6 +148,26 @@ export const QUOTATION_CFG: SalesDocConfig = {
 function validInvoiceDocType(v: unknown): 'Item' | 'Service' | 'Reserve' | undefined {
   const s = String(v ?? '').trim()
   return s === 'Item' || s === 'Service' || s === 'Reserve' ? s : undefined
+}
+
+/**
+ * Hóa đơn dịch vụ (docType=Service → SAP dDocument_Service): MỌI dòng bắt
+ * buộc có mã tài khoản (SAP: DocumentLines.AccountCode). Trả thông báo lỗi
+ * tiếng Việt khi có dòng thiếu, ngược lại trả null.
+ */
+export function validateServiceLineAccounts(
+  docType: unknown,
+  lines: Array<{ itemCode?: unknown; accountCode?: unknown }>,
+): string | null {
+  if (docType !== 'Service') return null
+  for (let i = 0; i < lines.length; i++) {
+    const acct = String(lines[i]?.accountCode ?? '').trim()
+    if (!acct) {
+      const code = String(lines[i]?.itemCode ?? '').trim()
+      return `Hóa đơn dịch vụ: dòng ${i + 1}${code ? ` (${code})` : ''} thiếu mã Tài khoản — vui lòng nhập Tài khoản cho mọi dòng (SAP B1 bắt buộc AccountCode với dòng dịch vụ).`
+    }
+  }
+  return null
 }
 
 /**
@@ -268,6 +292,7 @@ export const INVOICE_CFG: SalesDocConfig = {
   lineFk: 'invoiceId',
   sourceFks: ['sourceQuotationId', 'sourceOrderId', 'sourceDeliveryId'],
   hooks: INVOICE_DRAW_HOOKS,
+  supportsPayment: true, // Đợt 2: paidAmount/paymentStatus
 }
 
 export const CREDIT_MEMO_CFG: SalesDocConfig = {
@@ -282,6 +307,7 @@ export const CREDIT_MEMO_CFG: SalesDocConfig = {
   lineModelKey: 'arCreditMemoLine',
   lineFk: 'creditMemoId',
   sourceFks: ['sourceInvoiceId', 'sourceReturnId'],
+  supportsPayment: true, // Đợt 2: paidAmount/paymentStatus
 }
 
 export const RETURN_CFG: SalesDocConfig = {
@@ -296,6 +322,7 @@ export const RETURN_CFG: SalesDocConfig = {
   lineModelKey: 'salesReturnLine',
   lineFk: 'returnId',
   sourceFks: ['sourceDeliveryId', 'sourceInvoiceId'],
+  lineBatchNumber: true, // Đợt 2: cột batchNumber (Số lô) trên dòng trả hàng
 }
 
 // ---------- Phase 2: Hóa đơn đặt cọc phải thu (203/ODPI) ----------
@@ -311,6 +338,7 @@ export const DOWN_PAYMENT_CFG: SalesDocConfig = {
   lineModelKey: 'arDownPaymentLine',
   lineFk: 'downPaymentId',
   sourceFks: ['sourceQuotationId', 'sourceOrderId'],
+  supportsPayment: true, // Đợt 2: paidAmount/paymentStatus
   hooks: {
     // Tạo mới: số dư còn lại = tổng tiền chứng từ
     extraCreateFields: ({ grandTotal }) => ({
@@ -347,10 +375,105 @@ export const DOWN_PAYMENT_CFG: SalesDocConfig = {
 /** Dòng hàng đầu vào — mở rộng OrderLineInput với liên kết dòng nguồn */
 export interface SalesDocLineInput extends OrderLineInput {
   sourceLineId?: string
+  /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán */
+  batchNumber?: string | null
+}
+
+// ---------- Đợt 2: helpers Thông tin B2B / SAP B1 trên header ----------
+
+/** Trạng thái thanh toán suy từ số tiền đã thu vs tổng chứng từ:
+ *  paid nếu paidAmount >= grandTotal, partial nếu paidAmount > 0, else unpaid.
+ *  Export cho tầng ghi nhận thanh toán (worker khác) dùng chung. */
+export function derivePaymentStatus(paidAmount: unknown, grandTotal: unknown): 'paid' | 'partial' | 'unpaid' {
+  const paid = Math.max(0, Number(paidAmount) || 0)
+  const grand = Math.max(0, Number(grandTotal) || 0)
+  if (paid >= grand) return 'paid'
+  if (paid > 0) return 'partial'
+  return 'unpaid'
+}
+
+/** Nhãn tiếng Việt cho chip trạng thái thanh toán — worker khác tái dùng khi cần */
+export const PAYMENT_STATUS_VN: Record<string, string> = {
+  unpaid: 'Chưa thanh toán',
+  partial: 'Thanh toán một phần',
+  paid: 'Đã thanh toán hết',
+}
+
+const intOrNull = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isInteger(n) ? n : null
+}
+
+const strOrNull = (v: unknown, max = 100): string | null => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s ? s.slice(0, max) : null
+}
+
+const dateOrNull = (v: unknown): Date | null => {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (!s) return null
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/** Chuẩn hóa đính kèm: mảng [{name, url}] → JSON string (cột attachmentsJson).
+ *  Chấp nhận mảng hoặc chuỗi JSON — sai định dạng → null. */
+function parseAttachments(v: unknown): string | null {
+  let arr: unknown = v
+  if (typeof v === 'string') {
+    try {
+      arr = JSON.parse(v)
+    } catch {
+      return null
+    }
+  }
+  if (!Array.isArray(arr)) return null
+  const cleaned = arr
+    .slice(0, 20)
+    .map((a) => ({
+      name: String((a as { name?: unknown })?.name ?? '').trim().slice(0, 200),
+      url: String((a as { url?: unknown })?.url ?? '').trim().slice(0, 2000),
+    }))
+    .filter((a) => a.name || a.url)
+  return cleaned.length > 0 ? JSON.stringify(cleaned) : null
+}
+
+export interface B2bHeaderFields {
+  salesPersonCode: number | null
+  paymentGroupCode: number | null
+  shipToCode: string | null
+  billToCode: string | null
+  numAtCard: string | null
+  taxDate: Date | null
+  docCurrency: string
+  docRate: number
+  projectCode: string | null
+  attachmentsJson: string | null
+}
+
+/** Parse các trường B2B từ body. taxDate bỏ trống → mặc định = ngày chứng từ. */
+function parseB2bHeader(body: Record<string, unknown>, fallbackDate: Date): B2bHeaderFields {
+  const docRate = Number(body.docRate)
+  return {
+    salesPersonCode: intOrNull(body.salesPersonCode),
+    paymentGroupCode: intOrNull(body.paymentGroupCode),
+    shipToCode: strOrNull(body.shipToCode, 50),
+    billToCode: strOrNull(body.billToCode, 50),
+    numAtCard: strOrNull(body.numAtCard, 100),
+    taxDate: dateOrNull(body.taxDate) ?? fallbackDate,
+    docCurrency: (strOrNull(body.docCurrency, 3) ?? 'VND').toUpperCase(),
+    docRate: Number.isFinite(docRate) && docRate > 0 ? docRate : 1,
+    projectCode: strOrNull(body.projectCode, 50),
+    attachmentsJson: parseAttachments(
+      body.attachments !== undefined ? body.attachments : body.attachmentsJson,
+    ),
+  }
 }
 
 /** Dựng payload create cho 1 dòng (dùng chung POST / from-source / PATCH) */
-function lineCreateData(l: any, i: number): Record<string, unknown> {
+function lineCreateData(l: any, i: number, withBatchNumber = false): Record<string, unknown> {
   return {
     lineNum: i + 1,
     itemCode: l.itemCode,
@@ -371,6 +494,14 @@ function lineCreateData(l: any, i: number): Record<string, unknown> {
     bomEditable: l.bomEditable ?? true,
     bomQtyPerParent: l.bomQtyPerParent ?? null,
     sourceLineId: l.sourceLineId ?? null,
+    // accountCode chỉ có cột trong DB của ArInvoiceLine (dòng hóa đơn) —
+    // chỉ ghi khi input truyền (guard để các loại chứng từ khác không vỡ Prisma).
+    ...(l.accountCode !== undefined
+      ? { accountCode: (typeof l.accountCode === 'string' ? l.accountCode.trim() : '') || null }
+      : {}),
+    // batchNumber chỉ có cột trong DB của SalesReturnLine (dòng trả hàng) —
+    // guard theo config loại chứng từ (Đợt 2).
+    ...(withBatchNumber ? { batchNumber: strOrNull(l.batchNumber, 60) } : {}),
   }
 }
 
@@ -383,6 +514,20 @@ type HeaderBody = {
   warehouseCode?: string
   headerDiscPct?: number
   lines?: SalesDocLineInput[]
+  /** Đợt 2 — Thông tin B2B / SAP B1 */
+  salesPersonCode?: unknown
+  paymentGroupCode?: unknown
+  shipToCode?: unknown
+  billToCode?: unknown
+  numAtCard?: unknown
+  taxDate?: unknown
+  docCurrency?: unknown
+  docRate?: unknown
+  projectCode?: unknown
+  attachments?: unknown
+  attachmentsJson?: unknown
+  /** Đợt 2 — số tiền đã thu (hóa đơn / ghi có / đặt cọc) */
+  paidAmount?: unknown
 }
 
 // ==================== GET list ====================
@@ -423,6 +568,8 @@ export async function salesDocList(req: NextRequest, cfg: SalesDocConfig) {
       { docNum: isNaN(Number(q)) ? undefined : Number(q) },
       { cardName: { contains: q } },
       { cardCode: { contains: q } },
+      // Đợt 2: tìm theo số PO của khách hàng (SAP NumAtCard)
+      { numAtCard: { contains: q } },
     ].filter(Boolean)
   }
   if (status === 'Open' || status === 'Closed' || status === 'Cancelled') where.status = status
@@ -532,6 +679,17 @@ async function pushSalesDocAfterCreate(
     docDueDate: created.docDueDate.toISOString(),
     comments: created.remarks,
     headerDiscPct: headerPct,
+    // Đợt 2+3 — Thông tin B2B / SAP B1 từ bản ghi DB → tầng payload
+    // (sapDocHeaderExtras) chỉ gửi các trường có giá trị lên Service Layer
+    salesPersonCode: created.salesPersonCode ?? null,
+    paymentGroupCode: created.paymentGroupCode ?? null,
+    shipToCode: created.shipToCode ?? null,
+    billToCode: created.billToCode ?? null,
+    numAtCard: created.numAtCard ?? null,
+    taxDate: created.taxDate ?? null,
+    docCurrency: created.docCurrency ?? null,
+    docRate: created.docRate ?? null,
+    projectCode: created.projectCode ?? null,
     // Phase 2: hóa đơn gửi thêm DocType/ReserveInvoice + DownPaymentsToDraw
     ...(cfg.docType === 'invoice'
       ? {
@@ -542,11 +700,16 @@ async function pushSalesDocAfterCreate(
     localId: created.id,
     lines: (created.lines as any[]).map((l) => ({
       itemCode: l.itemCode,
+      // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)
+      accountCode: l.accountCode ?? null,
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct,
+      uom: l.uom,
       taxCode: l.taxCode,
       warehouseCode: l.warehouseCode,
+      // Đợt 2+3 — Số lô dòng trả hàng → DocumentLines.BatchNumbers
+      batchNumber: l.batchNumber ?? null,
       // Copy-from: local id dòng nguồn → tầng push tra BaseType/BaseEntry/BaseLine
       sourceLineId: l.sourceLineId ?? null,
     })),
@@ -628,6 +791,15 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
     if (linesError) {
       return NextResponse.json({ error: linesError }, { status: 400 })
     }
+    // Hóa đơn dịch vụ: mọi dòng phải có mã tài khoản (SAP: AccountCode) —
+    // validate TRƯỚC khi cấp docNum để lỗi của user không đốt số chứng từ
+    if (cfg.docType === 'invoice') {
+      const effDocType = validInvoiceDocType((body as any).docType) ?? 'Item'
+      const acctErr = validateServiceLineAccounts(effDocType, validLines)
+      if (acctErr) {
+        return NextResponse.json({ error: acctErr }, { status: 400 })
+      }
+    }
 
     const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
     const calcLines = calcOrderLines(validLines, headerPct)
@@ -661,6 +833,15 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
     }
 
     const extraFields = cfg.hooks?.extraCreateFields?.({ grandTotal, body }) ?? {}
+    // Đợt 2 — Thông tin B2B / SAP B1 (taxDate mặc định = ngày chứng từ)
+    const b2b = parseB2bHeader(body as Record<string, unknown>, new Date(docDate))
+    // Đợt 2 — trạng thái thanh toán (hóa đơn / ghi có / đặt cọc)
+    const paymentFields: Record<string, unknown> = cfg.supportsPayment
+      ? (() => {
+          const paid = Math.max(0, Number(body.paidAmount) || 0)
+          return { paidAmount: paid, paymentStatus: derivePaymentStatus(paid, grandTotal) }
+        })()
+      : {}
     const createData = {
       docNum,
       isDraft,
@@ -679,8 +860,10 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
       createdBy: user.username,
       sapDatabaseId: docDbId,
       ...extraFields,
+      ...b2b,
+      ...paymentFields,
       ...sourceData,
-      lines: { create: calcLines.map((l, i) => lineCreateData(l, i)) },
+      lines: { create: calcLines.map((l, i) => lineCreateData(l, i, cfg.lineBatchNumber === true)) },
     }
     const includeLines = { lines: { orderBy: { lineNum: 'asc' } } } as const
 
@@ -838,6 +1021,15 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
+  // Hóa đơn dịch vụ: mọi dòng phải có mã tài khoản (SAP: AccountCode)
+  let effInvoiceDocType: 'Item' | 'Service' | 'Reserve' = 'Item'
+  if (cfg.docType === 'invoice') {
+    effInvoiceDocType = validInvoiceDocType((body as any)?.docType) ?? ((doc as any).docType ?? 'Item')
+    const acctErr = validateServiceLineAccounts(effInvoiceDocType, validLines)
+    if (acctErr) {
+      return NextResponse.json({ error: acctErr }, { status: 400 })
+    }
+  }
 
   const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
   const calcLines = calcOrderLines(validLines, headerPct)
@@ -860,6 +1052,15 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
       await tx[cfg.lineModelKey].deleteMany({ where: { [cfg.lineFk]: id } })
       // Phase 2: trường header bổ sung theo loại chứng từ (vd docType hóa đơn)
       const extraUpdateFields = cfg.hooks?.extraUpdateFields?.(body ?? {}) ?? {}
+      // Đợt 2 — Thông tin B2B / SAP B1 (taxDate mặc định = ngày chứng từ)
+      const b2b = parseB2bHeader(body as Record<string, unknown>, new Date(docDate))
+      // Đợt 2 — tầng thanh toán ghi paidAmount qua update → suy lại paymentStatus
+      const paymentFields: Record<string, unknown> = {}
+      if (cfg.supportsPayment && body?.paidAmount !== undefined) {
+        const paid = Math.max(0, Number(body.paidAmount) || 0)
+        paymentFields.paidAmount = paid
+        paymentFields.paymentStatus = derivePaymentStatus(paid, grandTotal)
+      }
       const doc = await tx[cfg.modelKey].update({
         where: { id },
         data: {
@@ -877,7 +1078,9 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
           grandTotal,
           version: { increment: 1 },
           ...extraUpdateFields,
-          lines: { create: calcLines.map((l, i) => lineCreateData(l, i)) },
+          ...b2b,
+          ...paymentFields,
+          lines: { create: calcLines.map((l, i) => lineCreateData(l, i, cfg.lineBatchNumber === true)) },
         },
         include: { lines: { orderBy: { lineNum: 'asc' } } },
       })
@@ -919,12 +1122,17 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
           // dòng bị bỏ khỏi danh sách sẽ bị XÓA (B1S-ReplaceCollectionsOnPatch)
           lineNum: oldLineNums.get(l.lineNum) ?? null,
           itemCode: l.itemCode,
+          // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)
+          accountCode: l.accountCode ?? null,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,
+          uom: l.uom,
           taxCode: l.taxCode,
           warehouseCode: l.warehouseCode,
         })),
+        // Hóa đơn: báo loại chứng từ để tầng push chọn AccountCode/ItemCode cho dòng
+        ...(cfg.docType === 'invoice' ? { invoiceDocType: effInvoiceDocType } : {}),
       })
       if (res.status === 'synced') {
         await cfg.model.update({
@@ -1207,6 +1415,10 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
       bomEditable: l.bomEditable ?? true,
       bomQtyPerParent: l.bomQtyPerParent ?? null,
       sourceLineId: l.id,
+      // Giữ mã tài khoản khi sao chép sang hóa đơn (ArInvoiceLine mới có cột này)
+      ...(target.docType === 'invoice' ? { accountCode: l.accountCode ?? null } : {}),
+      // Đợt 2 — giữ Số lô khi sao chép sang phiếu trả hàng
+      ...(target.lineBatchNumber ? { batchNumber: l.batchNumber ?? null } : {}),
     }))
     const { lines: validLines, error: linesError } = validateOrderLines(inputLines)
     if (linesError) {
@@ -1234,6 +1446,17 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
             remarks: `Sao chép từ ${spec.label} #${src.docNum}`,
             headerDiscPct: headerPct,
             warehouseCode: src.warehouseCode ?? null,
+            // Đợt 2 — Thông tin B2B / SAP B1 mang theo từ nguồn
+            // (taxDate: form mặc định = ngày chứng từ mới → không mang theo)
+            salesPersonCode: src.salesPersonCode ?? null,
+            paymentGroupCode: src.paymentGroupCode ?? null,
+            shipToCode: src.shipToCode ?? null,
+            billToCode: src.billToCode ?? null,
+            numAtCard: src.numAtCard ?? null,
+            docCurrency: src.docCurrency ?? 'VND',
+            docRate: src.docRate ?? 1,
+            projectCode: src.projectCode ?? null,
+            attachmentsJson: src.attachmentsJson ?? null,
             lines: rawLines.map((l) => ({
               itemCode: l.itemCode,
               itemName: l.itemName,
@@ -1249,6 +1472,10 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
               bomEditable: l.bomEditable ?? true,
               bomQtyPerParent: l.bomQtyPerParent ?? null,
               sourceLineId: l.sourceLineId ?? null,
+              // Giữ mã tài khoản khi "Sao chép từ" sang hóa đơn (prefill cho form)
+              ...(target.docType === 'invoice' ? { accountCode: (l as any).accountCode ?? null } : {}),
+              // Đợt 2 — giữ Số lô khi "Sao chép từ" sang phiếu trả hàng
+              ...(target.lineBatchNumber ? { batchNumber: (l as any).batchNumber ?? null } : {}),
             })),
             sourceType: spec.sourceType,
             sourceId: src.id,
@@ -1264,6 +1491,23 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
     const now = new Date()
     const spanMs = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime())
     const extraFields = target.hooks?.extraCreateFields?.({ grandTotal, body: {} }) ?? {}
+    // Đợt 2 — mang theo Thông tin B2B của chứng từ nguồn (taxDate: lấy của
+    // nguồn, thiếu thì mặc định = ngày chứng từ mới)
+    const srcB2b = parseB2bHeader(
+      {
+        salesPersonCode: src.salesPersonCode,
+        paymentGroupCode: src.paymentGroupCode,
+        shipToCode: src.shipToCode,
+        billToCode: src.billToCode,
+        numAtCard: src.numAtCard,
+        taxDate: src.taxDate ? new Date(src.taxDate).toISOString().slice(0, 10) : undefined,
+        docCurrency: src.docCurrency,
+        docRate: src.docRate,
+        projectCode: src.projectCode,
+        attachmentsJson: src.attachmentsJson,
+      },
+      now,
+    )
 
     const created = await target.model.create({
       data: {
@@ -1284,8 +1528,12 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
         createdBy: user.username,
         sapDatabaseId: src.sapDatabaseId ?? null,
         ...extraFields,
+        ...srcB2b,
+        // Đợt 2 — chứng từ mới chưa có thanh toán: khởi tạo paidAmount=0/unpaid
+        // cho các loại hỗ trợ thanh toán (hóa đơn / ghi có / đặt cọc)
+        ...(target.supportsPayment ? { paidAmount: 0, paymentStatus: 'unpaid' } : {}),
         [spec.fkField]: src.id,
-        lines: { create: calcLines.map((l, i) => lineCreateData(l, i)) },
+        lines: { create: calcLines.map((l, i) => lineCreateData(l, i, target.lineBatchNumber === true)) },
       },
       include: { lines: { orderBy: { lineNum: 'asc' } } },
     })

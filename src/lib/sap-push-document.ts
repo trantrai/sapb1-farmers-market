@@ -43,15 +43,57 @@ export interface SapPushLine {
   taxCode?: string | null
   /** Kho xuất của dòng (SAP: WarehouseCode — OWHS) */
   warehouseCode?: string | null
+  /** Đơn vị tính của dòng (SAP: MeasureUnit) — rỗng thì bỏ qua, SAP dùng mặc định của mặt hàng */
+  uom?: string | null
   /**
    * Local id của dòng chứng từ nguồn (copy-from/copy-to chuẩn SAP B1).
    * Khi đẩy, module tự tra DB để gắn BaseType/BaseEntry/BaseLine vào payload —
    * nếu nguồn chưa lên SAP thì CHẶN đẩy (không lặng lẽ bỏ qua).
    */
   sourceLineId?: string | null
+  /**
+   * Mã tài khoản kế toán của dòng (SAP: DocumentLines.AccountCode).
+   * Hóa đơn dịch vụ (DocType=dDocument_Service): dòng BẮT BUỘC gửi
+   * AccountCode thay vì ItemCode.
+   */
+  accountCode?: string | null
+  /**
+   * Số lô của dòng (Đợt 2+3) — khi có giá trị, payload gửi
+   * DocumentLines.BatchNumbers = [{ BatchNumber }]; trống → bỏ qua,
+   * giữ nguyên hành vi cũ.
+   */
+  batchNumber?: string | null
 }
 
-export interface SapPushInput {
+/**
+ * Header mở rộng Đợt 2+3 — các trường SAP B1 gửi kèm trong payload
+ * Document khi CÓ GIÁ TRỊ; trống thì bỏ qua (giữ nguyên hành vi SAP
+ * mặc định), trừ DiscountPercent đã luôn gửi ở chỗ khác.
+ */
+export interface SapDocHeaderExtras {
+  /** Nhân viên bán hàng (SAP: Documents.SalesPersonCode) */
+  salesPersonCode?: number | null
+  /** Điều khoản thanh toán (SAP: Documents.PaymentGroupCode) */
+  paymentGroupCode?: number | null
+  /** Địa chỉ giao hàng (SAP: Documents.ShipToCode) */
+  shipToCode?: string | null
+  /** Địa chỉ ghi hóa đơn (SAP: Documents.BillToCode) */
+  billToCode?: string | null
+  /** Số PO / tham chiếu của KH (SAP: Documents.NumAtCard) */
+  numAtCard?: string | null
+  /** Ngày tính thuế (SAP: Documents.TaxDate) — YYYY-MM-DD hoặc Date */
+  taxDate?: string | Date | null
+  /** Tiền tệ chứng từ (SAP: Documents.DocCurrency) */
+  docCurrency?: string | null
+  /** Tỷ giá (SAP: Documents.DocRate) — chỉ gửi kèm DocCurrency khi ≠ VND */
+  docRate?: number | null
+  /** Mã dự án (SAP: Documents.ProjectCode) */
+  projectCode?: string | null
+  /** Ngày cần giao (SAP: Documents.ReqDate) — YYYY-MM-DD hoặc Date */
+  reqDate?: string | Date | null
+}
+
+export interface SapPushInput extends SapDocHeaderExtras {
   /** Id SapDatabase đích — luôn đẩy đúng DB đã ghi nhận khi tạo (chống lẫn DB) */
   databaseId?: string | null
   /**
@@ -125,6 +167,12 @@ export interface SapPatchInput {
    * dòng mới không có lineNum; dòng bị bỏ khỏi danh sách sẽ bị XÓA
    * (header B1S-ReplaceCollectionsOnPatch=true) */
   lines: (SapPushLine & { lineNum?: number | null })[]
+  /**
+   * Loại hóa đơn local: 'Item' | 'Service' | 'Reserve'. Khi là 'Service'
+   * (SAP: DocType=dDocument_Service) các dòng gửi AccountCode thay vì
+   * ItemCode — chuẩn SAP B1 cho dòng dịch vụ.
+   */
+  invoiceDocType?: 'Item' | 'Service' | 'Reserve'
 }
 
 export interface SapPatchDocumentInput extends SapPatchInput {
@@ -195,17 +243,17 @@ export function getSourceLineSpec(lineDelegate: SourceLineSpec['lineDelegate']):
 
 /**
  * Ma trận dòng nguồn hợp lệ cho từng entity set đích (theo copy-from SAP B1):
+ * - Orders       ← báo giá (23) — đơn tạo từ /api/orders/from-quotation
  * - Invoices     ← báo giá (23), đơn hàng (17), giao hàng (15)
  * - CreditNotes  ← hóa đơn (13), trả hàng (16)
  * - Returns      ← giao hàng (15), hóa đơn (13)
  * - DownPayments ← báo giá (23), đơn hàng (17)
  * - Quotations   = đầu luồng, không có nguồn
- * - Orders/DeliveryNotes không đẩy qua hàm resolveCopyFromBases này
- *   (Orders qua sap-push-order — SalesOrderLine không có sourceLineId;
- *   DeliveryNotes qua sap-push-delivery — 2 FK riêng biệt)
+ * - DeliveryNotes không đẩy qua hàm resolveCopyFromBases này
+ *   (qua sap-push-delivery — 2 FK riêng biệt: sourceOrderLineId/sourceQuotationLineId)
  */
 const ENTITY_SOURCE_SPECS: Record<SapDocEntitySet, SourceLineSpec[]> = {
-  Orders: [],
+  Orders: [getSourceLineSpec('quotationLine')!],
   Quotations: [],
   DeliveryNotes: [],
   Invoices: [
@@ -326,26 +374,79 @@ export async function resolveCopyFromBases(
   return { ok: true, bases }
 }
 
+/** Chuẩn hóa ngày thành YYYY-MM-DD cho các trường Date của SAP (TaxDate, ReqDate) */
+const isoDateOnly = (v: string | Date | null | undefined): string | undefined => {
+  if (!v) return undefined
+  if (typeof v === 'string') {
+    const s = v.slice(0, 10)
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined
+  }
+  if (!(v instanceof Date) || Number.isNaN(v.getTime())) return undefined
+  const y = v.getUTCFullYear()
+  const m = String(v.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(v.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/**
+ * Dựng các trường header SAP B1 mở rộng (Đợt 2+3) — chỉ gửi khi CÓ GIÁ TRỊ.
+ * Dùng chung cho mọi entity set chứng từ (buildSapDocPayload) và Delivery
+ * (sap-push-delivery) để hành vi nhất quán.
+ */
+export function sapDocHeaderExtras(input: SapDocHeaderExtras): Record<string, unknown> {
+  const currency = (input.docCurrency ?? '').trim().toUpperCase()
+  const taxDate = isoDateOnly(input.taxDate)
+  const reqDate = isoDateOnly(input.reqDate)
+  return {
+    ...(typeof input.salesPersonCode === 'number' ? { SalesPersonCode: input.salesPersonCode } : {}),
+    ...(typeof input.paymentGroupCode === 'number' ? { PaymentGroupCode: input.paymentGroupCode } : {}),
+    ...(input.shipToCode?.trim() ? { ShipToCode: input.shipToCode.trim() } : {}),
+    ...(input.billToCode?.trim() ? { BillToCode: input.billToCode.trim() } : {}),
+    ...(input.numAtCard?.trim() ? { NumAtCard: input.numAtCard.trim().slice(0, 100) } : {}),
+    ...(taxDate ? { TaxDate: taxDate } : {}),
+    // DocCurrency + DocRate: CHỈ gửi khi tiền tệ khác VND — tiền VND để SAP
+    // dùng mặc định của hệ thống (tránh ép sai tỷ giá).
+    ...(currency && currency !== 'VND'
+      ? {
+          DocCurrency: currency,
+          ...(typeof input.docRate === 'number' && input.docRate > 0 ? { DocRate: input.docRate } : {}),
+        }
+      : {}),
+    ...(input.projectCode?.trim() ? { ProjectCode: input.projectCode.trim() } : {}),
+    ...(reqDate ? { ReqDate: reqDate } : {}),
+  }
+}
+
 /** Dựng payload DocumentLines (dùng chung cho POST tạo mới và PATCH sửa) */
 export function buildSapLines(
   lines: SapPushLine[],
   dbLineNums?: (number | null)[],
   bases?: (SapLineBase | null | undefined)[],
+  invoiceDocType?: 'Item' | 'Service' | 'Reserve',
 ) {
+  // Hóa đơn dịch vụ (SAP: Documents.DocType = dDocument_Service): dòng là
+  // dòng dịch vụ — chuẩn SAP B1 bắt buộc dùng AccountCode, không dùng ItemCode.
+  const isServiceDoc = invoiceDocType === 'Service'
   return lines.map((l, i) => {
     const ln = dbLineNums?.[i]
     const b = bases?.[i]
+    const acct = (l.accountCode ?? '').toString().trim()
     return {
       ...(typeof ln === 'number' ? { LineNum: ln } : {}),
       // Copy-from: liên kết dòng với chứng từ/dòng nguồn trên SAP
       // (BaseType/BaseEntry/BaseLine) — SAP tự trừ OpenQty của nguồn.
       ...(b ? { BaseType: b.baseType, BaseEntry: b.baseEntry, BaseLine: b.baseLine } : {}),
-      ItemCode: l.itemCode,
+      // Dòng dịch vụ gửi AccountCode thay vì ItemCode (chuẩn SAP B1)
+      ...(isServiceDoc ? { AccountCode: acct } : { ItemCode: l.itemCode }),
       Quantity: l.quantity,
+      // Đơn vị tính: chỉ gửi khi có giá trị — rỗng thì SAP dùng mặc định của mặt hàng
+      ...(l.uom?.trim() ? { MeasureUnit: l.uom.trim() } : {}),
       UnitPrice: l.unitPrice,
       DiscountPercent: Number(l.discPct) || 0,
       ...(l.taxCode ? { VatGroup: l.taxCode } : {}),
       ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
+      // Lô hàng (SAP: DocumentLines.BatchNumbers) — chỉ dòng có batchNumber
+      ...(l.batchNumber?.trim() ? { BatchNumbers: [{ BatchNumber: l.batchNumber.trim() }] } : {}),
     }
   })
 }
@@ -363,6 +464,10 @@ export function buildSapDocPayload(
     ...(input.comments?.trim() ? { Comments: input.comments.trim().slice(0, 254) } : {}),
     // CK đầu chứng từ: LUÔN gửi (kể cả 0) — sửa chứng từ về 0 phải xóa được CK cũ trên SAP
     DiscountPercent: Math.min(100, Math.max(0, Number(input.headerDiscPct) || 0)),
+    // Header mở rộng Đợt 2+3 (SalesPersonCode, PaymentGroupCode, ShipToCode,
+    // BillToCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
+    // — chỉ gửi khi có giá trị
+    ...sapDocHeaderExtras(input),
     // Hóa đơn dịch vụ / hóa đơn dự trữ (Phase 2)
     ...(input.invoiceDocType === 'Service' ? { DocType: 'dDocument_Service' } : {}),
     ...(input.invoiceDocType === 'Reserve' ? { ReserveInvoice: 'tYES' } : {}),
@@ -378,7 +483,7 @@ export function buildSapDocPayload(
       : {}),
     // Marker idempotency — chỉ gắn khi SAP đã định nghĩa UDF này
     ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),
-    DocumentLines: buildSapLines(input.lines, undefined, lineBases),
+    DocumentLines: buildSapLines(input.lines, undefined, lineBases, input.invoiceDocType),
   }
 }
 
@@ -506,6 +611,8 @@ export async function patchDocumentToSap(settings: SapConfig, input: SapPatchDoc
     DocumentLines: buildSapLines(
       input.lines,
       input.lines.map((l) => (typeof l.lineNum === 'number' ? l.lineNum : null)),
+      undefined,
+      input.invoiceDocType,
     ),
   }
   const res = await sapPatch<SapDocResponse>(settings, `/${input.entitySet}(${input.docEntry})`, payload)

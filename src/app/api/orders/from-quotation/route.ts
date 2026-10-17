@@ -3,7 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
-import { loadSapSettings } from '@/lib/sap-service-layer'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { pushOrderToSap, type SapPushResult } from '@/lib/sap-push-order'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
@@ -64,6 +64,9 @@ export async function POST(req: NextRequest) {
       bomGroupKey: l.bomGroupKey,
       bomEditable: l.bomEditable,
       bomQtyPerParent: l.bomQtyPerParent,
+      // Lưu liên kết dòng báo giá nguồn — lúc đẩy đơn sang SAP sẽ gắn
+      // BaseType/BaseEntry/BaseLine (chuẩn copy-to SAP B1).
+      sourceLineId: l.id,
     }))
     const { lines: validLines, error: linesError } = validateOrderLines(inputLines)
     if (linesError) {
@@ -118,6 +121,21 @@ export async function POST(req: NextRequest) {
     }
 
     const orderSap = await loadSapSettings(user.databaseId)
+    // Chặn sớm: đơn tạo từ báo giá luôn mang sourceLineId, nên khi ĐÃ cấu
+    // hình SAP thì báo giá nguồn bắt buộc phải có DocEntry — nếu không, đơn
+    // đẩy sang SAP sẽ thành chứng từ độc lập, báo giá nguồn còn OpenQty →
+    // cho phép giao/hóa đơn trùng. Báo 400 rõ ràng ngay trước khi tạo đơn.
+    if (isSapConfigured(orderSap) && typeof qdoc.sapDocEntry !== 'number') {
+      return {
+        body: {
+          error:
+            `Không thể tạo đơn hàng: báo giá bán hàng nguồn` +
+            `${qdoc.docNum != null ? ` #${qdoc.docNum}` : ''} chưa được đẩy lên SAP B1 ` +
+            `(chưa có DocEntry). Hãy đẩy báo giá bán hàng lên SAP trước, rồi tạo đơn lại.`,
+        },
+        status: 400,
+      }
+    }
     const orderDbId = orderSap?.dbId ?? null
     const createdBy = user.username
 
@@ -177,6 +195,7 @@ export async function POST(req: NextRequest) {
                 bomGroupKey: (l.bomGroupKey as string | null | undefined) ?? null,
                 bomEditable: l.bomEditable ?? true,
                 bomQtyPerParent: l.bomQtyPerParent ?? null,
+                sourceLineId: l.sourceLineId ?? null,
               })),
             },
           },
@@ -203,8 +222,10 @@ export async function POST(req: NextRequest) {
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             discPct: l.discPct,
+            uom: l.uom,
             taxCode: l.taxCode,
             warehouseCode: l.warehouseCode,
+            sourceLineId: l.sourceLineId,
           })),
         })
       } finally {

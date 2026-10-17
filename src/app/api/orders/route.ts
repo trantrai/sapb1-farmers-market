@@ -9,6 +9,115 @@ import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrder
 import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
 
+// ============================================================
+// B2B / SAP B1 (Đợt 2+3): whitelist + chuẩn hóa các trường header
+// ============================================================
+const B2B_CURRENCIES = ['VND', 'USD', 'EUR', 'JPY']
+
+interface B2BHeaderData {
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: Date | null
+  docCurrency?: string
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  reqDate?: Date | null
+}
+
+/** Đọc + validate các trường B2B từ body.
+ *  Key vắng mặt → undefined (Prisma bỏ qua: giữ default khi tạo, giữ cũ khi sửa).
+ *  Trả { data, error }: error != null → 400. */
+export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeaderData; error?: string } {
+  const data: B2BHeaderData = {}
+
+  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode', label: string): string | undefined => {
+    if (!(key in body)) return undefined
+    const v = body[key]
+    if (v === null || v === undefined || v === '') { data[key] = null; return undefined }
+    const n = Number(v)
+    if (!Number.isFinite(n)) return `${label} không hợp lệ`
+    data[key] = Math.trunc(n)
+    return undefined
+  }
+  const optStr = (key: 'shipToCode' | 'billToCode' | 'numAtCard' | 'projectCode', max: number): string | undefined => {
+    if (!(key in body)) return undefined
+    const s = String(body[key] ?? '').trim()
+    if (s.length > max) return `Trường ${key} vượt quá ${max} ký tự`
+    data[key] = s === '' ? null : s
+    return undefined
+  }
+  const optDate = (key: 'taxDate' | 'reqDate', label: string): string | undefined => {
+    if (!(key in body)) return undefined
+    const v = body[key]
+    if (v === null || v === undefined || String(v).trim() === '') { data[key] = null; return undefined }
+    const d = new Date(String(v))
+    if (Number.isNaN(d.getTime())) return `${label} không hợp lệ`
+    data[key] = d
+    return undefined
+  }
+
+  let err: string | undefined
+  err = optInt('salesPersonCode', 'Mã nhân viên bán hàng')
+  if (err) return { data, error: err }
+  err = optInt('paymentGroupCode', 'Mã điều khoản thanh toán')
+  if (err) return { data, error: err }
+  err = optStr('shipToCode', 50)
+  if (err) return { data, error: err }
+  err = optStr('billToCode', 50)
+  if (err) return { data, error: err }
+  err = optStr('numAtCard', 100)
+  if (err) return { data, error: err }
+  err = optStr('projectCode', 50)
+  if (err) return { data, error: err }
+  err = optDate('taxDate', 'Ngày tính thuế')
+  if (err) return { data, error: err }
+  err = optDate('reqDate', 'Ngày cần giao')
+  if (err) return { data, error: err }
+
+  if ('docCurrency' in body) {
+    const c = String(body.docCurrency ?? '').trim().toUpperCase()
+    data.docCurrency = B2B_CURRENCIES.includes(c) ? c : 'VND'
+  }
+  if ('docRate' in body) {
+    const v = body.docRate
+    if (v === null || v === undefined || v === '') {
+      data.docRate = null
+    } else {
+      const r = Number(v)
+      if (!Number.isFinite(r) || r <= 0) return { data, error: 'Tỷ giá phải là số lớn hơn 0' }
+      data.docRate = r
+    }
+  }
+  if ('attachmentsJson' in body) {
+    const v = body.attachmentsJson
+    if (v === null || v === undefined || v === '') {
+      data.attachmentsJson = null
+    } else {
+      let arr: unknown
+      if (typeof v === 'string') {
+        try { arr = JSON.parse(v) } catch { return { data, error: 'Đính kèm không phải JSON hợp lệ' } }
+      } else {
+        arr = v
+      }
+      if (!Array.isArray(arr)) return { data, error: 'Đính kèm phải là mảng [{name,url}]' }
+      const clean = arr
+        .filter((a) => a && typeof a === 'object')
+        .map((a) => ({
+          name: String((a as { name?: unknown }).name ?? '').trim().slice(0, 200),
+          url: String((a as { url?: unknown }).url ?? '').trim().slice(0, 500),
+        }))
+        .filter((a) => a.name || a.url)
+        .slice(0, 50)
+      data.attachmentsJson = clean.length > 0 ? JSON.stringify(clean) : null
+    }
+  }
+  return { data }
+}
+
 // ---------- GET /api/orders : danh sách SO + filter + phân trang ----------
 // Khi đã cấu hình SAP B1 → lấy TOÀN BỘ chứng từ TRỰC TIẾP từ Service Layer
 // (GET /Orders, tự phân trang) rồi gộp với các đơn local CHƯA đẩy sang SAP
@@ -59,6 +168,7 @@ export async function GET(req: NextRequest) {
       { docNum: isNaN(Number(q)) ? undefined : Number(q) },
       { cardName: { contains: q } },
       { cardCode: { contains: q } },
+      { numAtCard: { contains: q } },
     ].filter(Boolean)
   }
   if (status === 'Open' || status === 'Closed') where.status = status
@@ -187,6 +297,11 @@ export async function POST(req: NextRequest) {
     if (!docDate || !docDueDate) {
       return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
     }
+    // B2B / SAP B1 (Đợt 2+3): whitelist + validate các trường header mới
+    const { data: b2b, error: b2bError } = parseB2BHeader(body as Record<string, unknown>)
+    if (b2bError) {
+      return NextResponse.json({ error: b2bError }, { status: 400 })
+    }
 
     // Database SAP đích của đơn: lấy theo phiên đăng nhập; đơn ghi nhận lại để
     // mọi lần đẩy/retry/sửa sau này luôn dùng đúng DB này (không lẫn DB khác).
@@ -249,6 +364,7 @@ export async function POST(req: NextRequest) {
           docDueDate: new Date(docDueDate),
           remarks: remarks?.trim() || null,
           warehouseCode: warehouseCode?.trim() || null,
+          ...b2b,
           totalBeforeDisc,
           discountAmt,
           headerDiscPct: headerPct,
@@ -307,6 +423,7 @@ export async function POST(req: NextRequest) {
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             discPct: l.discPct,
+            uom: l.uom,
             taxCode: l.taxCode,
             warehouseCode: l.warehouseCode,
           })),

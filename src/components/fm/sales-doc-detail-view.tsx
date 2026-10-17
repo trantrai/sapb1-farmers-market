@@ -14,10 +14,12 @@ import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
+import PaymentHistory from './payment-history'
 import {
   DOC_STATUS_LABEL,
   docLabelFor,
   docNumLabel,
+  PAYMENT_STATUS_LABEL,
   unwrapDoc,
   type CopyTarget,
   type DocKindConfig,
@@ -33,8 +35,30 @@ interface Props {
   onCopyTo?: (target: CopyTarget, sourceId: string) => void
 }
 
+/** Đợt 2 — Chip trạng thái thanh toán (unpaid | partial | paid) */
+function paymentChip(status?: string | null) {
+  const s = status ?? 'unpaid'
+  if (s === 'paid') return <span className="fm-chip fm-chip--open">{PAYMENT_STATUS_LABEL.paid}</span>
+  if (s === 'partial') return <span className="fm-chip fm-chip--warn">{PAYMENT_STATUS_LABEL.partial}</span>
+  return <span className="fm-chip fm-chip--overdue">{PAYMENT_STATUS_LABEL.unpaid}</span>
+}
+
+/** Đợt 2 — Parse attachmentsJson [{name,url}] để hiển thị danh sách đính kèm */
+function parseAttachments(raw?: string | null): { name: string; url: string }[] {
+  if (!raw) return []
+  try {
+    const arr: unknown = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return (arr as Record<string, unknown>[])
+      .map((a) => ({ name: String(a?.name ?? ''), url: String(a?.url ?? '') }))
+      .filter((a) => a.name || a.url)
+  } catch {
+    return []
+  }
+}
+
 export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyTo }: Props) {
-  const { apiBase, docLabel, copyButtons, showRemaining } = config
+  const { apiBase, docLabel, copyButtons, showRemaining, showBatchNumberCol, showPaymentStatus } = config
   const [doc, setDoc] = useState<SalesDoc | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -245,6 +269,8 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
   /** Phase 2 — bản nháp / loại hóa đơn (Reserve → "Hóa đơn bán hàng dự trữ") */
   const isDraft = doc.isDraft === true
   const dl = docLabelFor(config, doc.docType)
+  /** Đợt 2 — số cột nhãn trong tfoot (cột Số lô chỉ ở phiếu trả hàng) */
+  const footSpan = showBatchNumberCol ? 11 : 10
 
   return (
     <div>
@@ -375,6 +401,56 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
         </dl>
       </div>
 
+      {/* Đợt 2 — Thông tin B2B / SAP B1 (chỉ hiện khi có dữ liệu) */}
+      {(() => {
+        const attList = parseAttachments(doc.attachmentsJson)
+        const hasB2b =
+          doc.salesPersonCode != null ||
+          doc.paymentGroupCode != null ||
+          !!doc.numAtCard ||
+          !!doc.taxDate ||
+          !!doc.projectCode ||
+          !!doc.shipToCode ||
+          !!doc.billToCode ||
+          (doc.docCurrency != null && doc.docCurrency !== 'VND') ||
+          (doc.docRate != null && doc.docRate !== 1) ||
+          attList.length > 0
+        if (!hasB2b) return null
+        return (
+          <div className="fm-card" style={{ marginBottom: 16 }}>
+            <h2 className="fm-card__title">Thông tin B2B / SAP B1</h2>
+            <dl className="fm-view-detail">
+              {doc.salesPersonCode != null && <div><dt>Nhân viên bán hàng</dt><dd>{doc.salesPersonCode}</dd></div>}
+              {doc.paymentGroupCode != null && <div><dt>Điều khoản thanh toán</dt><dd>{doc.paymentGroupCode}</dd></div>}
+              {doc.numAtCard && <div><dt>Số PO của khách hàng</dt><dd>{doc.numAtCard}</dd></div>}
+              {doc.taxDate && <div><dt>Ngày tính thuế</dt><dd>{formatDateVN(doc.taxDate)}</dd></div>}
+              {((doc.docCurrency != null && doc.docCurrency !== 'VND') || (doc.docRate != null && doc.docRate !== 1)) && (
+                <div><dt>Tiền tệ / Tỷ giá</dt><dd>{doc.docCurrency || 'VND'} — {doc.docRate ?? 1}</dd></div>
+              )}
+              {doc.projectCode && <div><dt>Mã dự án</dt><dd>{doc.projectCode}</dd></div>}
+              {doc.shipToCode && <div><dt>Địa chỉ giao hàng</dt><dd>{doc.shipToCode}</dd></div>}
+              {doc.billToCode && <div><dt>Địa chỉ ghi hóa đơn</dt><dd>{doc.billToCode}</dd></div>}
+              {attList.length > 0 && (
+                <div>
+                  <dt>Đính kèm</dt>
+                  <dd>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {attList.map((a, i) => (
+                        <li key={i}>
+                          {a.url
+                            ? <a href={a.url} target="_blank" rel="noreferrer">{a.name || a.url}</a>
+                            : (a.name || '—')}
+                        </li>
+                      ))}
+                    </ul>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        )
+      })()}
+
       {/* Dòng hàng */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
         <h2 className="fm-card__title">Hàng hóa & chi tiết</h2>
@@ -388,6 +464,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
                 <th className="fm-num">Số lượng</th>
                 <th>Đơn vị tính</th>
                 <th>Kho</th>
+                {showBatchNumberCol && <th title="Số lô (SAP BatchNumbers) — truy xuất nguồn gốc">Số lô</th>}
                 <th className="fm-num">Đơn giá</th>
                 <th className="fm-num">Chiết khấu (%)</th>
                 <th className="fm-num">Sau chiết khấu</th>
@@ -407,6 +484,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
                     <td className="fm-num">{line.quantity}</td>
                     <td>{line.uom || '—'}</td>
                     <td>{line.warehouseCode || '—'}</td>
+                    {showBatchNumberCol && <td>{line.batchNumber || '—'}</td>}
                     <td className="fm-num">{formatVND(line.unitPrice)}</td>
                     <td className="fm-num">{line.discPct ?? 0}%</td>
                     <td className="fm-num">{formatVND(afterDisc)}</td>
@@ -418,29 +496,29 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Tổng trước chiết khấu:</td>
+                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Tổng trước chiết khấu:</td>
                 <td className="fm-num">{formatVND(doc.totalBeforeDisc)}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Chiết khấu các dòng:</td>
+                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Chiết khấu các dòng:</td>
                 <td className="fm-num">{doc.discountAmt > 0 ? `−${formatVND(doc.discountAmt)}` : formatVND(0)}</td>
               </tr>
               {(doc.headerDiscAmt ?? 0) > 0 && (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'right' }}>Chiết khấu đầu chứng từ ({doc.headerDiscPct ?? 0}%):</td>
+                  <td colSpan={footSpan} style={{ textAlign: 'right' }}>Chiết khấu đầu chứng từ ({doc.headerDiscPct ?? 0}%):</td>
                   <td className="fm-num">−{formatVND(doc.headerDiscAmt ?? 0)}</td>
                 </tr>
               )}
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Sau chiết khấu:</td>
+                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Sau chiết khấu:</td>
                 <td className="fm-num">{formatVND(doc.totalBeforeDisc - doc.discountAmt - (doc.headerDiscAmt ?? 0))}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}>Thuế các dòng:</td>
+                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Thuế các dòng:</td>
                 <td className="fm-num">{formatVND(doc.vatAmt)}</td>
               </tr>
               <tr>
-                <td colSpan={10} style={{ textAlign: 'right' }}><b>Tổng chứng từ:</b></td>
+                <td colSpan={footSpan} style={{ textAlign: 'right' }}><b>Tổng chứng từ:</b></td>
                 <td className="fm-num"><b>{formatVND(doc.grandTotal)}</b></td>
               </tr>
             </tfoot>
@@ -456,7 +534,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
                     <span className="fm-lcard__num">{i + 1}</span>
                     <div>
                       <div className="fm-lcard__name">{line.itemName}</div>
-                      <div className="fm-lcard__code">{line.itemCode} · {line.uom || '—'} · Kho {line.warehouseCode || '—'}</div>
+                      <div className="fm-lcard__code">{line.itemCode} · {line.uom || '—'} · Kho {line.warehouseCode || '—'}{showBatchNumberCol && line.batchNumber ? ` · Lô ${line.batchNumber}` : ''}</div>
                     </div>
                   </div>
                   <div className="fm-lcard__grid">
@@ -475,6 +553,18 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
           </div>
         </div>
       </div>
+
+      {/* Đợt 2 — Ghi nhận thanh toán (hóa đơn / ghi có / đặt cọc):
+          lịch sử + form ghi nhận qua PaymentHistory */}
+      {showPaymentStatus && doc && (
+        <PaymentHistory
+          docType={config.docKey as 'invoice' | 'creditMemo' | 'downPayment'}
+          docId={doc.id}
+          grandTotal={doc.grandTotal ?? 0}
+          paidAmount={doc.paidAmount ?? 0}
+          onChanged={() => { void loadDoc({ cancelled: false }) }}
+        />
+      )}
 
       {/* Phase 2 — Khấu trừ đặt cọc trên hóa đơn */}
       {(doc.draws ?? []).length > 0 && (

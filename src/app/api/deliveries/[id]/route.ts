@@ -5,6 +5,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import { acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapDeliveryDetail } from '@/lib/sap-deliveries'
+import { parseB2BHeader } from '../route'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -131,7 +132,22 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     )
   }
 
-  let body: { lines?: Array<{ id?: string; quantity?: number }>; status?: string; version?: number; docDate?: string; remarks?: string | null }
+  let body: {
+    lines?: Array<{ id?: string; quantity?: number; taxCode?: string | null; discPct?: number; warehouseCode?: string | null; uom?: string | null; batchNumber?: string | null }>
+    status?: string
+    version?: number
+    docDate?: string
+    remarks?: string | null
+    warehouseCode?: string | null
+    /** B2B / SAP B1 (Đợt 2+3) — parse chi tiết bằng parseB2BHeader (whitelist) */
+    salesPersonCode?: unknown; paymentGroupCode?: unknown; shipToCode?: unknown; billToCode?: unknown
+    numAtCard?: unknown; taxDate?: unknown; docCurrency?: unknown; docRate?: unknown
+    projectCode?: unknown; attachmentsJson?: unknown; reqDate?: unknown
+    /** Ghi chú soạn/đóng gói (SAP PickAndPackNotes) */
+    pickAndPackNotes?: string | null
+    /** CK đầu chứng từ % (SAP DiscountPercent) */
+    headerDiscPct?: number
+  }
   try {
     body = await req.json()
   } catch {
@@ -143,9 +159,37 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
   }
 
-  // Header fields cho form sửa đầy đủ (delivery-form-view): ngày chứng từ + ghi chú
+  // B2B / SAP B1 (Đợt 2+3): whitelist + validate các trường header mới
+  const { data: b2b, error: b2bError } = parseB2BHeader(body as unknown as Record<string, unknown>)
+  if (b2bError) {
+    return NextResponse.json({ error: b2bError }, { status: 400 })
+  }
+  // CK đầu chứng từ % (SAP DiscountPercent) — 0–100
+  let headerDiscPct: number | undefined
+  if (body.headerDiscPct !== undefined) {
+    const v = body.headerDiscPct
+    if (v === null) {
+      headerDiscPct = 0
+    } else {
+      const hp = Number(v)
+      if (!Number.isFinite(hp) || hp < 0 || hp > 100) {
+        return NextResponse.json({ error: 'Chiết khấu đầu chứng từ phải từ 0 đến 100%' }, { status: 400 })
+      }
+      headerDiscPct = hp
+    }
+  }
+
+  // Header fields cho form sửa đầy đủ (delivery-form-view): ngày chứng từ + ghi chú + kho xuất
+  // + các trường B2B/SAP B1 mới (Đợt 2+3).
   // Chỉ cho phép khi phiếu chưa đẩy SAP và chưa hủy (đã kiểm tra ở trên)
-  const headerPatch: { docDate?: Date; remarks?: string | null } = {}
+  const headerPatch: {
+    docDate?: Date; remarks?: string | null; warehouseCode?: string | null
+    salesPersonCode?: number | null; paymentGroupCode?: number | null
+    shipToCode?: string | null; billToCode?: string | null; numAtCard?: string | null
+    taxDate?: Date | null; docCurrency?: string; docRate?: number | null
+    projectCode?: string | null; attachmentsJson?: string | null; reqDate?: Date | null
+    pickAndPackNotes?: string | null; headerDiscPct?: number
+  } = { ...b2b }
   if (body.docDate !== undefined) {
     const d = new Date(String(body.docDate))
     if (Number.isNaN(d.getTime())) {
@@ -156,6 +200,15 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (body.remarks !== undefined) {
     const r = body.remarks == null ? null : String(body.remarks).trim()
     headerPatch.remarks = r || null
+  }
+  if (body.warehouseCode !== undefined) {
+    headerPatch.warehouseCode = body.warehouseCode == null ? null : (String(body.warehouseCode).trim() || null)
+  }
+  if (body.pickAndPackNotes !== undefined) {
+    headerPatch.pickAndPackNotes = body.pickAndPackNotes == null ? null : (String(body.pickAndPackNotes).trim() || null)
+  }
+  if (headerDiscPct !== undefined) {
+    headerPatch.headerDiscPct = headerDiscPct
   }
 
   // Optimistic locking bắt buộc: client phải gửi đúng version đã đọc
@@ -239,8 +292,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if (order) orderLineQty = new Map(order.lines.map((l) => [l.id, l.quantity]))
   }
 
+  const clampPct = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
   const byId = new Map(del.lines.map((l) => [l.id, l]))
-  const updates: Array<{ id: string; quantity: number; lineTotal: number }> = []
+  const updates: Array<{ id: string; quantity: number; lineTotal: number; taxCode?: string | null; discPct?: number; warehouseCode?: string | null; uom?: string; batchNumber?: string | null }> = []
   for (const rl2 of reqLines) {
     if (!rl2 || typeof rl2 !== 'object') {
       return NextResponse.json({ error: 'Dòng phiếu không hợp lệ' }, { status: 400 })
@@ -266,18 +320,56 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         }
       }
     }
-    updates.push({ id: line.id, quantity: qty, lineTotal: Math.round(line.unitPrice * qty) })
+    // Mã thuế + CK dòng: gửi kèm thì cập nhật (taxCode: null/string rỗng → null),
+    // không gửi thì giữ nguyên giá trị cũ. lineTotal = sau CK dòng (làm tròn từng dòng).
+    const discPct = rl2.discPct === undefined || rl2.discPct === null
+      ? (line.discPct ?? 0)
+      : clampPct(Number(rl2.discPct))
+    if (rl2.discPct !== undefined && rl2.discPct !== null && !Number.isFinite(Number(rl2.discPct))) {
+      return NextResponse.json({ error: `CK dòng ${line.itemCode} không hợp lệ` }, { status: 400 })
+    }
+    const lt = Math.round(line.unitPrice * qty)
+    updates.push({
+      id: line.id,
+      quantity: qty,
+      lineTotal: lt - Math.round((lt * discPct) / 100),
+      discPct,
+      // Kho dòng: gửi kèm thì cập nhật, không gửi thì giữ nguyên
+      ...(rl2.taxCode !== undefined
+        ? { taxCode: rl2.taxCode == null ? null : (String(rl2.taxCode).trim() || null) }
+        : {}),
+      ...(rl2.warehouseCode !== undefined
+        ? { warehouseCode: rl2.warehouseCode == null ? null : (String(rl2.warehouseCode).trim() || null) }
+        : {}),
+      // ĐVT: gửi kèm thì cập nhật (chuỗi rỗng giữ rỗng để SAP dùng mặc định mặt hàng), không gửi thì giữ nguyên
+      ...(rl2.uom !== undefined ? { uom: String(rl2.uom ?? '').trim() } : {}),
+      // Số lô (SAP BatchNumbers): gửi kèm thì cập nhật, không gửi thì giữ nguyên
+      ...(rl2.batchNumber !== undefined
+        ? { batchNumber: rl2.batchNumber == null ? null : (String(rl2.batchNumber).trim().slice(0, 50) || null) }
+        : {}),
+    })
   }
 
   const totalById = new Map(updates.map((u) => [u.id, u.lineTotal]))
-  // grandTotal = tổng các lineTotal đã round
-  const grandTotal = del.lines.reduce((s, l) => s + (totalById.get(l.id) ?? l.lineTotal), 0)
+  // grandTotal = tổng các lineTotal đã round TRỪ chiết khấu đầu chứng từ
+  // (lấy CK mới gửi kèm, không gửi thì giữ CK đang lưu trên phiếu)
+  const effHeaderDiscPct = headerPatch.headerDiscPct ?? del.headerDiscPct ?? 0
+  const subTotal = del.lines.reduce((s, l) => s + (totalById.get(l.id) ?? l.lineTotal), 0)
+  const grandTotal = subTotal - Math.round((subTotal * effHeaderDiscPct) / 100)
 
   await prisma.$transaction([
     ...updates.map((u) =>
       prisma.deliveryLine.update({
         where: { id: u.id },
-        data: { quantity: u.quantity, lineTotal: u.lineTotal },
+        data: {
+          quantity: u.quantity,
+          lineTotal: u.lineTotal,
+          discPct: u.discPct ?? 0,
+          ...(u.taxCode !== undefined ? { taxCode: u.taxCode } : {}),
+          ...(u.warehouseCode !== undefined ? { warehouseCode: u.warehouseCode } : {}),
+          ...(u.uom !== undefined ? { uom: u.uom } : {}),
+          ...(u.batchNumber !== undefined ? { batchNumber: u.batchNumber } : {}),
+        },
       }),
     ),
     prisma.delivery.update({ where: { id }, data: { grandTotal, version: { increment: 1 }, ...headerPatch } }),

@@ -52,10 +52,13 @@ interface ChartStats {
   warning?: string
 }
 
-/** Phase 3 — số liệu 2 widget công nợ / báo giá chờ (GET /api/dashboard/ar-widgets) */
+/** Phase 3 — số liệu widget công nợ / báo giá chờ (GET /api/dashboard/ar-widgets) */
 interface ArWidgets {
   unpaidTotal: number
   unpaidCount: number
+  /** Tạm ứng đặt cọc chưa áp dụng (chuẩn SAP B1: liability, không trừ công nợ) */
+  unappliedTotal: number
+  unappliedCount: number
   openQuotationCount: number
 }
 
@@ -242,13 +245,22 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(stats.revenueClosed)}</div>
               <div className="fm-stat__meta">Tổng giá trị đơn đã đóng (đã VAT)</div>
             </div>
-            {/* Phase 3 — Hóa đơn chờ thanh toán (dư nợ = Σ(tổng − đã thu)) */}
+            {/* Phase 3 — Công nợ ròng phải thu (chuẩn SAP B1: hóa đơn − phiếu ghi có) */}
             {arWidgets && (
               <div className="fm-stat fm-stat--red">
                 <div className="fm-stat__icon" style={{ background: 'var(--fm-coral-soft)', color: 'var(--fm-coral-deep)' }}><Wallet size={18} /></div>
-                <div className="fm-stat__label">Hóa đơn chờ thanh toán</div>
+                <div className="fm-stat__label">Công nợ phải thu (ròng)</div>
                 <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(arWidgets.unpaidTotal)}</div>
-                <div className="fm-stat__meta">{arWidgets.unpaidCount} hóa đơn chưa thanh toán hết</div>
+                <div className="fm-stat__meta">{arWidgets.unpaidCount} hóa đơn chưa thanh toán hết (đã trừ ghi có)</div>
+              </div>
+            )}
+            {/* Tạm ứng đặt cọc chưa áp dụng — riêng, không trừ công nợ (chuẩn SAP B1) */}
+            {arWidgets && arWidgets.unappliedCount > 0 && (
+              <div className="fm-stat">
+                <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><Wallet size={18} /></div>
+                <div className="fm-stat__label">Tạm ứng chưa áp dụng</div>
+                <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(arWidgets.unappliedTotal)}</div>
+                <div className="fm-stat__meta">{arWidgets.unappliedCount} hóa đơn đặt cọc còn dư</div>
               </div>
             )}
             {/* Phase 3 — Báo giá chờ duyệt (Quotation status Open) */}

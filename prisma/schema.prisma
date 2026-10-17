@@ -30,6 +30,8 @@ model BusinessPartner {
   cardCode  String // C20001
   cardName  String
   address   String?
+  groupNum      Int?    // Điều khoản thanh toán (SAP OCRD.GroupNum)
+  addressesJson String? // Địa chỉ giao/nhận hàng JSON (SAP BPAddresses)
   phone     String?
   email     String?   // EmailAddress (dòng đồng bộ từ SAP B1)
   contactPerson String? // Người liên hệ chính (ContactEmployees[0].Name trên SAP B1)
@@ -102,6 +104,18 @@ model SalesOrder {
   status          String           @default("Open") // Open | Closed | Cancelled
   version         Int              @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
+  reqDate         DateTime? // Ngày cần giao (SAP ReqDate)
   warehouseCode   String?          // Kho hàng xuất bán mặc định áp dụng cho các dòng hàng (WarehouseCode)
   totalBeforeDisc Float            @default(0) // Tổng trước chiết khấu (sum lineTotal)
   discountAmt     Float            @default(0) // Tổng chiết khấu các dòng
@@ -139,9 +153,24 @@ model Delivery {
   docDate       DateTime  @default(now())
   cardCode      String
   cardName      String
+  warehouseCode String? // Kho xuất hàng header (SAP DeliveryNotes.WarehouseCode) — mặc định áp cho các dòng
   status        String    @default("Open") // Open | Closed | Cancelled
   version       Int       @default(0) // Optimistic locking: tăng mỗi lần update
   remarks       String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
+  reqDate         DateTime? // Ngày cần giao (SAP ReqDate)
+  pickAndPackNotes String?  // Ghi chú soạn/đóng gói (SAP PickAndPackNotes)
+  headerDiscPct   Float     @default(0) // CK đầu chứng từ % (SAP DiscountPercent)
   // Liên kết đơn hàng nguồn (1 đơn có thể có nhiều delivery)
   sourceOrderId String?
   sourceOrder   SalesOrder? @relation(fields: [sourceOrderId], references: [id])
@@ -183,11 +212,16 @@ model DeliveryLine {
   uom        String   @default("")
   unitPrice  Float    @default(0)
   lineTotal  Float    @default(0)
+  taxCode    String? // Mã nhóm thuế SAP (Delivery VAT Group) → VatGroup khi đẩy
+  discPct    Float    @default(0) // Chiết khấu % theo dòng → DiscountPercent khi đẩy
   // Liên kết dòng đơn nguồn — để tính OpenQty (đã giao bao nhiêu)
   sourceOrderLineId String?
   // Liên kết dòng báo giá nguồn (copy-from: Delivery ← Quotation)
   sourceQuotationLineId String?
+  // Kho xuất của dòng (SAP DocumentLines.WarehouseCode) — mặc định theo kho header
+  warehouseCode String?
 
+  batchNumber String? // Số lô (SAP BatchNumbers) — truy xuất nguồn gốc
   @@index([deliveryId])
   @@index([sourceOrderLineId])
   @@index([sourceQuotationLineId])
@@ -212,6 +246,9 @@ model SalesOrderLine {
   grandTotal Float      @default(0) // Sau CK + VAT của dòng
   order      SalesOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sapLineNum Int?       // LineNum do SAP B1 cấp khi đẩy đơn (PATCH /Orders khi sửa đơn cần LineNum)
+  // Local id dòng báo giá nguồn (copy-to: Order ← Quotation) — dùng tra
+  // BaseType/BaseEntry/BaseLine khi đẩy đơn lên SAP (dòng null = đơn độc lập)
+  sourceLineId String?
   // ---------- Dòng thành phần BOM ----------
   isBomChild  Boolean @default(false) // true = dòng thành phần con của mặt hàng BOM
   bomGroupKey String?  // khóa nhóm: dòng cha và các dòng con cùng nhóm BOM
@@ -393,6 +430,17 @@ model Quotation {
   status          String          @default("Open") // Open | Closed | Cancelled
   version         Int             @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
   warehouseCode   String?         // Kho hàng mặc định áp dụng cho các dòng hàng
   totalBeforeDisc Float           @default(0) // Tổng trước chiết khấu (sum lineTotal)
   discountAmt     Float           @default(0) // Tổng chiết khấu các dòng
@@ -462,6 +510,17 @@ model ArInvoice {
   status          String        @default("Open") // Open | Closed | Cancelled
   version         Int           @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
   warehouseCode   String?
   totalBeforeDisc Float         @default(0)
   discountAmt     Float         @default(0)
@@ -521,6 +580,8 @@ model ArInvoiceLine {
   bomEditable     Boolean   @default(true)
   bomQtyPerParent Float?
   sourceLineId    String?   // id dòng chứng từ nguồn (tương đương BaseLine SAP)
+  /** Mã tài khoản kế toán (SAP: DocumentLines.AccountCode) — bắt buộc với dòng hóa đơn DỊCH VỤ (DocType=dDocument_Service) */
+  accountCode     String?
 
   @@index([invoiceId])
   @@index([sourceLineId])
@@ -537,6 +598,19 @@ model ArCreditMemo {
   status          String           @default("Open") // Open | Closed | Cancelled
   version         Int              @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
+  paidAmount      Float     @default(0) // Số tiền đã thu/ghi nhận
+  paymentStatus   String    @default("unpaid") // unpaid | partial | paid
   warehouseCode   String?
   totalBeforeDisc Float            @default(0)
   discountAmt     Float            @default(0)
@@ -606,6 +680,17 @@ model SalesReturn {
   status          String          @default("Open") // Open | Closed | Cancelled
   version         Int             @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
   warehouseCode   String?
   totalBeforeDisc Float           @default(0)
   discountAmt     Float           @default(0)
@@ -660,6 +745,7 @@ model SalesReturnLine {
   bomQtyPerParent Float?
   sourceLineId    String?     // id dòng chứng từ nguồn (tương đương BaseLine SAP)
 
+  batchNumber String? // Số lô (SAP BatchNumbers) — truy xuất nguồn gốc
   @@index([returnId])
   @@index([sourceLineId])
 }
@@ -679,6 +765,19 @@ model ArDownPayment {
   status          String              @default("Open") // Open | Closed | Cancelled
   version         Int                 @default(0) // Optimistic locking: tăng mỗi lần update
   remarks         String?
+  // --- B2B / SAP B1 mở rộng (Đợt 2+3, 2026-10-17) ---
+  salesPersonCode Int?     // Nhân viên bán hàng (SAP SalesPersonCode)
+  paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
+  shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
+  billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
+  taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
+  docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
+  docRate         Float?   @default(1)     // Tỷ giá (SAP DocRate)
+  projectCode     String?  // Mã dự án (SAP ProjectCode)
+  attachmentsJson String?  // Đính kèm gọn [{name,url}] (thay SAP AttachmentEntry)
+  paidAmount      Float     @default(0) // Số tiền đã thu
+  paymentStatus   String    @default("unpaid") // unpaid | partial | paid
   warehouseCode   String?
   totalBeforeDisc Float               @default(0)
   discountAmt     Float               @default(0)
@@ -764,4 +863,50 @@ model DocNumSequence {
   docType   String   @unique // quotation | invoice | creditMemo | return | downPayment
   lastNum   Int      @default(0)
   updatedAt DateTime @updatedAt
+}
+
+
+// Nhân viên bán hàng — đồng bộ từ SAP B1 OSLP (Đợt 2)
+model SalesPerson {
+  id            String   @id @default(cuid())
+  code          Int      @unique // SAP OSLP.SlpCode
+  name          String   // SAP OSLP.SlpName
+  active        Boolean  @default(true)
+  sapDatabaseId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([sapDatabaseId])
+}
+
+// Lịch sử ghi nhận thanh toán cho hóa đơn/ghi có/đặt cọc (Đợt 2, MỤC 11)
+model PaymentRecord {
+  id        String   @id @default(cuid())
+  docType   String   // invoice | creditMemo | downPayment
+  docId     String   // id chứng từ
+  amount    Float
+  payDate   DateTime @default(now())
+  remarks   String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([docType, docId])
+}
+
+// Điều khoản thanh toán — đồng bộ từ SAP B1 OCTG (Đợt 2, MỤC 7)
+model PaymentTerm {
+  id            String   @id @default(cuid())
+  code          Int      @unique // SAP OCTG.GroupNum
+  name          String   // SAP OCTG.PymntGroup
+  /** Số ngày cộng vào ngày chứng từ để tính ngày đáo hạn (chuẩn SAP B1:
+   * DueDate = StartFrom + NumberOfAdditionalMonths + NumberOfAdditionalDays;
+   * tháng quy đổi xấp xỉ 30 ngày) */
+  days          Int      @default(0) // = NumberOfAdditionalMonths*30 + NumberOfAdditionalDays
+  /** Mốc tính ngày đáo hạn: 'docDate' (mặc định) | 'taxDate' — theo SAP OCTG.BaselineDate */
+  dueDateBase   String   @default("docDate")
+  sapDatabaseId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([sapDatabaseId])
 }

@@ -23,6 +23,19 @@ export interface OrderLineInput {
   bomEditable?: boolean
   /** Định mức: số lượng con cho 1 đơn vị cha (dòng con BOM) */
   bomQtyPerParent?: number | null
+  /**
+   * Local id của dòng chứng từ nguồn (copy-from/copy-to chuẩn SAP B1 —
+   * hiện dùng cho Order ← Quotation). {...l} trong calcOrderLines giữ nguyên
+   * field này để route lưu DB và truyền vào payload SAP khi đẩy.
+   */
+  sourceLineId?: string | null
+  /**
+   * Mã tài khoản kế toán (SAP: DocumentLines.AccountCode) — chỉ dùng cho
+   * dòng HÓA ĐƠN BÁN HÀNG dịch vụ (docType=Service → dDocument_Service);
+   * các loại chứng từ khác không có cột này trong DB nên route chỉ ghi khi
+   * field được truyền (guard trong lineCreateData của sales-ar).
+   */
+  accountCode?: string | null
 }
 
 export interface CalcLine extends OrderLineInput {

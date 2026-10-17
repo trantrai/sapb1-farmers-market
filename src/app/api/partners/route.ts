@@ -46,7 +46,7 @@ async function loadCustomers(s: {
   return { rows: [], error: live.error ?? 'Lỗi Service Layer' }
 }
 
-const toUi = (p: B1Partner) => {
+const toUi = (p: B1Partner, extra?: { addressesJson?: string | null; groupNum?: number | null }) => {
   const ce = Array.isArray(p.ContactEmployees) ? p.ContactEmployees : []
   const c = ce.find((x) => (x.Name ?? '').trim() !== '') ?? ce[0]
   const contactPerson = c ? ((c.Name ?? '').trim() || [c.FirstName, c.LastName].filter(Boolean).join(' ').trim() || '') : ''
@@ -60,6 +60,9 @@ const toUi = (p: B1Partner) => {
     contactPerson,
     contactPhone,
     groupType: 'Khách hàng',
+    // Đợt 2 — gộp địa chỉ + ĐKTT từ mirror local (đồng bộ qua /api/bpartners/sync)
+    addressesJson: extra?.addressesJson ?? null,
+    groupNum: extra?.groupNum ?? null,
   }
 }
 
@@ -81,16 +84,27 @@ export async function GET(req: NextRequest) {
     if (rows.length === 0 && error) {
       return NextResponse.json({ data: [], source: 'sap', error })
     }
+    // Đợt 2 — gộp addressesJson/groupNum từ mirror local (đồng bộ qua /api/bpartners/sync)
+    // để form chứng từ có dropdown địa chỉ giao/ghi hóa đơn ngay cả khi query live từ SAP.
+    let mirror: Record<string, { addressesJson?: string | null; groupNum?: number | null }> = {}
+    try {
+      const codes = rows.map((p) => p.CardCode)
+      const mrows = await prisma.businessPartner.findMany({
+        where: { cardCode: { in: codes }, ...(dbId ? { sapDatabaseId: dbId } : {}) },
+        select: { cardCode: true, addressesJson: true, groupNum: true },
+      })
+      for (const m of mrows) mirror[m.cardCode] = m
+    } catch { /* mirror lỗi → vẫn trả dữ liệu SAP live */ }
     if (q) {
       // Lọc từ khóa tại chỗ trên cache (không substringof — an toàn mọi bản SL)
       const nq = norm(q)
       const data = rows
         .filter((p) => norm(p.CardCode).includes(nq) || norm(p.CardName ?? '').includes(nq) || norm(p.Phone1 ?? '').includes(nq))
         .slice(0, 100)
-        .map(toUi)
+        .map((p) => toUi(p, mirror[p.CardCode]))
       return NextResponse.json({ data, total: data.length, source: 'sap' })
     }
-    const data = rows.map(toUi)
+    const data = rows.map((p) => toUi(p, mirror[p.CardCode]))
     return NextResponse.json({ data, total: data.length, source: 'sap' })
   }
 

@@ -170,7 +170,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const lineTotals = picked.map((x) => Math.round(x.line.unitPrice * x.qty))
+      // lineTotal = sau CK dòng (làm tròn từng dòng, đồng bộ công thức POST /api/deliveries)
+      const clampPct = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
+      const lineTotals = picked.map((x) => {
+        const lt = Math.round(x.line.unitPrice * x.qty)
+        return lt - Math.round((lt * clampPct(Number(x.line.discPct ?? 0))) / 100)
+      })
       const grandTotal = lineTotals.reduce((sum, t) => sum + t, 0)
 
       let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
@@ -198,6 +203,8 @@ export async function POST(req: NextRequest) {
                   uom: x.line.uom || '',
                   unitPrice: x.line.unitPrice,
                   lineTotal: lineTotals[i],
+                  taxCode: x.line.taxCode ?? null,
+                  discPct: clampPct(Number(x.line.discPct ?? 0)),
                   sourceOrderLineId: x.line.id,
                 })),
               },
@@ -346,7 +353,12 @@ export async function POST(req: NextRequest) {
     }
 
     // grandTotal = tổng các lineTotal đã round (không tính lại từ unitPrice*qty)
-    const lineTotals = picked.map((x) => Math.round(x.line.unitPrice * x.qty))
+    // lineTotal = sau CK dòng (làm tròn từng dòng, đồng bộ công thức POST /api/deliveries)
+    const clampPct2 = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
+    const lineTotals = picked.map((x) => {
+      const lt = Math.round(x.line.unitPrice * x.qty)
+      return lt - Math.round((lt * clampPct2(Number(x.line.discPct ?? 0))) / 100)
+    })
     const grandTotal = lineTotals.reduce((s, t) => s + t, 0)
 
     // Cấp docNum: max+1 (retry khi trùng)
@@ -360,6 +372,7 @@ export async function POST(req: NextRequest) {
             docNum,
             cardCode: order.cardCode,
         cardName: order.cardName,
+        warehouseCode: order.warehouseCode ?? null,
         remarks: `Sao chép từ đơn hàng bán #${order.docNum}`,
         sourceOrderId: order.id,
         sapDatabaseId: order.sapDatabaseId,
@@ -374,7 +387,10 @@ export async function POST(req: NextRequest) {
             uom: x.line.uom || '',
             unitPrice: x.line.unitPrice,
             lineTotal: lineTotals[i],
+            taxCode: x.line.taxCode ?? null,
+            discPct: clampPct2(Number(x.line.discPct ?? 0)),
             sourceOrderLineId: x.line.id,
+            warehouseCode: x.line.warehouseCode ?? order.warehouseCode ?? null,
           })),
         },
         },

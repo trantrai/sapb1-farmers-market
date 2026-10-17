@@ -1,14 +1,18 @@
 'use client'
 
 // ============================================================
-// CÔNG NỢ PHẢI THU (Phase 3) — số liệu từ GET /api/reports/ar-aging
-// Aging buckets theo docDueDate và số dư (grandTotal − paidAmount) của
-// hóa đơn chưa thanh toán hết: Chưa đến hạn | 1–30 | 31–60 | 61–90 | >90.
-// Bảng tổng hợp theo khách hàng + chi tiết hóa đơn.
+// CÔNG NỢ PHẢI THU (Phase 3, chuẩn SAP B1) — số liệu từ GET /api/reports/ar-aging
+// - Công nợ RÒNG theo khách hàng = Σ(Hóa đơn: tổng − đã thu) − Σ(Phiếu ghi có:
+//   tổng − đã thu)
+// - Hóa đơn đặt cọc là tạm ứng (liability) — hiển thị riêng section
+//   "Tạm ứng chưa áp dụng", KHÔNG trừ vào công nợ
+// - Ngày đáo hạn = ngày chứng từ + số ngày ĐKTT (PaymentTerm.days, chuẩn SAP B1:
+//   DueDate = StartFrom + ExtraMonth + ExtraDays); không có ĐKTT → docDueDate
+// - Aging buckets theo ngày đáo hạn: Chưa đến hạn | 1–30 | 31–60 | 61–90 | >90
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, Wallet } from 'lucide-react'
+import { RefreshCw, Wallet, HandCoins } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
@@ -28,27 +32,44 @@ interface CustomerRow {
   d61_90: number
   over90: number
 }
-interface InvoiceRow {
+interface DocRow {
   id: string
-  docNum: number
+  docType: 'invoice' | 'creditMemo'
+  docNum: number | null
   cardCode: string
   cardName: string
   docDate: string
-  docDueDate: string
+  dueDate: string
+  termDays: number | null
   grandTotal: number
   paidAmount: number
   balance: number
   daysOverdue: number
   bucket: string
 }
+interface DownPaymentRow {
+  id: string
+  docNum: number | null
+  cardCode: string
+  cardName: string
+  docDate: string
+  grandTotal: number
+  remainingAmount: number
+}
 
 interface ReportData {
   generatedAt: string
   grandTotal: number
   invoiceCount: number
+  creditMemoCount: number
+  openDocCount: number
   buckets: Bucket[]
   customers: CustomerRow[]
-  invoices: InvoiceRow[]
+  documents: DocRow[]
+  /** Tương thích ngược với API cũ (trả invoices) */
+  invoices?: DocRow[]
+  downPayments: DownPaymentRow[]
+  unappliedTotal: number
 }
 
 const BUCKET_COLORS: Record<string, string> = {
@@ -67,12 +88,18 @@ const BUCKET_LABEL: Record<string, string> = {
   over90: '> 90 ngày',
 }
 
+const DOC_TYPE_LABEL: Record<string, string> = {
+  invoice: 'Hóa đơn',
+  creditMemo: 'Ghi có',
+}
+
 export default function ArAgingReportView() {
   const [data, setData] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [bucketFilter, setBucketFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -94,16 +121,19 @@ export default function ArAgingReportView() {
   useEffect(() => { void load() }, [load])
   const reload = () => { setRefreshing(true); void load() }
 
-  const filteredInvoices = data
-    ? data.invoices.filter((i) => !bucketFilter || i.bucket === bucketFilter)
-    : []
+  const docs = data?.documents ?? data?.invoices ?? []
+  const filteredDocs = docs.filter(
+    (d) =>
+      (!bucketFilter || d.bucket === bucketFilter) &&
+      (!typeFilter || d.docType === typeFilter),
+  )
 
   return (
     <div>
       <PageHeader
         breadcrumb={['Chức năng chính', 'Công nợ phải thu']}
         title="Công nợ phải thu"
-        badge="Tuổi nợ theo hạn thanh toán"
+        badge="Tuổi nợ theo hạn thanh toán (chuẩn SAP B1)"
         actions={
           <button type="button" className="fm-btn fm-btn--secondary" onClick={reload} disabled={refreshing || loading}>
             <RefreshCw size={16} className={refreshing ? 'fm-spin' : undefined} /> {refreshing ? 'Đang tải…' : 'Tải lại'}
@@ -132,29 +162,37 @@ export default function ArAgingReportView() {
           <div className="fm-stats" style={{ marginBottom: 16 }}>
             <div className="fm-stat fm-stat--navy">
               <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><Wallet size={18} /></div>
-              <div className="fm-stat__label">Tổng dư nợ</div>
+              <div className="fm-stat__label">Tổng dư nợ ròng</div>
               <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(data.grandTotal)}</div>
-              <div className="fm-stat__meta">{data.invoiceCount} hóa đơn chưa thanh toán hết</div>
+              <div className="fm-stat__meta">
+                {data.openDocCount} chứng từ mở ({data.invoiceCount} hóa đơn − {data.creditMemoCount} ghi có)
+              </div>
             </div>
             {data.buckets.map((b) => (
               <div key={b.key} className="fm-stat">
                 <div className="fm-stat__label">{b.label}</div>
                 <div className="fm-stat__value" style={{ fontSize: 20 }}>{formatVND(b.total)}</div>
-                <div className="fm-stat__meta">{b.count} hóa đơn</div>
+                <div className="fm-stat__meta">{b.count} chứng từ</div>
               </div>
             ))}
+            <div className="fm-stat">
+              <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><HandCoins size={18} /></div>
+              <div className="fm-stat__label">Tạm ứng chưa áp dụng</div>
+              <div className="fm-stat__value" style={{ fontSize: 20 }}>{formatVND(data.unappliedTotal ?? 0)}</div>
+              <div className="fm-stat__meta">{(data.downPayments ?? []).length} hóa đơn đặt cọc còn dư</div>
+            </div>
           </div>
 
           {/* Biểu đồ cột theo nhóm tuổi nợ */}
           <div className="fm-card" style={{ marginBottom: 16 }}>
-            <h2 className="fm-card__title">Dư nợ theo nhóm tuổi nợ</h2>
-            <div style={{ width: '100%', height: 260 }} role="img" aria-label="Biểu đồ cột dư nợ theo nhóm tuổi nợ">
+            <h2 className="fm-card__title">Dư nợ ròng theo nhóm tuổi nợ</h2>
+            <div style={{ width: '100%', height: 260 }} role="img" aria-label="Biểu đồ cột dư nợ ròng theo nhóm tuổi nợ">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.buckets} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--fm-line)" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-12} height={56} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => (v >= 1000000 ? `${Math.round(v / 1000000)}M` : v >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`)} />
-                  <Tooltip formatter={(v) => [formatVND(Number(v)), 'Dư nợ']} />
+                  <Tooltip formatter={(v) => [formatVND(Number(v)), 'Dư nợ ròng']} />
                   <Bar dataKey="total" radius={[4, 4, 0, 0]}>
                     {data.buckets.map((b) => (
                       <Cell key={b.key} fill={BUCKET_COLORS[b.key] ?? 'var(--fm-navy)'} />
@@ -167,7 +205,7 @@ export default function ArAgingReportView() {
 
           {/* Tổng hợp theo khách hàng */}
           <div className="fm-card" style={{ marginBottom: 16 }}>
-            <h2 className="fm-card__title">Tổng hợp công nợ theo khách hàng</h2>
+            <h2 className="fm-card__title">Tổng hợp công nợ ròng theo khách hàng</h2>
             {data.customers.length === 0 ? (
               <div className="fm-empty">Không có công nợ phải thu</div>
             ) : (
@@ -182,7 +220,7 @@ export default function ArAgingReportView() {
                       <th className="fm-num">31–60 ngày</th>
                       <th className="fm-num">61–90 ngày</th>
                       <th className="fm-num">&gt; 90 ngày</th>
-                      <th className="fm-num">Tổng dư nợ</th>
+                      <th className="fm-num">Tổng dư nợ ròng</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -210,58 +248,118 @@ export default function ArAgingReportView() {
             )}
           </div>
 
-          {/* Chi tiết hóa đơn */}
-          <div className="fm-card">
+          {/* Chi tiết chứng từ mở */}
+          <div className="fm-card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-              <h2 className="fm-card__title" style={{ margin: 0 }}>Chi tiết hóa đơn chưa thanh toán hết</h2>
-              <select
-                className="fm-select"
-                aria-label="Lọc theo nhóm tuổi nợ"
-                value={bucketFilter}
-                onChange={(e) => setBucketFilter(e.target.value)}
-                style={{ width: 'auto' }}
-              >
-                <option value="">Tất cả nhóm</option>
-                {data.buckets.map((b) => (
-                  <option key={b.key} value={b.key}>{b.label}</option>
-                ))}
-              </select>
+              <h2 className="fm-card__title" style={{ margin: 0 }}>Chi tiết chứng từ chưa thanh toán hết</h2>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select
+                  className="fm-select"
+                  aria-label="Lọc theo loại chứng từ"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  style={{ width: 'auto' }}
+                >
+                  <option value="">Hóa đơn + Ghi có</option>
+                  <option value="invoice">Hóa đơn bán hàng</option>
+                  <option value="creditMemo">Phiếu ghi có</option>
+                </select>
+                <select
+                  className="fm-select"
+                  aria-label="Lọc theo nhóm tuổi nợ"
+                  value={bucketFilter}
+                  onChange={(e) => setBucketFilter(e.target.value)}
+                  style={{ width: 'auto' }}
+                >
+                  <option value="">Tất cả nhóm</option>
+                  {data.buckets.map((b) => (
+                    <option key={b.key} value={b.key}>{b.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            {filteredInvoices.length === 0 ? (
-              <div className="fm-empty">Không có hóa đơn phù hợp</div>
+            {filteredDocs.length === 0 ? (
+              <div className="fm-empty">Không có chứng từ phù hợp</div>
             ) : (
               <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto', marginTop: 8 }}>
                 <table className="fm-table">
                   <thead>
                     <tr>
-                      <th>Số hóa đơn</th>
+                      <th>Loại</th>
+                      <th>Số chứng từ</th>
                       <th>Khách hàng</th>
-                      <th>Ngày hóa đơn</th>
+                      <th>Ngày chứng từ</th>
                       <th>Hạn thanh toán</th>
+                      <th>ĐKTT</th>
                       <th>Tuổi nợ</th>
-                      <th className="fm-num">Tổng hóa đơn</th>
-                      <th className="fm-num">Đã thu</th>
+                      <th className="fm-num">Tổng chứng từ</th>
+                      <th className="fm-num">Đã thu / ghi giảm</th>
                       <th className="fm-num">Dư nợ</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredInvoices.map((i) => (
-                      <tr key={i.id}>
-                        <th scope="row"><b>#{i.docNum}</b></th>
-                        <td>{i.cardName}</td>
-                        <td>{formatDateVN(i.docDate)}</td>
-                        <td>{formatDateVN(i.docDueDate)}</td>
+                    {filteredDocs.map((d) => (
+                      <tr key={`${d.docType}-${d.id}`}>
                         <td>
-                          <span className={`fm-chip ${i.daysOverdue <= 0 ? 'fm-chip--open' : i.daysOverdue > 90 ? 'fm-chip--overdue' : 'fm-chip--warn'}`}>
-                            {BUCKET_LABEL[i.bucket] ?? i.bucket}
+                          <span className={`fm-chip ${d.docType === 'creditMemo' ? 'fm-chip--warn' : 'fm-chip--open'}`}>
+                            {DOC_TYPE_LABEL[d.docType] ?? d.docType}
                           </span>
                         </td>
-                        <td className="fm-num">{formatVND(i.grandTotal)}</td>
-                        <td className="fm-num">{formatVND(i.paidAmount)}</td>
-                        <td className="fm-num"><b>{formatVND(i.balance)}</b></td>
+                        <th scope="row"><b>#{d.docNum ?? '—'}</b></th>
+                        <td>{d.cardName}</td>
+                        <td>{formatDateVN(d.docDate)}</td>
+                        <td>{formatDateVN(d.dueDate)}</td>
+                        <td>{d.termDays != null ? `${d.termDays} ngày` : '—'}</td>
+                        <td>
+                          <span className={`fm-chip ${d.daysOverdue <= 0 ? 'fm-chip--open' : d.daysOverdue > 90 ? 'fm-chip--overdue' : 'fm-chip--warn'}`}>
+                            {BUCKET_LABEL[d.bucket] ?? d.bucket}
+                          </span>
+                        </td>
+                        <td className="fm-num">{formatVND(d.grandTotal)}</td>
+                        <td className="fm-num">{formatVND(d.paidAmount)}</td>
+                        <td className="fm-num"><b>{formatVND(d.balance)}</b></td>
                       </tr>
                     ))}
                   </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Tạm ứng đặt cọc chưa áp dụng — riêng, không trừ công nợ (chuẩn SAP B1) */}
+          <div className="fm-card">
+            <h2 className="fm-card__title">Tạm ứng đặt cọc chưa áp dụng</h2>
+            {(data.downPayments ?? []).length === 0 ? (
+              <div className="fm-empty">Không có khoản tạm ứng nào chưa áp dụng</div>
+            ) : (
+              <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
+                <table className="fm-table">
+                  <thead>
+                    <tr>
+                      <th>Số đặt cọc</th>
+                      <th>Khách hàng</th>
+                      <th>Ngày đặt cọc</th>
+                      <th className="fm-num">Tổng đặt cọc</th>
+                      <th className="fm-num">Còn lại chưa khấu trừ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.downPayments ?? []).map((dp) => (
+                      <tr key={dp.id}>
+                        <th scope="row"><b>#{dp.docNum ?? '—'}</b></th>
+                        <td>{dp.cardName}</td>
+                        <td>{formatDateVN(dp.docDate)}</td>
+                        <td className="fm-num">{formatVND(dp.grandTotal)}</td>
+                        <td className="fm-num"><b>{formatVND(dp.remainingAmount)}</b></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'right' }}><b>Tổng tạm ứng chưa áp:</b></td>
+                      <td className="fm-num"><b>{formatVND(data.unappliedTotal ?? 0)}</b></td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}

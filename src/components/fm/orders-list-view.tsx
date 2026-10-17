@@ -65,6 +65,18 @@ interface Order {
   /** Optimistic locking version */
   version?: number
   lines: Line[]
+  // ---------- B2B / SAP B1 (Đợt 2+3) — để toEditData map sang form sửa ----------
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  reqDate?: string | null
 }
 
 interface Props {

@@ -35,6 +35,13 @@ export const DOC_STATUS_LABEL: Record<string, string> = {
   Cancelled: 'Đã hủy',
 }
 
+/** Đợt 2 — Nhãn tiếng Việt chuẩn của trạng thái thanh toán (SAP B1: PaidToDate/Days) */
+export const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  unpaid: 'Chưa thanh toán',
+  partial: 'Thanh toán một phần',
+  paid: 'Đã thanh toán hết',
+}
+
 /** 1 dòng chứng từ — mirror cấu trúc Line của Order */
 export interface SalesDocLine {
   id: string
@@ -54,6 +61,8 @@ export interface SalesDocLine {
   taxCode?: string
   /** Tương đương BaseLine của SAP: id dòng chứng từ nguồn */
   sourceLineId?: string | null
+  /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán */
+  batchNumber?: string | null
 }
 
 /** Khấu trừ đặt cọc gắn trên hóa đơn (model DownPaymentDraw của API — WORKER A) */
@@ -101,6 +110,20 @@ export interface SalesDoc {
   /** Phase 2 — Khấu trừ đặt cọc đã gắn trên hóa đơn */
   draws?: DownPaymentDrawItem[]
   lines: SalesDocLine[]
+  /** Đợt 2 — Thông tin B2B / SAP B1 trên header (SalesPersonCode, PaymentGroupCode, ShipToCode, BillToCode, NumAtCard, TaxDate, DocCurrency, DocRate, ProjectCode, Attachments) */
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  /** Đợt 2 — Trạng thái thanh toán (hóa đơn / ghi có / đặt cọc): số tiền đã thu + unpaid|partial|paid */
+  paidAmount?: number | null
+  paymentStatus?: string | null
 }
 
 // ---------- Chế độ SỬA (form) — mirror EditOrderData / toEditData ----------
@@ -117,6 +140,10 @@ export interface EditDocLine {
   vatPct?: number
   taxCode?: string
   sourceLineId?: string | null
+  /** Mã tài khoản kế toán (SAP: AccountCode) — dòng hóa đơn dịch vụ */
+  accountCode?: string | null
+  /** Số lô (SAP BatchNumbers) — dòng Phiếu trả hàng bán */
+  batchNumber?: string | null
 }
 
 export interface EditDocData {
@@ -139,6 +166,20 @@ export interface EditDocData {
   /** Phase 2 — Khấu trừ đặt cọc đã gắn trên hóa đơn */
   draws?: DownPaymentDrawItem[]
   lines: EditDocLine[]
+  /** Đợt 2 — Thông tin B2B / SAP B1 */
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  /** Đợt 2 — Trạng thái thanh toán (hóa đơn / ghi có / đặt cọc) */
+  paidAmount?: number | null
+  paymentStatus?: string | null
 }
 
 export interface EditDocSourceLine {
@@ -154,6 +195,10 @@ export interface EditDocSourceLine {
   vatPct?: number
   taxCode?: string
   sourceLineId?: string | null
+  /** Mã tài khoản kế toán (SAP: AccountCode) — dòng hóa đơn dịch vụ */
+  accountCode?: string | null
+  /** Số lô (SAP BatchNumbers) — dòng Phiếu trả hàng bán */
+  batchNumber?: string | null
 }
 
 export interface EditDocSource {
@@ -176,6 +221,19 @@ export interface EditDocSource {
   docType?: string | null
   draws?: DownPaymentDrawItem[]
   lines: EditDocSourceLine[]
+  /** Đợt 2 — Thông tin B2B / SAP B1 + trạng thái thanh toán (hóa đơn / ghi có / đặt cọc) */
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  paidAmount?: number | null
+  paymentStatus?: string | null
 }
 
 /**
@@ -200,6 +258,18 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
   isDraft: o.isDraft ?? false,
   docType: o.docType ?? null,
   draws: o.draws ?? [],
+  salesPersonCode: o.salesPersonCode ?? null,
+  paymentGroupCode: o.paymentGroupCode ?? null,
+  shipToCode: o.shipToCode ?? null,
+  billToCode: o.billToCode ?? null,
+  numAtCard: o.numAtCard ?? null,
+  taxDate: o.taxDate ?? null,
+  docCurrency: o.docCurrency ?? null,
+  docRate: o.docRate ?? null,
+  projectCode: o.projectCode ?? null,
+  attachmentsJson: o.attachmentsJson ?? null,
+  paidAmount: o.paidAmount ?? null,
+  paymentStatus: o.paymentStatus ?? null,
   lines: o.lines.map((l) => ({
     dbId: o.source === 'sap' ? undefined : l.id,
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
@@ -213,6 +283,8 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
     vatPct: l.vatPct,
     taxCode: l.taxCode,
     sourceLineId: l.sourceLineId ?? null,
+    accountCode: l.accountCode ?? null,
+    batchNumber: l.batchNumber ?? null,
   })),
 })
 
@@ -249,6 +321,11 @@ export interface DocKindConfig {
   enableDocType?: boolean
   /** Phase 2 — hiện "Số dư chưa khấu trừ" trên trang chi tiết (chỉ Hóa đơn đặt cọc) */
   showRemaining?: boolean
+  /** Đợt 2 — hiện cột "Số lô" ở bảng dòng (chỉ Phiếu trả hàng bán) */
+  showBatchNumberCol?: boolean
+  /** Đợt 2 — hiển thị trạng thái thanh toán (paidAmount/paymentStatus)
+   *  trên trang chi tiết (Hóa đơn bán hàng · Phiếu ghi có · Hóa đơn đặt cọc) */
+  showPaymentStatus?: boolean
 }
 
 /** Nhãn hiển thị theo loại hóa đơn — 'Reserve' → "Hóa đơn bán hàng dự trữ" */
@@ -289,6 +366,7 @@ export const INVOICE_CONFIG: DocKindConfig = {
   copyButtons: [{ target: 'creditMemo', label: 'Sao chép sang phiếu ghi có phải thu' }],
   enableDownPaymentDraws: true, // picker khấu trừ đặt cọc trên form hóa đơn
   enableDocType: true, // select loại hóa đơn Hàng hóa / Dịch vụ / Dự trữ
+  showPaymentStatus: true, // Đợt 2: hiển thị số tiền đã thu + trạng thái thanh toán
 }
 
 export const CREDIT_MEMO_CONFIG: DocKindConfig = {
@@ -299,6 +377,7 @@ export const CREDIT_MEMO_CONFIG: DocKindConfig = {
   fromSourceApi: '/api/credit-memos/from-source',
   sourceIdField: { invoice: 'sourceInvoiceId', return: 'sourceReturnId' },
   copyButtons: [], // cuối luồng — không có copy-to tiếp
+  showPaymentStatus: true, // Đợt 2: hiển thị số tiền đã thu + trạng thái thanh toán
 }
 
 export const RETURN_CONFIG: DocKindConfig = {
@@ -310,6 +389,7 @@ export const RETURN_CONFIG: DocKindConfig = {
   fromSourceApi: '/api/returns/from-source',
   sourceIdField: { delivery: 'sourceDeliveryId', invoice: 'sourceInvoiceId' },
   copyButtons: [{ target: 'creditMemo', label: 'Sao chép sang phiếu ghi có phải thu' }],
+  showBatchNumberCol: true, // Đợt 2: cột "Số lô" ở bảng dòng trả hàng
 }
 
 /** Unwrap linh hoạt response API chi tiết/lưu:
@@ -342,6 +422,7 @@ export const DOWN_PAYMENT_CONFIG: DocKindConfig = {
   sourceIdField: { quotation: 'sourceQuotationId', order: 'sourceOrderId' },
   copyButtons: [], // đặt cọc được khấu trừ trên hóa đơn, không sao chép tiếp
   showRemaining: true, // hiện "Số dư chưa khấu trừ" trên trang chi tiết
+  showPaymentStatus: true, // Đợt 2: hiển thị số tiền đã thu + trạng thái thanh toán
 }
 
 /** Số chứng từ hiển thị — bản nháp chưa cấp số thật (docNum=null) */

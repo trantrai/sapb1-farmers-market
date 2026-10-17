@@ -6,6 +6,7 @@ import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
+import { parseB2BHeader } from '../route'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -145,6 +146,13 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (!docDate || !docDueDate) {
     return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
   }
+  // B2B / SAP B1 (Đợt 2+3): whitelist + validate các trường header mới
+  // (đơn 'sap-*' sửa thẳng trên SL — không có bản ghi local nên các trường này
+  //  chỉ áp dụng cho nhánh đơn local bên dưới)
+  const { data: b2b, error: b2bError } = parseB2BHeader((body ?? {}) as Record<string, unknown>)
+  if (b2bError) {
+    return NextResponse.json({ error: b2bError }, { status: 400 })
+  }
   // DB của đơn (để validate BOM đúng mirror) — đơn 'sap-*' chưa có local → dùng DB phiên
   const orderDbHint = id.startsWith('sap-')
     ? null
@@ -220,6 +228,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,
+          uom: l.uom,
           taxCode: l.taxCode,
           warehouseCode: l.warehouseCode,
         }
@@ -306,6 +315,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,
+          uom: l.uom,
           taxCode: l.taxCode,
           warehouseCode: l.warehouseCode,
         })),
@@ -347,6 +357,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         docDueDate: new Date(docDueDate),
         remarks: remarks?.trim() || null,
         warehouseCode: warehouseCode?.trim() || null,
+        ...b2b,
         totalBeforeDisc,
         discountAmt,
         headerDiscPct: headerPct,

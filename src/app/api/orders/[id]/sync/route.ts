@@ -48,13 +48,29 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       docDueDate: order.docDueDate.toISOString(),
       comments: order.remarks,
       localId: order.id,
+      // B2B / SAP B1 (Đợt 2+3): các trường header đã lưu trên DB — tầng push
+      // (buildSapDocPayload → sapDocHeaderExtras) chỉ gửi khi có giá trị
+      salesPersonCode: order.salesPersonCode ?? null,
+      paymentGroupCode: order.paymentGroupCode ?? null,
+      shipToCode: order.shipToCode ?? null,
+      billToCode: order.billToCode ?? null,
+      numAtCard: order.numAtCard ?? null,
+      taxDate: order.taxDate ?? null,
+      docCurrency: order.docCurrency ?? null,
+      docRate: order.docRate ?? null,
+      projectCode: order.projectCode ?? null,
+      reqDate: order.reqDate ?? null,
       lines: order.lines.map((l) => ({
         itemCode: l.itemCode,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
         discPct: l.discPct,
+        uom: l.uom,
         taxCode: l.taxCode,
         warehouseCode: l.warehouseCode,
+        // Đơn tạo từ báo giá (from-quotation): giữ sourceLineId để đẩy lại
+        // vẫn gắn BaseType/BaseEntry/BaseLine chuẩn copy-to SAP B1
+        sourceLineId: l.sourceLineId,
       })),
     })
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
-import { loadSapSettings, isSapConfigured, SyncCancelled } from '@/lib/sap-service-layer'
+import { loadSapSettings, isSapConfigured, SyncCancelled, sapGetAll } from '@/lib/sap-service-layer'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadCustomers, loadCustomersDelta, mergeCustomersCache, clearCustomersCache } from '@/lib/fm-master'
 import { startSync, updateSync, endSync, getProgress, requestSyncCancel, isSyncCancelRequested } from '@/lib/fm-sync-progress'
@@ -210,15 +210,51 @@ export async function POST(req: NextRequest) {
 
 type SapCfg = NonNullable<Awaited<ReturnType<typeof loadSapSettings>>>
 
+/**
+ * Chuẩn hóa BPAddresses của SAP thành JSON gọn lưu vào addressesJson.
+ *
+ * SHAPE ĐÃ CHỌN (2026-10-17, Đợt 2+3):
+ *   [{ code, name, detail: "Street, City", type: 'B' | 'S' | 'BS' }]
+ *  - code/name = SAP AddressName (BPAddresses không có trường tên riêng).
+ *  - detail = "Street, City" (nối bằng dấu phẩy; trống → "").
+ *  - type: 'B' = bo_BillTo (địa chỉ ghi hóa đơn), 'S' = bo_ShipTo (địa chỉ
+ *    giao hàng). GỘP theo AddressName: cùng 1 AddressName có cả 2 loại
+ *    (B và S) → 1 entry duy nhất type 'BS' (thay vì 2 entry trùng địa chỉ)
+ *    để form chọn địa chỉ giao/hóa đơn gọn và không trùng lặp.
+ */
+function buildAddressesJson(
+  list?: Array<{ AddressName?: string; AddressType?: string; Street?: string; City?: string; ZipCode?: string; Country?: string }>,
+): string | null {
+  if (!Array.isArray(list) || list.length === 0) return null
+  const byCode = new Map<string, { code: string; name: string; detail: string; type: 'B' | 'S' | 'BS' }>()
+  for (const a of list ?? []) {
+    const code = (a.AddressName ?? '').trim()
+    if (!code) continue
+    const t: 'B' | 'S' = a.AddressType === 'S' ? 'S' : 'B'
+    const detail = [a.Street, a.City].map((x) => (x ?? '').trim()).filter(Boolean).join(', ')
+    const cur = byCode.get(code)
+    if (cur) {
+      // Cùng AddressName có cả 2 loại → gộp thành 'BS'
+      if (cur.type !== t) cur.type = 'BS'
+      if (!cur.detail && detail) cur.detail = detail
+    } else {
+      byCode.set(code, { code, name: code, detail, type: t })
+    }
+  }
+  if (byCode.size === 0) return null
+  return JSON.stringify([...byCode.values()])
+}
+
 function toPayload(p: {
   CardCode: string
   CardName?: string
   Address?: string
   Phone1?: string
   EmailAddress?: string
+  GroupNum?: number
   ContactEmployees?: Array<{ Name?: string; FirstName?: string; LastName?: string; Phone1?: string; MobilePhone?: string }>
-  BPAddresses?: Array<{ AddressType?: string; Street?: string; City?: string; ZipCode?: string; Country?: string }>
-}, syncDbId: string, now: Date) {
+  BPAddresses?: Array<{ AddressName?: string; AddressType?: string; Street?: string; City?: string; ZipCode?: string; Country?: string }>
+}, syncDbId: string, now: Date, groupNums: Map<string, number>) {
   const contact = primaryContact(p)
   return {
     sapDatabaseId: syncDbId,
@@ -230,8 +266,43 @@ function toPayload(p: {
     contactPerson: contact.name,
     contactPhone: contact.phone,
     groupType: 'Khách hàng',
+    // Đợt 2+3: điều khoản thanh toán (OCRD.GroupNum) — ưu tiên từ query phụ
+    // (loadCustomers $select không gồm GroupNum), fallback sang bản ghi gốc.
+    groupNum: groupNums.get(p.CardCode) ?? (typeof p.GroupNum === 'number' ? p.GroupNum : null),
+    addressesJson: buildAddressesJson(p.BPAddresses),
     syncedAt: now,
   }
+}
+
+/**
+ * Tải map CardCode → GroupNum (OCRD.GroupNum — điều khoản thanh toán) bằng
+ * 1 query $select gọn. Cần thiết vì loadCustomers/loadCustomersDelta dùng
+ * $select cố định KHÔNG gồm GroupNum (không sửa fm-master.ts ở đợt này).
+ * Lỗi SL → trả map rỗng, caller fallback sang GroupNum trên bản ghi gốc.
+ */
+async function loadGroupNums(
+  s: SapCfg,
+  opts?: { shouldCancel?: () => boolean },
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  try {
+    const r = await sapGetAll<{ CardCode?: string; GroupNum?: number }>(
+      s,
+      '/BusinessPartners',
+      { $select: 'CardCode,GroupNum', $filter: `CardType eq 'C'`, $orderby: 'CardCode' },
+      opts,
+    )
+    if (r.ok && r.data) {
+      for (const p of r.data) {
+        if (typeof p.CardCode === 'string' && typeof p.GroupNum === 'number') {
+          map.set(p.CardCode, p.GroupNum)
+        }
+      }
+    }
+  } catch {
+    /* SL gián đoạn — caller fallback */
+  }
+  return map
 }
 
 /** Đồng bộ toàn phần: tải hết khách hàng, thay mới mirror, đặt lại mốc watermark */
@@ -242,7 +313,9 @@ async function syncFull(s: SapCfg, syncDbId: string) {
     throw new Error(`Không tải được khách hàng từ SAP B1: ${error ?? '/BusinessPartners trả danh sách rỗng'}`)
   }
   const now = new Date()
-  const payload = rows.map((p) => toPayload(p, syncDbId, now))
+  // Đợt 2+3: GroupNum không nằm trong $select của loadCustomers → tải riêng
+  const groupNums = await loadGroupNums(s, { shouldCancel })
+  const payload = rows.map((p) => toPayload(p, syncDbId, now, groupNums))
 
   updateSync('partners', { phase: 'save', message: `Đang lưu ${payload.length.toLocaleString('vi-VN')} khách hàng vào CSDL…`, total: payload.length, processed: 0 })
   // Mirror trọn vẹn: bảng local phản ánh đúng danh mục khách hàng trên SAP
@@ -283,10 +356,12 @@ async function syncIncremental(s: SapCfg, syncDbId: string, wm: DeltaWatermark) 
   }
 
   updateSync('partners', { phase: 'save', message: `Đang cập nhật ${rows.length.toLocaleString('vi-VN')} khách hàng thay đổi…`, total: rows.length, processed: 0 })
+  // Đợt 2+3: GroupNum không nằm trong $select của loadCustomersDelta → tải riêng
+  const groupNums = await loadGroupNums(s, { shouldCancel })
   // M11: gom upsert thành batch (chunk 100, mỗi chunk 1 $transaction) thay vì
   // await từng dòng nối tiếp (O(n) round-trip SQLite).
   const ops = rows.map((p) => {
-    const data = toPayload(p, syncDbId, now)
+    const data = toPayload(p, syncDbId, now, groupNums)
     return prisma.businessPartner.upsert({
       where: { sapDatabaseId_cardCode: { sapDatabaseId: syncDbId, cardCode: p.CardCode } },
       create: data,

@@ -60,6 +60,18 @@ interface Order {
   sapSyncedAt?: string | null
   lines: OrderLine[]
   deliveries?: Array<{ id: string; docNum: number; docDate: string; status: string; grandTotal: number; sapSyncStatus: string; lines?: OrderDeliveryLine[] }>
+  // ---------- B2B / SAP B1 (Đợt 2+3) ----------
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  numAtCard?: string | null
+  taxDate?: string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  attachmentsJson?: string | null
+  reqDate?: string | null
 }
 
 interface Props {
@@ -77,6 +89,9 @@ interface Props {
 export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery, onCopyTo }: Props) {
   const [order, setOrder] = useState<Order | null>(null)
   const [partner, setPartner] = useState<{ address?: string; contactPerson?: string; contactPhone?: string; email?: string } | null>(null)
+  /** Tên NVBH / ĐKTT (best-effort từ danh mục; 404 → chỉ hiện mã số) */
+  const [spNames, setSpNames] = useState<Record<number, string>>({})
+  const [ptNames, setPtNames] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showPrint, setShowPrint] = useState(false)
@@ -289,6 +304,28 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
     return () => { signal.cancelled = true }
   }, [loadOrder])
 
+  // B2B: tải tên NVBH / ĐKTT (best-effort — 404/lỗi thì chỉ hiện mã số)
+  useEffect(() => {
+    let cancelled = false
+    const loadNames = async (url: string, set: (m: Record<number, string>) => void) => {
+      try {
+        const r = await api(url)
+        if (!r.ok || cancelled) return
+        const j = await r.json().catch(() => null)
+        const arr = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : []
+        const m: Record<number, string> = {}
+        for (const x of arr as Array<{ code?: unknown; name?: unknown }>) {
+          const c = Number(x.code)
+          if (Number.isFinite(c)) m[c] = String(x.name ?? '')
+        }
+        if (!cancelled) set(m)
+      } catch { /* bỏ qua — chỉ hiện mã */ }
+    }
+    void loadNames('/api/sales-persons', setSpNames)
+    void loadNames('/api/payment-terms', setPtNames)
+    return () => { cancelled = true }
+  }, [])
+
   // Đóng / mở lại đơn hàng
   const toggleClose = () => {
     if (!order || busyAction) return
@@ -495,6 +532,26 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
 
   const overdue = isOverdue(order.docDueDate, order.status)
 
+  // ---------- B2B / SAP B1 (Đợt 2+3): chỉ hiện card khi có ít nhất 1 trường ----------
+  const hasB2B = Boolean(
+    order.salesPersonCode != null || order.paymentGroupCode != null ||
+    order.shipToCode || order.billToCode || order.numAtCard || order.taxDate ||
+    (order.docCurrency && order.docCurrency !== 'VND') || order.docRate != null ||
+    order.projectCode || order.reqDate || order.attachmentsJson,
+  )
+  const spLabel = (code?: number | null) =>
+    code == null ? '—' : spNames[code] ? `${code} · ${spNames[code]}` : String(code)
+  const ptLabel = (code?: number | null) =>
+    code == null ? '—' : ptNames[code] ? `${code} · ${ptNames[code]}` : String(code)
+  const b2bAttachments: { name: string; url: string }[] = (() => {
+    try {
+      const arr = JSON.parse(order.attachmentsJson ?? 'null')
+      return Array.isArray(arr) ? arr.filter((a) => a && (a.name || a.url)) : []
+    } catch {
+      return []
+    }
+  })()
+
   // Tổng SL còn mở toàn đơn — để disable nút Copy khi đã giao hết
   const totalOpenQty = buildOpenLines(order).reduce((s, x) => s + x.openQty, 0)
   const copyDisabled = !!busyAction || totalOpenQty <= 0
@@ -620,6 +677,48 @@ actions={
           <div><dt>Ghi chú</dt><dd>{order.remarks || '—'}</dd></div>
         </dl>
       </div>
+
+      {/* Thông tin B2B / SAP B1 (Đợt 2+3) — chỉ hiện khi có dữ liệu */}
+      {hasB2B && (
+        <div className="fm-card" style={{ marginBottom: 16 }}>
+          <h2 className="fm-card__title">Thông tin B2B / SAP B1</h2>
+          <dl className="fm-view-detail">
+            <div><dt>Nhân viên bán hàng</dt><dd>{spLabel(order.salesPersonCode)}</dd></div>
+            <div><dt>Điều khoản thanh toán</dt><dd>{ptLabel(order.paymentGroupCode)}</dd></div>
+            <div><dt>Số PO / Tham chiếu KH</dt><dd>{order.numAtCard || '—'}</dd></div>
+            <div><dt>Ngày tính thuế</dt><dd>{order.taxDate ? formatDateVN(order.taxDate) : '—'}</dd></div>
+            <div><dt>Ngày cần giao</dt><dd>{order.reqDate ? formatDateVN(order.reqDate) : '—'}</dd></div>
+            <div>
+              <dt>Tiền tệ</dt>
+              <dd>
+                {order.docCurrency || 'VND'}
+                {order.docCurrency && order.docCurrency !== 'VND' && order.docRate != null ? ` · Tỷ giá ${order.docRate}` : ''}
+              </dd>
+            </div>
+            <div><dt>Mã dự án</dt><dd>{order.projectCode || '—'}</dd></div>
+            <div><dt>Địa chỉ giao hàng</dt><dd>{order.shipToCode || '—'}</dd></div>
+            <div><dt>Địa chỉ ghi hóa đơn</dt><dd>{order.billToCode || '—'}</dd></div>
+            <div>
+              <dt>Đính kèm</dt>
+              <dd>
+                {b2bAttachments.length > 0 ? (
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {b2bAttachments.map((a, i) => (
+                      <li key={i}>
+                        {a.url ? (
+                          <a href={a.url} target="_blank" rel="noreferrer">{a.name || a.url}</a>
+                        ) : (
+                          a.name
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : '—'}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      )}
 
       {/* Dòng hàng */}
       <div className="fm-card" style={{ marginBottom: 16 }}>

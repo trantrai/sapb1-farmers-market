@@ -347,8 +347,8 @@ export default function SalesDocListView({ config, user, onGoDetail, onGoNew, re
             <input
               className="fm-input"
               style={{ paddingLeft: 32 }}
-              placeholder="Số chứng từ, mã/tên khách hàng…"
-              aria-label={`Tìm kiếm ${docLabel} theo số chứng từ, mã hoặc tên khách hàng`}
+              placeholder="Số chứng từ, số PO, mã/tên khách hàng…"
+              aria-label={`Tìm kiếm ${docLabel} theo số chứng từ, số PO, mã hoặc tên khách hàng`}
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1) }}
             />

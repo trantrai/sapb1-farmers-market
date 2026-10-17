@@ -63,11 +63,32 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       cardCode: delivery.cardCode,
       docDate: delivery.docDate.toISOString(),
       comments: delivery.remarks,
+      warehouseCode: delivery.warehouseCode ?? null,
       localId: delivery.id,
+      // B2B / SAP B1 (Đợt 2+3): các trường header đã lưu trên DB — tầng push
+      // (buildPayload → sapDocHeaderExtras) chỉ gửi khi có giá trị
+      salesPersonCode: delivery.salesPersonCode ?? null,
+      paymentGroupCode: delivery.paymentGroupCode ?? null,
+      shipToCode: delivery.shipToCode ?? null,
+      billToCode: delivery.billToCode ?? null,
+      numAtCard: delivery.numAtCard ?? null,
+      taxDate: delivery.taxDate ?? null,
+      docCurrency: delivery.docCurrency ?? null,
+      docRate: delivery.docRate ?? null,
+      projectCode: delivery.projectCode ?? null,
+      reqDate: delivery.reqDate ?? null,
+      headerDiscPct: delivery.headerDiscPct ?? 0,
+      pickAndPackNotes: delivery.pickAndPackNotes ?? null,
       lines: delivery.lines.map((l) => ({
         itemCode: l.itemCode,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
+        uom: l.uom,
+        taxCode: l.taxCode ?? null,
+        discPct: l.discPct ?? 0,
+        warehouseCode: l.warehouseCode ?? null,
+        // Số lô (SAP: DocumentLines.BatchNumbers) — chỉ dòng có giá trị mới gửi
+        batchNumber: l.batchNumber ?? null,
         // Copy-from: local id dòng nguồn → tầng push tra BaseType/BaseEntry/BaseLine
         sourceOrderLineId: l.sourceOrderLineId ?? null,
         sourceQuotationLineId: l.sourceQuotationLineId ?? null,
