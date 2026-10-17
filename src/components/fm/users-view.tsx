@@ -39,6 +39,7 @@ export default function UsersView({ user }: Props) {
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [busy, setBusy] = useState(false)
+  const [busyToggleId, setBusyToggleId] = useState<string | null>(null) // chống bấm đúp toggle kích hoạt/vô hiệu hóa
 
   // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
   const [confirmCfg, setConfirmCfg] = useState<{
@@ -105,23 +106,30 @@ export default function UsersView({ user }: Props) {
   }
 
   const toggleActive = async (u: UserRow) => {
+    if (busyToggleId) return
     setConfirmCfg(null)
-    const res = await api(`/api/users/${u.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active: !u.active }),
-    })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      setAlert({ type: 'error', msg: json.error ?? 'Không thể cập nhật trạng thái' })
-      return
+    setBusyToggleId(u.id)
+    try {
+      const res = await api(`/api/users/${u.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !u.active }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAlert({ type: 'error', msg: json.error ?? 'Không thể cập nhật trạng thái' })
+        return
+      }
+      setAlert({
+        type: 'success',
+        msg: json.user.active
+          ? `Đã kích hoạt lại tài khoản @${u.username}`
+          : `Đã vô hiệu hóa tài khoản @${u.username} — người dùng này không thể đăng nhập`,
+      })
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, active: json.user.active } : x)))
+    } finally {
+      setBusyToggleId(null)
     }
-    setAlert({
-      type: 'success',
-      msg: json.user.active
-        ? `Đã kích hoạt lại tài khoản @${u.username}`
-        : `Đã vô hiệu hóa tài khoản @${u.username} — người dùng này không thể đăng nhập`,
-    })
     load()
   }
 
@@ -252,9 +260,9 @@ actions={<>
                             <input
                               type="checkbox"
                               checked={u.active}
-                              disabled={!canEdit || isMe}
+                              disabled={!canEdit || isMe || busyToggleId === u.id}
                               onChange={() => askToggleActive(u)}
-                              aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`}
+                              aria-label={busyToggleId === u.id ? `Đang cập nhật tài khoản ${u.username}…` : u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`}
                             />
                             <span className="track" />
                           </label>{' '}

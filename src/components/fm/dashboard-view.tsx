@@ -61,8 +61,11 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   const [chartRange, setChartRange] = useState<7 | 30>(7)
   const [charts, setCharts] = useState<ChartStats | null>(null)
   const [chartError, setChartError] = useState(false)
+  const [refreshing, setRefreshing] = useState(false) // nút Tải lại số liệu
+  const [chartLoading, setChartLoading] = useState(false) // đổi khoảng biểu đồ
 
   // setState chỉ nằm trong callback .then/.catch (bất đồng bộ) để qua rule react-hooks/set-state-in-effect
+  // refreshing được bật ở onClick (event handler), không bật đồng bộ trong load() vì load() chạy từ useEffect
   const load = useCallback(() => {
     api('/api/stats')
       .then((r) => {
@@ -77,6 +80,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
         setStats(null)
         setLoadError(true)
       })
+      .finally(() => setRefreshing(false))
   }, [])
 
   useEffect(() => {
@@ -84,6 +88,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   }, [load])
 
   // Biểu đồ: tải lại khi đổi khoảng thời gian (lỗi hiện rõ thay vì treo skeleton)
+  // chartLoading được bật ở event handler (đổi range / thử lại), không bật đồng bộ trong loadCharts vì nó chạy từ useEffect
   const loadCharts = useCallback((range: 7 | 30) => {
     let cancelled = false
     api(`/api/dashboard/stats?range=${range}`)
@@ -100,6 +105,9 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
       .catch(() => {
         if (!cancelled) setChartError(true)
       })
+      .finally(() => {
+        if (!cancelled) setChartLoading(false)
+      })
     return () => { cancelled = true }
   }, [])
 
@@ -108,6 +116,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   const retryCharts = () => {
     setCharts(null)
     setChartError(false)
+    setChartLoading(true)
     loadCharts(chartRange)
   }
 
@@ -141,8 +150,8 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
         badgeHint="Số liệu từ SAP B1 được cache tối đa 45 giây — bấm “Tải lại số liệu” để lấy mới nhất"
         actions={
           <>
-            <button type="button" className="fm-btn fm-btn--secondary" onClick={load}>
-              <RefreshCw size={16} /> Tải lại số liệu
+            <button type="button" className="fm-btn fm-btn--secondary" onClick={() => { setRefreshing(true); load() }} disabled={refreshing}>
+              <RefreshCw size={16} className={refreshing ? 'fm-spin' : undefined} /> {refreshing ? 'Đang tải…' : 'Tải lại số liệu'}
             </button>
             <button type="button" className="fm-btn fm-btn--primary" onClick={onGoCreate}>
               <PlusCircle size={16} /> Tạo đơn hàng bán mới
@@ -309,7 +318,8 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
                 key={r}
                 type="button"
                 className={`fm-btn fm-btn--sm ${chartRange === r ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
-                onClick={() => setChartRange(r)}
+                onClick={() => { if (r !== chartRange) { setChartLoading(true); setChartRange(r) } }}
+                disabled={chartLoading}
               >
                 {r} ngày
               </button>
@@ -317,10 +327,19 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
           </div>
         </div>
         <div
-          style={{ width: '100%', height: 280, marginTop: 12 }}
+          style={{ width: '100%', height: 280, marginTop: 12, position: 'relative' }}
           role="img"
           aria-label={charts ? `Biểu đồ cột doanh số ${chartRange} ngày qua. ` + charts.revenueByDay.filter((d) => d.total > 0).map((d) => `${d.day}: ${formatVND(d.total)}`).join('; ') : 'Đang tải biểu đồ doanh số'}
         >
+          {chartLoading && charts && (
+            <div
+              style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,.7)', borderRadius: 'var(--fm-r-md)', zIndex: 2 }}
+              role="status"
+              aria-label="Đang tải biểu đồ"
+            >
+              <span className="fm-spin" style={{ width: 28, height: 28, border: '3px solid var(--fm-line)', borderTopColor: 'var(--fm-primary)', borderRadius: '50%', display: 'inline-block' }} />
+            </div>
+          )}
           {!charts ? chartLoadBox : charts.revenueByDay.every((d) => d.total === 0) ? (
             <div className="fm-empty">Chưa có doanh số trong {chartRange} ngày qua</div>
           ) : (

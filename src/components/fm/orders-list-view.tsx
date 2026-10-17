@@ -183,6 +183,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [pageSize] = useState(8)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [deletingId, setDeletingId] = useState<string | null>(null) // dòng đang xóa: hiện spinner mờ
 
   const [q, setQ] = useState('')
   /** Từ khóa đã debounce 300ms — API chỉ gọi theo giá trị này (D5: tránh 1 API call/ký tự) */
@@ -250,19 +251,22 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   }
 
   const deleteOrder = async (o: Order) => {
+    if (deletingId) return
     setConfirmCfg(null)
-    // Optimistic UI: gỡ dòng khỏi danh sách ngay, rollback nếu API lỗi
-    const prevOrders = orders
-    setOrders((os) => os.filter((x) => x.id !== o.id))
-    const res = await api(`/api/orders/${o.id}`, { method: 'DELETE' })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      setOrders(prevOrders)
-      setAlert({ type: 'error', msg: json.error ?? 'Không thể xóa đơn hàng' })
-      return
+    setDeletingId(o.id)
+    try {
+      const res = await api(`/api/orders/${o.id}`, { method: 'DELETE' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAlert({ type: 'error', msg: json.error ?? 'Không thể xóa đơn hàng' })
+        return
+      }
+      setOrders((os) => os.filter((x) => x.id !== o.id))
+      setAlert({ type: 'success', msg: `Đã xóa đơn hàng #${o.docNum}` })
+      load()
+    } finally {
+      setDeletingId(null)
     }
-    setAlert({ type: 'success', msg: `Đã xóa đơn hàng #${o.docNum}` })
-    load()
   }
 
   const askDelete = (o: Order) => {
@@ -606,11 +610,12 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                   {orders.map((o) => (
                     <tr
                       key={o.id}
-                      style={{ cursor: 'pointer' }}
-                      title="Bấm để xem chi tiết — Chuột phải để xem sơ đồ liên kết"
+                      style={{ cursor: deletingId === o.id ? 'wait' : 'pointer', opacity: deletingId === o.id ? 0.55 : undefined }}
+                      title={deletingId === o.id ? 'Đang xóa đơn hàng…' : 'Bấm để xem chi tiết — Chuột phải để xem sơ đồ liên kết'}
                       tabIndex={0}
-                      aria-label={`Xem chi tiết đơn hàng bán #${o.docNum} — ${o.cardName}`}
-                      onClick={() => openDetail(o)}
+                      aria-label={deletingId === o.id ? `Đang xóa đơn hàng bán #${o.docNum}` : `Xem chi tiết đơn hàng bán #${o.docNum} — ${o.cardName}`}
+                      aria-busy={deletingId === o.id || undefined}
+                      onClick={() => { if (deletingId !== o.id) openDetail(o) }}
                       onContextMenu={(e) => {
                         e.preventDefault()
                         openerRef.current = e.currentTarget
@@ -669,8 +674,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           </button>
                         )}
                         {canDelete && o.source !== 'sap' && (
-                          <button className="fm-row-del" title="Xóa đơn hàng bán" aria-label="Xóa đơn hàng bán" onClick={() => askDelete(o)}>
-                            <Trash2 size={14} />
+                          <button className="fm-row-del" title={deletingId === o.id ? 'Đang xóa…' : 'Xóa đơn hàng bán'} aria-label={deletingId === o.id ? 'Đang xóa đơn hàng bán' : 'Xóa đơn hàng bán'} disabled={deletingId === o.id} onClick={() => askDelete(o)}>
+                            {deletingId === o.id ? <span className="fm-spin" style={{ width: 14, height: 14, border: '2px solid var(--fm-line)', borderTopColor: 'var(--fm-red)', borderRadius: '50%', display: 'inline-block' }} /> : <Trash2 size={14} />}
                           </button>
                         )}
                       </td>

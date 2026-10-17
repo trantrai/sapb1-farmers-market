@@ -86,7 +86,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   const [emailBusy, setEmailBusy] = useState(false)
   const [emailResult, setEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: ReactNode } | null>(null)
-  const [actionBusy, setActionBusy] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null) // action đang chạy: 'toggle' | 'cancel' | 'close' | 'sync' — chống bấm đúp + hiện text Đang…
 
   // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
   const [confirmCfg, setConfirmCfg] = useState<{
@@ -286,7 +286,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
 
   // Đóng / mở lại đơn hàng
   const toggleClose = () => {
-    if (!order || actionBusy) return
+    if (!order || busyAction) return
     if (order.status === 'Cancelled') {
       setActionMsg({ type: 'error', text: 'Không thể mở lại đơn hàng đã hủy' })
       return
@@ -295,7 +295,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
     const closing = next === 'Closed'
     const run = async () => {
       setConfirmCfg(null)
-      setActionBusy(true)
+      setBusyAction('toggle')
       try {
         const res = await api(`/api/orders/${order.id}`, {
           method: 'PATCH',
@@ -312,7 +312,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
       } catch {
         setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       } finally {
-        setActionBusy(false)
+        setBusyAction(null)
       }
     }
     setConfirmCfg({
@@ -329,13 +329,13 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   // Hủy đơn hàng (chỉ khi Open; đơn đã hủy thì không sửa/copy/đẩy được)
   // Nếu đơn đã đẩy SAP: gọi POST /Orders({docEntry})/Cancel trên Service Layer
   const doCancelOrder = () => {
-    if (!order || actionBusy) return
+    if (!order || busyAction) return
     const msg = order.sapSyncStatus === 'synced'
       ? `Hủy đơn hàng bán #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi hủy chứng từ trên SAP B1 trước.`
       : `Hủy đơn hàng bán #${order.docNum}?\nĐơn đã hủy sẽ không sửa, không sao chép delivery và không đẩy SAP được.`
     const run = async () => {
       setConfirmCfg(null)
-      setActionBusy(true)
+      setBusyAction('cancel')
       setActionMsg(null)
       try {
         const res = await api(`/api/orders/${order.id}/cancel`, {
@@ -353,7 +353,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
       } catch {
         setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       } finally {
-        setActionBusy(false)
+        setBusyAction(null)
       }
     }
     setConfirmCfg({
@@ -368,13 +368,13 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
   // Đóng đơn hàng (chỉ khi Open)
   // Nếu đơn đã đẩy SAP: gọi POST /Orders({docEntry})/Close trên Service Layer
   const doCloseOrder = () => {
-    if (!order || actionBusy) return
+    if (!order || busyAction) return
     const msg = order.sapSyncStatus === 'synced'
       ? `Đóng đơn hàng bán #${order.docNum}?\nĐơn đã được đẩy lên SAP B1 — hệ thống sẽ gọi đóng chứng từ trên SAP B1 trước.`
       : `Đóng đơn hàng bán #${order.docNum}?\nĐơn đã đóng sẽ không sửa được nữa.`
     const run = async () => {
       setConfirmCfg(null)
-      setActionBusy(true)
+      setBusyAction('close')
       setActionMsg(null)
       try {
         const res = await api(`/api/orders/${order.id}/close`, {
@@ -392,7 +392,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
       } catch {
         setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       } finally {
-        setActionBusy(false)
+        setBusyAction(null)
       }
     }
     setConfirmCfg({
@@ -406,11 +406,11 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
 
   // Đẩy đơn sang SAP B1 ngay
   const syncNow = () => {
-    if (!order || actionBusy) return
+    if (!order || busyAction) return
     // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
     const run = async () => {
       setConfirmCfg(null)
-      setActionBusy(true)
+      setBusyAction('sync')
       try {
         const res = await api(`/api/orders/${order.id}/sync`, { method: 'POST' })
         const json = await res.json().catch(() => ({}))
@@ -423,7 +423,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
       } catch {
         setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       } finally {
-        setActionBusy(false)
+        setBusyAction(null)
       }
     }
     setConfirmCfg({
@@ -492,7 +492,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery 
 
   // Tổng SL còn mở toàn đơn — để disable nút Copy khi đã giao hết
   const totalOpenQty = buildOpenLines(order).reduce((s, x) => s + x.openQty, 0)
-  const copyDisabled = actionBusy || totalOpenQty <= 0
+  const copyDisabled = !!busyAction || totalOpenQty <= 0
 
   return (
     <div>
@@ -526,13 +526,13 @@ actions={
               </button>
             )}
             {order.status === 'Open' && (
-              <button className="fm-btn fm-btn--secondary" onClick={() => void doCloseOrder()} disabled={actionBusy}>
-                <Lock size={16} /> Đóng đơn
+              <button className="fm-btn fm-btn--secondary" onClick={() => void doCloseOrder()} disabled={!!busyAction}>
+                <Lock size={16} /> {busyAction === 'close' ? 'Đang đóng…' : 'Đóng đơn'}
               </button>
             )}
             {order.status === 'Open' && (
-              <button className="fm-btn fm-btn--danger" onClick={() => void doCancelOrder()} disabled={actionBusy}>
-                <X size={16} /> Hủy đơn
+              <button className="fm-btn fm-btn--danger" onClick={() => void doCancelOrder()} disabled={!!busyAction}>
+                <X size={16} /> {busyAction === 'cancel' ? 'Đang hủy…' : 'Hủy đơn'}
               </button>
             )}
             {order.status === 'Cancelled' && (
@@ -748,11 +748,11 @@ actions={
           Đóng/Mở đơn và Đẩy SAP. (Sửa/In/Gửi email đã có ở header → không lặp) */}
       {order.status !== 'Cancelled' && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={actionBusy}>
-            <Lock size={16} /> {order.status === 'Open' ? 'Đóng đơn hàng (Đã đóng)' : 'Mở lại đơn hàng'}
+          <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={!!busyAction}>
+            <Lock size={16} /> {busyAction === 'toggle' ? 'Đang cập nhật…' : order.status === 'Open' ? 'Đóng đơn hàng (Đã đóng)' : 'Mở lại đơn hàng'}
           </button>
-          <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={actionBusy}>
-            <CloudUpload size={16} /> Đẩy sang SAP B1 ngay
+          <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={!!busyAction}>
+            <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : 'Đẩy sang SAP B1 ngay'}
           </button>
         </div>
       )}

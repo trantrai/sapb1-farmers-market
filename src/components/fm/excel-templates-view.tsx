@@ -43,6 +43,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   const [showForm, setShowForm] = useState(false)
   const [nameErr, setNameErr] = useState(false) // tên template lỗi khi lưu (mục 45)
   const [confirmDelete, setConfirmDelete] = useState<ExcelTemplate | null>(null)
+  const [saving, setSaving] = useState(false) // chống bấm đúp nút Lưu mẫu
 
   // Focus trap + Escape cho dialog form
   const formTrapRef = useFocusTrap<HTMLDivElement>(showForm, () => setShowForm(false))
@@ -108,6 +109,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
   }
 
   const saveTemplate = async () => {
+    if (saving) return
     setNameErr(false)
     if (!formName.trim()) {
       setNameErr(true)
@@ -118,6 +120,7 @@ export default function ExcelTemplatesView({ onBack }: Props) {
       setMsg({ type: 'error', text: 'Mapping không được để trống' })
       return
     }
+    setSaving(true)
     try {
       const body = {
         name: formName.trim(),
@@ -146,6 +149,8 @@ export default function ExcelTemplatesView({ onBack }: Props) {
       load()
     } catch {
       setMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -355,8 +360,8 @@ actions={
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button className="fm-btn fm-btn--secondary" onClick={() => setShowForm(false)}>Hủy</button>
-              <button className="fm-btn fm-btn--primary" onClick={saveTemplate}>
-                <Save size={14} /> Lưu mẫu
+              <button className="fm-btn fm-btn--primary" onClick={saveTemplate} disabled={saving}>
+                <Save size={14} /> {saving ? 'Đang lưu…' : 'Lưu mẫu'}
               </button>
             </div>
           </div>
