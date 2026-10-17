@@ -197,7 +197,7 @@ export async function GET(req: NextRequest) {
   if (['Open', 'Closed', 'Cancelled'].includes(status)) where.status = status
   // NULL isDraft (phiếu cũ) coi như chính thức
   if (isDraftParam === 'true') where.isDraft = true
-  else if (isDraftParam === 'false') where.OR = [{ isDraft: false }, { isDraft: null }]
+  else if (isDraftParam === 'false') where.isDraft = false
 
   const localRows = await prisma.delivery.findMany({
     where,

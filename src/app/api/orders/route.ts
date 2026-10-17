@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
   // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false lấy chính thức (NULL = cũ = chính thức)
   const isDraftParam = sp.get('isDraft') ?? ''
   if (isDraftParam === 'true') andConds.push({ isDraft: true })
-  else if (isDraftParam === 'false') andConds.push({ OR: [{ isDraft: false }, { isDraft: null }] })
+  else if (isDraftParam === 'false') andConds.push({ isDraft: false })
   if (andConds.length > 0) where.AND = andConds
   if (status === 'Open' || status === 'Closed') where.status = status
   if (from || to) {

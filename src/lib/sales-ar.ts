@@ -568,7 +568,7 @@ export async function salesDocList(req: NextRequest, cfg: SalesDocConfig) {
   // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false lấy chính thức
   // (NULL isDraft — chứng từ cũ trước Phase 2 — coi như chính thức)
   if (draftFilter === true) where.isDraft = true
-  else if (draftFilter === false) andConds.push({ OR: [{ isDraft: false }, { isDraft: null }] })
+  else if (draftFilter === false) andConds.push({ isDraft: false })
   if (q) {
     andConds.push({
       OR: [
