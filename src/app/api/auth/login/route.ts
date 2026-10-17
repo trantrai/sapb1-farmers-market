@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
         role: user.role,
         roleLabel: role?.label ?? user.role,
         permissions: parsePerm(role?.permissions),
+        mustChangePassword: Boolean(user.mustChangePassword),
         databaseId: dbId,
         databaseLabel: dbLabel,
       },

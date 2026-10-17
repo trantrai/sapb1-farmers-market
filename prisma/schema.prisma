@@ -16,6 +16,8 @@ model User {
   fullName  String
   role      String // Admin | KeToan | NhanVien | …
   active    Boolean  @default(true) // false = vô hiệu hóa, không cho đăng nhập
+  /** true = tài khoản phải đổi mật khẩu ngay ở lần đăng nhập tiếp theo (seed/mật khẩu tạo bởi admin) */
+  mustChangePassword Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

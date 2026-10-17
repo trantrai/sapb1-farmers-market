@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import type { SessionUser } from '@/lib/fm-shared'
 import { api, setToken, UNAUTHORIZED_EVENT } from '@/lib/fm-client'
 import LoginView from '@/components/fm/login-view'
+import ChangePasswordView from '@/components/fm/change-password-view'
 import AppShell from '@/components/fm/app-shell'
 
 export default function Page() {
@@ -40,6 +41,24 @@ export default function Page() {
         onLogin={(loginUser) => {
           setToken(loginUser.token)
           setUser(loginUser)
+        }}
+      />
+    )
+  }
+
+  // Tài khoản seed / được cấp mật khẩu lần đầu → BẮT BUỘC đổi mật khẩu,
+  // không cho vào app (không có nút bỏ qua) cho tới khi đổi xong.
+  if (user && user.mustChangePassword) {
+    return (
+      <ChangePasswordView
+        onDone={() => {
+          // Đổi xong → tải lại session (mustChangePassword đã = false)
+          api('/api/auth/me')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((json) => {
+              if (json?.user) setUser(json.user)
+            })
+            .catch(() => { /* giữ nguyên màn hình đổi mật khẩu */ })
         }}
       />
     )

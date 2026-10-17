@@ -183,6 +183,14 @@ async function validateInvoiceDraws(
     }
     if (dp.isDraft) throw new SalesDocError(400, 'Không thể khấu trừ từ hóa đơn đặt cọc đang là nháp')
     if (dp.status !== 'Open') throw new SalesDocError(400, 'Chỉ được khấu trừ từ hóa đơn đặt cọc đang ở trạng thái Open')
+    // Đặt cọc chưa synced lên SAP không thể tham chiếu DocEntry khi đẩy hóa đơn —
+    // chặn ngay tại validate để tránh lệch số dư DP giữa local và SAP.
+    if (typeof dp.sapDocEntry !== 'number') {
+      throw new SalesDocError(
+        400,
+        `Không thể khấu trừ đặt cọc #${dp.docNum ?? 'nháp'}: chứng từ đặt cọc chưa được đẩy lên SAP B1. Vui lòng đẩy đặt cọc lên SAP trước.`,
+      )
+    }
     const remaining = Number(dp.remainingAmount)
     if (drawAmount - remaining > 1e-9) {
       throw new SalesDocError(
@@ -539,6 +547,8 @@ async function pushSalesDocAfterCreate(
       discPct: l.discPct,
       taxCode: l.taxCode,
       warehouseCode: l.warehouseCode,
+      // Copy-from: local id dòng nguồn → tầng push tra BaseType/BaseEntry/BaseLine
+      sourceLineId: l.sourceLineId ?? null,
     })),
   })
   // Chỉ công nhận 'synced' khi SAP trả về DocEntry hợp lệ — thiếu DocEntry

@@ -68,6 +68,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         itemCode: l.itemCode,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
+        // Copy-from: local id dòng nguồn → tầng push tra BaseType/BaseEntry/BaseLine
+        sourceOrderLineId: l.sourceOrderLineId ?? null,
+        sourceQuotationLineId: l.sourceQuotationLineId ?? null,
       })),
     })
 
@@ -91,7 +94,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
     return NextResponse.json(
       { ok: false, error: result.error ?? 'Đẩy thất bại', delivery: updated },
-      { status: result.status === 'none' ? 400 : 502 },
+      // Bị chặn ở tầng validate (dòng nguồn chưa lên SAP) → 400 rõ ràng;
+      // chưa cấu hình SAP → 400; lỗi đẩy khác → 502
+      { status: result.status === 'none' || result.blocked ? 400 : 502 },
     )
   } finally {
     releasePushLock('delivery', id)

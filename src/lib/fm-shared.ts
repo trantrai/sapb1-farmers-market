@@ -14,6 +14,8 @@ export interface SessionUser {
   role: string
   roleLabel: string
   permissions: PermMap
+  /** true = tài khoản phải đổi mật khẩu ngay trước khi được vào app */
+  mustChangePassword: boolean
   /** Id + label SapDatabase đã chọn khi đăng nhập (null = dùng DB mặc định) */
   databaseId: string | null
   databaseLabel: string | null

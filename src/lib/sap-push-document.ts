@@ -21,6 +21,7 @@
 // ============================================================
 
 import { loadSapSettings, isSapConfigured, sapGet, sapPost, sapPatch, type SapConfig } from './sap-service-layer'
+import { db as prisma } from './db'
 
 /** Entity set chứng từ bán hàng trên Service Layer (OData v2) */
 export type SapDocEntitySet =
@@ -42,6 +43,12 @@ export interface SapPushLine {
   taxCode?: string | null
   /** Kho xuất của dòng (SAP: WarehouseCode — OWHS) */
   warehouseCode?: string | null
+  /**
+   * Local id của dòng chứng từ nguồn (copy-from/copy-to chuẩn SAP B1).
+   * Khi đẩy, module tự tra DB để gắn BaseType/BaseEntry/BaseLine vào payload —
+   * nếu nguồn chưa lên SAP thì CHẶN đẩy (không lặng lẽ bỏ qua).
+   */
+  sourceLineId?: string | null
 }
 
 export interface SapPushInput {
@@ -98,6 +105,11 @@ export interface SapPushResult {
   error?: string
   /** LineNum do SAP cấp cho từng dòng (theo thứ tự dòng đẩy) — cần khi SỬA (PATCH) */
   lineNums?: number[]
+  /**
+   * true = bị CHẶN ở tầng validate trước khi đẩy (ví dụ: chứng từ nguồn của
+   * copy-from chưa lên SAP). Route nên trả HTTP 400 thay vì 502.
+   */
+  blocked?: boolean
 }
 
 /** Đầu vào cho PATCH — sửa chứng từ đang Open */
@@ -128,12 +140,206 @@ interface SapDocResponse {
 
 const onlyDate = (d: string) => (d || '').slice(0, 10)
 
+// ============================================================
+// COPY-FROM → BaseType/BaseEntry/BaseLine
+// Khi chứng từ được sao chép từ chứng từ nguồn (copy-from/copy-to chuẩn
+// SAP B1), mỗi dòng mang sourceLineId (local id của dòng nguồn). Lúc đẩy
+// sang SAP B1 phải gắn BaseType/BaseEntry/BaseLine vào DocumentLines để
+// SAP trừ OpenQty của nguồn — nếu không SAP coi là chứng từ độc lập và
+// cho phép giao/hóa đơn trùng.
+// ============================================================
+
+/** Liên kết base SAP B1 của 1 dòng copy-from (gắn vào DocumentLines khi POST) */
+export interface SapLineBase {
+  /** Object type SAP B1 của chứng từ nguồn: 23=báo giá, 17=đơn hàng, 15=giao hàng, 13=hóa đơn, 14=ghi có, 16=trả hàng */
+  baseType: number
+  /** DocEntry của chứng từ nguồn trên SAP */
+  baseEntry: number
+  /** LineNum của dòng nguồn trên SAP */
+  baseLine: number
+}
+
+/** Mô tả 1 loại dòng nguồn có thể tra cứu trong DB */
+export interface SourceLineSpec {
+  /** Prisma delegate của bảng dòng nguồn */
+  lineDelegate: 'quotationLine' | 'salesOrderLine' | 'deliveryLine' | 'arInvoiceLine' | 'salesReturnLine'
+  /** Prisma delegate của bảng header nguồn */
+  headerDelegate: 'quotation' | 'salesOrder' | 'delivery' | 'arInvoice' | 'salesReturn'
+  /** Tên FK trên dòng → header */
+  headerFk: string
+  /** Object type SAP B1 (BaseType): 23=báo giá, 17=đơn hàng, 15=giao hàng, 13=hóa đơn, 16=trả hàng */
+  baseType: number
+  /** Tên tiếng Việt của chứng từ nguồn (dùng trong câu lỗi) */
+  label: string
+  /**
+   * Model dòng có field sapLineNum không. DeliveryLine KHÔNG có sapLineNum
+   * → dùng lineNum local làm BaseLine. Lưu ý: SAP thường giữ nguyên thứ tự
+   * dòng khi copy, nhưng nếu dòng nguồn bị sắp xếp lại trên SAP thì BaseLine
+   * có thể lệch — chấp nhận theo thiết kế, cần rà soát nếu SAP báo lỗi dòng.
+   */
+  hasSapLineNum: boolean
+}
+
+const SOURCE_LINE_SPECS: SourceLineSpec[] = [
+  { lineDelegate: 'quotationLine', headerDelegate: 'quotation', headerFk: 'quotationId', baseType: 23, label: 'báo giá bán hàng', hasSapLineNum: true },
+  { lineDelegate: 'salesOrderLine', headerDelegate: 'salesOrder', headerFk: 'orderId', baseType: 17, label: 'đơn hàng bán', hasSapLineNum: true },
+  { lineDelegate: 'deliveryLine', headerDelegate: 'delivery', headerFk: 'deliveryId', baseType: 15, label: 'phiếu giao hàng', hasSapLineNum: false },
+  { lineDelegate: 'arInvoiceLine', headerDelegate: 'arInvoice', headerFk: 'invoiceId', baseType: 13, label: 'hóa đơn bán hàng', hasSapLineNum: true },
+  { lineDelegate: 'salesReturnLine', headerDelegate: 'salesReturn', headerFk: 'returnId', baseType: 16, label: 'phiếu trả hàng bán', hasSapLineNum: true },
+]
+
+/** Lấy spec tra cứu theo tên delegate bảng dòng (dùng cho delivery: 2 FK riêng biệt) */
+export function getSourceLineSpec(lineDelegate: SourceLineSpec['lineDelegate']): SourceLineSpec | undefined {
+  return SOURCE_LINE_SPECS.find((s) => s.lineDelegate === lineDelegate)
+}
+
+/**
+ * Ma trận dòng nguồn hợp lệ cho từng entity set đích (theo copy-from SAP B1):
+ * - Invoices     ← báo giá (23), đơn hàng (17), giao hàng (15)
+ * - CreditNotes  ← hóa đơn (13), trả hàng (16)
+ * - Returns      ← giao hàng (15), hóa đơn (13)
+ * - DownPayments ← báo giá (23), đơn hàng (17)
+ * - Quotations   = đầu luồng, không có nguồn
+ * - Orders/DeliveryNotes không đẩy qua hàm resolveCopyFromBases này
+ *   (Orders qua sap-push-order — SalesOrderLine không có sourceLineId;
+ *   DeliveryNotes qua sap-push-delivery — 2 FK riêng biệt)
+ */
+const ENTITY_SOURCE_SPECS: Record<SapDocEntitySet, SourceLineSpec[]> = {
+  Orders: [],
+  Quotations: [],
+  DeliveryNotes: [],
+  Invoices: [
+    getSourceLineSpec('quotationLine')!,
+    getSourceLineSpec('salesOrderLine')!,
+    getSourceLineSpec('deliveryLine')!,
+  ],
+  CreditNotes: [getSourceLineSpec('arInvoiceLine')!, getSourceLineSpec('salesReturnLine')!],
+  Returns: [getSourceLineSpec('deliveryLine')!, getSourceLineSpec('arInvoiceLine')!],
+  DownPayments: [getSourceLineSpec('quotationLine')!, getSourceLineSpec('salesOrderLine')!],
+}
+
+/** Tên tiếng Việt của chứng từ đích (dùng trong câu lỗi chặn đẩy) */
+const ENTITY_LABEL: Record<SapDocEntitySet, string> = {
+  Orders: 'đơn hàng bán',
+  Quotations: 'báo giá bán hàng',
+  DeliveryNotes: 'phiếu giao hàng',
+  Invoices: 'hóa đơn bán hàng',
+  CreditNotes: 'phiếu ghi có phải thu',
+  Returns: 'phiếu trả hàng bán',
+  DownPayments: 'hóa đơn đặt cọc phải thu',
+}
+
+export type ResolveBaseResult = { ok: true; base: SapLineBase } | { ok: false; error: string }
+
+/**
+ * Dựng base từ bản ghi dòng nguồn ĐÃ tải (bước 2 của tra cứu).
+ * KHÔNG ném exception — trả { ok:false } để caller CHẶN đẩy.
+ */
+async function baseFromSourceLine(
+  spec: SourceLineSpec,
+  line: any,
+  targetLabel: string,
+): Promise<ResolveBaseResult> {
+  const header = await (prisma as any)[spec.headerDelegate].findUnique({
+    where: { id: line[spec.headerFk] },
+    select: { sapDocEntry: true, docNum: true },
+  })
+  // Nguồn chưa lên SAP (thiếu sapDocEntry) → CHẶN: đẩy lúc này sẽ tạo chứng
+  // từ độc lập trên SAP, đơn nguồn vẫn còn OpenQty → giao/hóa đơn trùng.
+  if (!header || typeof header.sapDocEntry !== 'number') {
+    return {
+      ok: false,
+      error:
+        `Không thể đẩy ${targetLabel}: ${spec.label} nguồn` +
+        `${header?.docNum != null ? ` #${header.docNum}` : ''} chưa được đẩy lên SAP B1 ` +
+        `(chưa có DocEntry). Hãy đẩy ${spec.label} nguồn lên SAP trước, rồi đẩy lại.`,
+    }
+  }
+  // BaseLine = LineNum của dòng nguồn TRÊN SAP. DeliveryLine không có field
+  // sapLineNum → dùng lineNum local (xem ghi chú ở SourceLineSpec).
+  const baseLine =
+    spec.hasSapLineNum && typeof line.sapLineNum === 'number' ? line.sapLineNum : line.lineNum
+  return { ok: true, base: { baseType: spec.baseType, baseEntry: header.sapDocEntry, baseLine } }
+}
+
+/**
+ * Tra cứu 1 dòng nguồn trong DB → BaseType/BaseEntry/BaseLine.
+ * KHÔNG ném exception. Trả { ok:false } khi:
+ * - không tìm thấy dòng nguồn (id lạ / không thuộc loại nguồn hợp lệ), hoặc
+ * - chứng từ nguồn CHƯA được đẩy lên SAP (thiếu sapDocEntry) → caller phải
+ *   CHẶN đẩy (không được lặng lẽ bỏ qua, sẽ lệch OpenQty trên SAP).
+ */
+export async function resolveSourceLineBase(
+  spec: SourceLineSpec,
+  sourceLineId: string,
+  targetLabel: string,
+): Promise<ResolveBaseResult> {
+  const line = await (prisma as any)[spec.lineDelegate].findUnique({ where: { id: sourceLineId } })
+  if (!line) {
+    return {
+      ok: false,
+      error: `Không tìm thấy dòng ${spec.label} nguồn (id ${sourceLineId}) — chưa đẩy ${targetLabel} để tránh lệch liên kết trên SAP B1.`,
+    }
+  }
+  return baseFromSourceLine(spec, line, targetLabel)
+}
+
+export type ResolveBasesResult = { ok: true; bases: (SapLineBase | null)[] } | { ok: false; error: string }
+
+/**
+ * Tra BaseType/BaseEntry/BaseLine cho mọi dòng có sourceLineId của 1 chứng từ
+ * sắp đẩy. Dòng không có sourceLineId → base null (chứng từ độc lập, giữ nguyên).
+ * Dừng và trả { ok:false } ngay khi gặp dòng nguồn không tra được — caller CHẶN đẩy.
+ */
+export async function resolveCopyFromBases(
+  entitySet: SapDocEntitySet,
+  lines: Array<{ sourceLineId?: string | null }>,
+  targetLabel?: string,
+): Promise<ResolveBasesResult> {
+  const label = targetLabel ?? ENTITY_LABEL[entitySet] ?? entitySet
+  const specs = ENTITY_SOURCE_SPECS[entitySet] ?? []
+  const bases: (SapLineBase | null)[] = []
+  for (const l of lines) {
+    const srcId = (l?.sourceLineId ?? '').trim()
+    if (!srcId) {
+      bases.push(null)
+      continue
+    }
+    // id dòng là cuid global-unique → chỉ 1 bảng nguồn chứa nó
+    let done: ResolveBaseResult | null = null
+    for (const spec of specs) {
+      const line = await (prisma as any)[spec.lineDelegate].findUnique({ where: { id: srcId } })
+      if (line) {
+        done = await baseFromSourceLine(spec, line, label)
+        break
+      }
+    }
+    if (!done) {
+      return {
+        ok: false,
+        error: `Không tìm thấy dòng chứng từ nguồn (id ${srcId}) trong các loại nguồn hợp lệ của ${label} — chưa đẩy để tránh lệch liên kết trên SAP B1.`,
+      }
+    }
+    if (!done.ok) return done
+    bases.push(done.base)
+  }
+  return { ok: true, bases }
+}
+
 /** Dựng payload DocumentLines (dùng chung cho POST tạo mới và PATCH sửa) */
-export function buildSapLines(lines: SapPushLine[], dbLineNums?: (number | null)[]) {
+export function buildSapLines(
+  lines: SapPushLine[],
+  dbLineNums?: (number | null)[],
+  bases?: (SapLineBase | null | undefined)[],
+) {
   return lines.map((l, i) => {
     const ln = dbLineNums?.[i]
+    const b = bases?.[i]
     return {
       ...(typeof ln === 'number' ? { LineNum: ln } : {}),
+      // Copy-from: liên kết dòng với chứng từ/dòng nguồn trên SAP
+      // (BaseType/BaseEntry/BaseLine) — SAP tự trừ OpenQty của nguồn.
+      ...(b ? { BaseType: b.baseType, BaseEntry: b.baseEntry, BaseLine: b.baseLine } : {}),
       ItemCode: l.itemCode,
       Quantity: l.quantity,
       UnitPrice: l.unitPrice,
@@ -145,7 +351,11 @@ export function buildSapLines(lines: SapPushLine[], dbLineNums?: (number | null)
 }
 
 /** Dựng payload POST theo cấu trúc Document SAP B1 (OData v2) — mọi loại chứng từ đều dùng cấu trúc này */
-export function buildSapDocPayload(input: SapPushInput, withUdf = false) {
+export function buildSapDocPayload(
+  input: SapPushInput,
+  withUdf = false,
+  lineBases?: (SapLineBase | null | undefined)[],
+) {
   return {
     CardCode: input.cardCode,
     DocDate: onlyDate(input.docDate),
@@ -168,7 +378,7 @@ export function buildSapDocPayload(input: SapPushInput, withUdf = false) {
       : {}),
     // Marker idempotency — chỉ gắn khi SAP đã định nghĩa UDF này
     ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),
-    DocumentLines: buildSapLines(input.lines),
+    DocumentLines: buildSapLines(input.lines, undefined, lineBases),
   }
 }
 
@@ -260,7 +470,15 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
     withUdf = existing.supported
   }
 
-  const payload = buildSapDocPayload(input, withUdf)
+  // Copy-from: tra BaseType/BaseEntry/BaseLine cho các dòng có sourceLineId.
+  // Nguồn chưa lên SAP (thiếu sapDocEntry) → CHẶN đẩy, trả lỗi rõ ràng
+  // (không lặng lẽ bỏ qua — sẽ lệch OpenQty trên SAP).
+  const baseRes = await resolveCopyFromBases(input.entitySet, input.lines)
+  if (!baseRes.ok) {
+    return { status: 'error', blocked: true, error: baseRes.error }
+  }
+
+  const payload = buildSapDocPayload(input, withUdf, baseRes.bases)
   const res = await sapPost<SapDocResponse>(settings, `/${input.entitySet}`, payload)
   if (!res.ok) {
     return { status: 'pending', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }

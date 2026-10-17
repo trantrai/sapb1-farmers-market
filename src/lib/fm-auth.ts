@@ -164,6 +164,7 @@ export async function getSessionUser(req?: Request): Promise<SessionUser | null>
     role: user.role,
     roleLabel: role?.label ?? user.role,
     permissions: parsePerm(role?.permissions),
+    mustChangePassword: Boolean(user.mustChangePassword),
     databaseId: databaseLabel ? databaseId : null,
     databaseLabel,
   }

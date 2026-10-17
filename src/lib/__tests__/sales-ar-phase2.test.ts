@@ -17,6 +17,7 @@ import { Prisma } from '@prisma/client'
 import { db as prisma } from '@/lib/db'
 import { nextDocNum } from '@/lib/doc-num'
 import { buildSapDocPayload, pushDocumentToSap } from '@/lib/sap-push-document'
+import { INVOICE_CFG, SalesDocError } from '@/lib/sales-ar'
 
 // Chỉ chạy test DB khi có FM_PHASE2_TEST_DB trỏ tới DB tạm
 const describeDb = process.env.FM_PHASE2_TEST_DB ? describe : describe.skip
@@ -121,6 +122,36 @@ describeDb('DownPaymentDraw', () => {
       include: { draws: true },
     })
     expect(withDraws?.draws).toHaveLength(1)
+  })
+
+  it('validateDraws: chặn draw từ đặt cọc chưa synced lên SAP', async () => {
+    const validate = INVOICE_CFG.hooks!.validateDraws!
+    const dp = await prisma.arDownPayment.create({
+      data: {
+        docNum: 9101,
+        cardCode: 'C20001',
+        cardName: 'Khách test',
+        docDate: new Date(),
+        docDueDate: new Date(),
+        createdBy: 'test',
+        grandTotal: 1100000,
+        remainingAmount: new Prisma.Decimal(1100000),
+        lines: { create: [{ lineNum: 1, ...line() }] },
+      },
+    })
+    // Chưa có sapDocEntry → phải lỗi 400
+    await expect(
+      validate(prisma as any, [{ downPaymentId: dp.id, drawAmount: 500000 }], 'C20001', 1100000),
+    ).rejects.toThrowError(/chưa được đẩy lên SAP B1/)
+    // Sau khi synced (có sapDocEntry) → validate qua
+    await prisma.arDownPayment.update({ where: { id: dp.id }, data: { sapDocEntry: 555 } })
+    const parsed = await validate(
+      prisma as any,
+      [{ downPaymentId: dp.id, drawAmount: 500000 }],
+      'C20001',
+      1100000,
+    )
+    expect(parsed).toHaveLength(1)
   })
 })
 

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { hashPassword } from '../src/lib/fm-crypto'
+import { generateStrongPassword } from '../src/lib/password-policy'
 
 const prisma = new PrismaClient()
 
@@ -37,18 +38,26 @@ async function main() {
   await prisma.appSettings.deleteMany()
 
   // ---------- Users ----------
-  // Tài khoản demo — ĐỔI MẬT KHẨU ngay sau khi deploy production.
+  // Mật khẩu NGẪU NHIÊN MẠNH, sinh mới mỗi lần seed — in ra console 1 lần
+  // (không ghi vào file/log nào khác). Lần đăng nhập đầu bắt buộc đổi mật khẩu.
+  const seedPasswords = ['admin', 'ketoan', 'nhanvien', 'kiemke'].map(() => generateStrongPassword())
   const [pwAdmin, pwKeToan, pwNhanVien, pwKiemKe] = await Promise.all(
-    ['admin123', 'ketoan123', 'nhanvien123', 'kiemke123'].map(hashPassword),
+    seedPasswords.map(hashPassword),
   )
   await prisma.user.createMany({
     data: [
-      { username: 'admin', password: pwAdmin, fullName: 'Nguyễn Văn Quản', role: 'Admin' },
-      { username: 'ketoan', password: pwKeToan, fullName: 'Trần Thị Kế', role: 'KeToan' },
-      { username: 'nhanvien', password: pwNhanVien, fullName: 'Lê Văn Bán', role: 'NhanVien' },
-      { username: 'kiemke', password: pwKiemKe, fullName: 'Phạm Thị Kiểm', role: 'NhanVien' },
+      { username: 'admin', password: pwAdmin, fullName: 'Nguyễn Văn Quản', role: 'Admin', mustChangePassword: true },
+      { username: 'ketoan', password: pwKeToan, fullName: 'Trần Thị Kế', role: 'KeToan', mustChangePassword: true },
+      { username: 'nhanvien', password: pwNhanVien, fullName: 'Lê Văn Bán', role: 'NhanVien', mustChangePassword: true },
+      { username: 'kiemke', password: pwKiemKe, fullName: 'Phạm Thị Kiểm', role: 'NhanVien', mustChangePassword: true },
     ],
   })
+  console.log('=== SEED CREDENTIALS ===')
+  console.log('admin    / ' + seedPasswords[0])
+  console.log('ketoan   / ' + seedPasswords[1])
+  console.log('nhanvien / ' + seedPasswords[2])
+  console.log('kiemke   / ' + seedPasswords[3])
+  console.log('=== (lưu lại ngay — lần đăng nhập đầu bắt buộc đổi mật khẩu) ===')
 
   // ---------- Roles (RBAC) ----------
   const fullPerm = JSON.stringify({

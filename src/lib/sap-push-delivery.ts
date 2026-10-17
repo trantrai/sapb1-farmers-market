@@ -8,12 +8,29 @@
 
 import { loadSapSettings, isSapConfigured, sapGet, sapPost, type SapConfig } from './sap-service-layer'
 import { UDF_LOCAL_ID } from './sap-push-order'
+import {
+  getSourceLineSpec,
+  resolveSourceLineBase,
+  type SapLineBase,
+} from './sap-push-document'
 
 export interface SapDeliveryLine {
   itemCode: string
   quantity: number
   unitPrice: number
   warehouseCode?: string | null
+  /**
+   * Local id dòng đơn hàng nguồn (DeliveryLine.sourceOrderLineId).
+   * Khi đẩy sẽ tra thành BaseType=17/BaseEntry/BaseLine; nguồn chưa lên
+   * SAP → CHẶN đẩy.
+   */
+  sourceOrderLineId?: string | null
+  /**
+   * Local id dòng báo giá nguồn (DeliveryLine.sourceQuotationLineId).
+   * Khi đẩy sẽ tra thành BaseType=23/BaseEntry/BaseLine; nguồn chưa lên
+   * SAP → CHẶN đẩy.
+   */
+  sourceQuotationLineId?: string | null
 }
 
 export interface SapDeliveryInput {
@@ -32,22 +49,33 @@ export interface SapDeliveryResult {
   docEntry?: number
   docNum?: number
   error?: string
+  /**
+   * true = bị CHẶN ở tầng validate trước khi đẩy (dòng nguồn của copy-from
+   * chưa lên SAP). Route nên trả HTTP 400 thay vì 502.
+   */
+  blocked?: boolean
 }
 
 const onlyDate = (d: string) => (d || '').slice(0, 10)
 
-function buildPayload(input: SapDeliveryInput, withUdf = false) {
+function buildPayload(input: SapDeliveryInput, withUdf = false, bases?: (SapLineBase | null | undefined)[]) {
   return {
     CardCode: input.cardCode,
     DocDate: onlyDate(input.docDate),
     ...(input.comments?.trim() ? { Comments: input.comments.trim().slice(0, 254) } : {}),
     ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),
-    DocumentLines: input.lines.map((l) => ({
-      ItemCode: l.itemCode,
-      Quantity: l.quantity,
-      UnitPrice: l.unitPrice,
-      ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
-    })),
+    DocumentLines: input.lines.map((l, i) => {
+      const b = bases?.[i]
+      return {
+        // Copy-from: liên kết dòng với đơn/báo giá nguồn trên SAP
+        // (BaseType/BaseEntry/BaseLine) — SAP tự trừ OpenQty của nguồn.
+        ...(b ? { BaseType: b.baseType, BaseEntry: b.baseEntry, BaseLine: b.baseLine } : {}),
+        ItemCode: l.itemCode,
+        Quantity: l.quantity,
+        UnitPrice: l.unitPrice,
+        ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
+      }
+    }),
   }
 }
 
@@ -98,7 +126,29 @@ export async function pushDeliveryToSap(input: SapDeliveryInput): Promise<SapDel
     withUdf = existing.supported
   }
 
-  const res = await sapPost<{ DocEntry?: number; DocNum?: number }>(settings, '/DeliveryNotes', buildPayload(input, withUdf))
+  // Copy-from: tra BaseType/BaseEntry/BaseLine cho các dòng có dòng nguồn
+  // (sourceOrderLineId → BaseType 17, sourceQuotationLineId → BaseType 23).
+  // Nguồn chưa lên SAP (thiếu sapDocEntry) → CHẶN đẩy, trả lỗi rõ ràng
+  // (không lặng lẽ bỏ qua — sẽ lệch OpenQty trên SAP).
+  const bases: (SapLineBase | null)[] = []
+  for (const l of input.lines) {
+    const orderLineId = (l.sourceOrderLineId ?? '').trim()
+    const quotationLineId = (l.sourceQuotationLineId ?? '').trim()
+    if (!orderLineId && !quotationLineId) {
+      bases.push(null)
+      continue
+    }
+    // 1 dòng chỉ thuộc 1 nguồn (from-order hoặc from-quotation) —
+    // ưu tiên đơn hàng nếu cả 2 đều có (dữ liệu bất thường).
+    const spec = getSourceLineSpec(orderLineId ? 'salesOrderLine' : 'quotationLine')
+    const r = await resolveSourceLineBase(spec!, orderLineId || quotationLineId, 'phiếu giao hàng')
+    if (!r.ok) {
+      return { status: 'error', blocked: true, error: r.error }
+    }
+    bases.push(r.base)
+  }
+
+  const res = await sapPost<{ DocEntry?: number; DocNum?: number }>(settings, '/DeliveryNotes', buildPayload(input, withUdf, bases))
   if (!res.ok) {
     return { status: 'pending', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }
   }
