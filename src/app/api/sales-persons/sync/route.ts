@@ -134,7 +134,9 @@ export async function POST(req: NextRequest) {
   const r = await sapGetAll<SlpRow>(
     s,
     '/SalesPersons',
-    { $select: 'SlpCode,SlpName,Active', $orderby: 'SlpCode' },
+    // Không dùng $select/$orderby — một số bản SAP B1 báo lỗi "Property invalid" với $select;
+    // lấy toàn bộ field rồi lọc ở client (OSLP rất ít dòng nên không ảnh hưởng hiệu năng)
+    {},
   )
   if (!r.ok || !r.data) {
     return NextResponse.json(
@@ -142,7 +144,9 @@ export async function POST(req: NextRequest) {
       { status: 502 },
     )
   }
-  const rows = r.data.filter((x) => typeof x.SlpCode === 'number')
+  const rows = r.data
+    .filter((x) => typeof x.SlpCode === 'number')
+    .sort((a, b) => (a.SlpCode as number) - (b.SlpCode as number))
   if (rows.length === 0) {
     return NextResponse.json(
       { error: 'SAP B1 trả danh sách nhân viên bán hàng rỗng — chưa đồng bộ.' },

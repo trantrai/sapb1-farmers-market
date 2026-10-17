@@ -141,8 +141,9 @@ export async function POST(req: NextRequest) {
   const r = await sapGetAll<OctgRow>(
     s,
     '/PaymentTermsTypes',
-    // Chuẩn SAP B1: DueDate = StartFrom + NumberOfAdditionalMonths + NumberOfAdditionalDays
-    { $select: 'GroupNum,PymntGroup,NumberOfAdditionalDays,NumberOfAdditionalMonths', $orderby: 'GroupNum' },
+    // Không dùng $select/$orderby — một số bản SAP B1 báo lỗi "Property invalid" với $select;
+    // lấy toàn bộ field rồi lọc ở client (OCTG rất ít dòng nên không ảnh hưởng hiệu năng)
+    {},
   )
   if (!r.ok || !r.data) {
     return NextResponse.json(
@@ -150,7 +151,9 @@ export async function POST(req: NextRequest) {
       { status: 502 },
     )
   }
-  const rows = r.data.filter((x) => typeof x.GroupNum === 'number')
+  const rows = r.data
+    .filter((x) => typeof x.GroupNum === 'number')
+    .sort((a, b) => (a.GroupNum as number) - (b.GroupNum as number))
   if (rows.length === 0) {
     return NextResponse.json(
       { error: 'SAP B1 trả danh sách điều khoản thanh toán rỗng — chưa đồng bộ.' },
