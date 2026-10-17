@@ -175,12 +175,12 @@ export async function GET(req: NextRequest) {
       ].filter(Boolean),
     })
   }
+  // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false lấy chính thức (NULL = cũ = chính thức)
+  const isDraftParam = sp.get('isDraft') ?? ''
+  if (isDraftParam === 'true') andConds.push({ isDraft: true })
+  else if (isDraftParam === 'false') andConds.push({ OR: [{ isDraft: false }, { isDraft: null }] })
   if (andConds.length > 0) where.AND = andConds
   if (status === 'Open' || status === 'Closed') where.status = status
-  // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false chỉ lấy chính thức
-  const isDraftParam = sp.get('isDraft') ?? ''
-  if (isDraftParam === 'true') where.isDraft = true
-  else if (isDraftParam === 'false') where.isDraft = false
   if (from || to) {
     where.docDate = {
       ...(from ? { gte: new Date(from) } : {}),

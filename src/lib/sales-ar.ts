@@ -564,7 +564,10 @@ export async function salesDocList(req: NextRequest, cfg: SalesDocConfig) {
   const where: Record<string, unknown> = {}
   const andConds: Record<string, unknown>[] = []
   if (dbId) andConds.push({ OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: null }] })
-  if (draftFilter !== null) where.isDraft = draftFilter
+  // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false lấy chính thức
+  // (NULL isDraft — chứng từ cũ trước Phase 2 — coi như chính thức)
+  if (draftFilter === true) where.isDraft = true
+  else if (draftFilter === false) andConds.push({ OR: [{ isDraft: false }, { isDraft: null }] })
   if (q) {
     andConds.push({
       OR: [
