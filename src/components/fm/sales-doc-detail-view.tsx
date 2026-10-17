@@ -80,13 +80,13 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
     setActionMsg(null)
     try {
       const r = await api(`/api/${apiBase}/${id}`)
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const j = await r.json()
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
       if (signal.cancelled) return
       setDoc(unwrapDoc(j, config))
       setError('')
-    } catch {
-      if (!signal.cancelled) setError(`Không tải được chi tiết ${docLabel}`)
+    } catch (e) {
+      if (!signal.cancelled) setError(e instanceof Error ? e.message : `Không tải được chi tiết ${docLabel}`)
     } finally {
       if (!signal.cancelled) setLoading(false)
     }
