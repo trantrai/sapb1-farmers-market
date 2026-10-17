@@ -540,6 +540,7 @@ type HeaderBody = {
  * thì ẩn bản local, giữ bản SAP).
  */
 export async function salesDocList(req: NextRequest, cfg: SalesDocConfig) {
+  try {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
   if (!user.permissions[cfg.permModule]?.view) {
@@ -634,6 +635,13 @@ export async function salesDocList(req: NextRequest, cfg: SalesDocConfig) {
     source,
     ...(warning ? { warning } : {}),
   })
+  } catch (e) {
+    console.error(`[salesDocList:${cfg.docType}]`, e)
+    return NextResponse.json(
+      { error: `Lỗi tải danh sách ${cfg.label.toLowerCase()}: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500 },
+    )
+  }
 }
 
 // ==================== POST create ====================
