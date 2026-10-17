@@ -14,5 +14,5 @@ interface Props {
 }
 
 export default function CreditMemoFormView(props: Props) {
-  return <SalesDocFormView config={CREDIT_MEMO_CONFIG} {...props} />
+  return <SalesDocFormView config={CREDIT_MEMO_CONFIG} {...props} copyFromTarget="creditMemo" />
 }

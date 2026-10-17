@@ -74,6 +74,49 @@ export async function POST(req: NextRequest) {
     const calcLines = calcOrderLines(validLines, headerPct)
     const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = orderTotals(calcLines)
 
+    // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo đơn, chỉ trả dữ liệu
+    // đã validate/tính toán để form đơn hàng điền vào (CopyFromPicker) ----
+    if (req.nextUrl.searchParams.get('prefill') === '1') {
+      const now0 = new Date()
+      const rawLines = calcLines as unknown as Array<Record<string, unknown>>
+      return {
+        body: {
+          ok: true,
+          prefill: {
+            cardCode: qdoc.cardCode,
+            cardName: qdoc.cardName,
+            docDate: now0.toISOString(),
+            // Giữ ngày giao hàng theo báo giá (giống hành vi copy-to)
+            docDueDate: qdoc.docDueDate ? new Date(qdoc.docDueDate).toISOString() : now0.toISOString(),
+            remarks: `Sao chép từ báo giá bán hàng #${qdoc.docNum}`,
+            headerDiscPct: headerPct,
+            warehouseCode: qdoc.warehouseCode ?? null,
+            lines: rawLines.map((l) => ({
+              itemCode: l.itemCode,
+              itemName: l.itemName,
+              uom: l.uom ?? '',
+              warehouseCode: l.warehouseCode ?? null,
+              taxCode: l.taxCode ?? null,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              discPct: l.discPct ?? 0,
+              vatPct: l.vatPct ?? 8,
+              isBomChild: l.isBomChild ?? false,
+              bomGroupKey: l.bomGroupKey ?? null,
+              bomEditable: l.bomEditable ?? true,
+              bomQtyPerParent: l.bomQtyPerParent ?? null,
+              sourceLineId: l.sourceLineId ?? null,
+            })),
+            sourceType: 'quotation',
+            sourceId: quotationId,
+            sourceDocNum: qdoc.docNum ?? null,
+            sourceLabel: 'báo giá bán hàng',
+          },
+        },
+        status: 200,
+      }
+    }
+
     const orderSap = await loadSapSettings(user.databaseId)
     const orderDbId = orderSap?.dbId ?? null
     const createdBy = user.username
@@ -196,6 +239,13 @@ export async function POST(req: NextRequest) {
     })
 
     return { body: { ok: true, order, sap: { ...push, status: finalStatus, error: finalError ?? push.error } }, status: 201 }
+  }
+
+  // Chế độ ?prefill=1 ("Sao chép từ") là chỉ-đọc: gọi run() trực tiếp,
+  // không khóa và không dedupe.
+  if (req.nextUrl.searchParams.get('prefill') === '1') {
+    const result = await run()
+    return NextResponse.json(result.body, { status: result.status })
   }
 
   // Chống bấm đúp "Tạo đơn từ báo giá": 2 request cùng báo giá trong 30s

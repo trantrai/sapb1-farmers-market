@@ -1130,6 +1130,10 @@ export const SOURCE_RETURN: SourceSpec = {
  * (= BaseEntry). Giữ chiết khấu đầu chứng từ của nguồn.
  * Ngày chứng từ mới = hôm nay; giữ nguyên khoảng cách tới hạn của nguồn.
  * Chống bấm đúp: order lock + dedupeRequest (giống from-order).
+ *
+ * ?prefill=1 — chế độ "Sao chép từ": KHÔNG tạo chứng từ, chỉ trả về JSON
+ * { ok: true, prefill: {...} } — dữ liệu đã validate/tính toán sẵn để form
+ * tạo mới điền vào. Dùng bởi CopyFromPicker trên các form tạo chứng từ.
  */
 export async function salesDocFromSource(req: NextRequest, target: SalesDocConfig, sources: SourceSpec[]) {
   const user = await getSessionUser(req)
@@ -1203,6 +1207,49 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
     const calcLines = calcOrderLines(validLines, headerPct)
     const { totalBeforeDisc, discountAmt, headerDiscAmt, vatAmt, grandTotal } = orderTotals(calcLines)
 
+    // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo chứng từ, chỉ trả
+    // dữ liệu đã validate/tính toán để form điền vào (CopyFromPicker) ----
+    if (req.nextUrl.searchParams.get('prefill') === '1') {
+      const now0 = new Date()
+      const spanMs0 = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime())
+      const rawLines = calcLines as unknown as Array<Record<string, unknown>>
+      return {
+        body: {
+          ok: true,
+          prefill: {
+            cardCode: src.cardCode,
+            cardName: src.cardName,
+            docDate: now0.toISOString(),
+            docDueDate: new Date(now0.getTime() + spanMs0).toISOString(),
+            remarks: `Sao chép từ ${spec.label} #${src.docNum}`,
+            headerDiscPct: headerPct,
+            warehouseCode: src.warehouseCode ?? null,
+            lines: rawLines.map((l) => ({
+              itemCode: l.itemCode,
+              itemName: l.itemName,
+              uom: l.uom ?? '',
+              warehouseCode: l.warehouseCode ?? null,
+              taxCode: l.taxCode ?? null,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              discPct: l.discPct ?? 0,
+              vatPct: l.vatPct ?? 8,
+              isBomChild: l.isBomChild ?? false,
+              bomGroupKey: l.bomGroupKey ?? null,
+              bomEditable: l.bomEditable ?? true,
+              bomQtyPerParent: l.bomQtyPerParent ?? null,
+              sourceLineId: l.sourceLineId ?? null,
+            })),
+            sourceType: spec.sourceType,
+            sourceId: src.id,
+            sourceDocNum: src.docNum ?? null,
+            sourceLabel: spec.label,
+          },
+        },
+        status: 200,
+      }
+    }
+
     const docNum = isDraftCopy ? null : await nextDocNum(target.docType)
     const now = new Date()
     const spanMs = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime())
@@ -1256,6 +1303,14 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
       },
       status: 201,
     }
+  }
+
+  // Chế độ ?prefill=1 ("Sao chép từ") là chỉ-đọc: gọi run() trực tiếp,
+  // không khóa và không dedupe (dedupe cache có thể trả nhầm kết quả
+  // tạo-ngay của cùng nguồn trong 30s trước đó).
+  if (req.nextUrl.searchParams.get('prefill') === '1') {
+    const result = await run()
+    return NextResponse.json(result.body, { status: result.status })
   }
 
   // Lock per-source: 2 request cùng nguồn không chạy song song

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND, formatNum, formatDateVN } from '@/lib/fm-shared'
@@ -9,6 +9,8 @@ import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import { useFocusTrap } from './use-focus-trap'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
+import CopyFromPicker from './copy-from-picker'
+import type { PrefillDoc } from '@/lib/copy-from'
 
 interface DraftLine {
   key: number
@@ -239,6 +241,9 @@ export default function OrderFormView({
     run: () => void
   } | null>(null)
   const [fieldErr, setFieldErr] = useState<Record<number, string>>({})
+  /** "Sao chép từ…" (copy-from): mở picker + thông tin nguồn đã chọn */
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [copyFromInfo, setCopyFromInfo] = useState<PrefillDoc | null>(null)
   const isEdit = Boolean(editOrder)
 
   // ---- Nhập từ Excel ----
@@ -769,6 +774,49 @@ export default function OrderFormView({
   const initEditForm = useEffectEvent((o: NonNullable<typeof editOrder>) => {
     applyEditData(o)
   })
+
+  // ---- "Sao chép từ…" (copy-from): điền dữ liệu prefill (?prefill=1) vào form ----
+  // Chỉ dùng khi TẠO đơn mới. Giá giữ nguyên theo nguồn (priceSource 'manual'
+  // để không tự giải lại giá), cấu trúc BOM được suy lại như khi sửa đơn.
+  const applyCopyFrom = (p: PrefillDoc) => {
+    setPartner({ code: p.cardCode, name: p.cardName } as ACOption)
+    setDocDate((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setDocDueDate((p.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setRemarks(p.remarks ?? '')
+    setHeaderWh(p.warehouseCode ?? '')
+    setHeaderDiscPct(p.headerDiscPct ?? 0)
+    const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
+      key: nextKey(),
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      discPct: l.discPct ?? 0,
+      vatPct: l.vatPct ?? 8,
+      taxCode: l.taxCode || undefined,
+      uom: l.uom || undefined,
+      warehouseCode: l.warehouseCode || p.warehouseCode || undefined,
+      priceSource: 'manual', // giữ nguyên giá/CK/thuế của chứng từ nguồn
+      isBomChild: l.isBomChild ?? false,
+      bomGroupKey: l.bomGroupKey ?? undefined,
+      bomEditable: l.bomEditable ?? true,
+      bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+    }))
+    // Suy loại BOM của dòng cha từ dòng con (giống applyEditData)
+    for (const pl of prefilled) {
+      if (pl.isBomChild || !pl.bomGroupKey) continue
+      const kids = prefilled.filter((k) => k.isBomChild && k.bomGroupKey === pl.bomGroupKey)
+      if (kids.length > 0) {
+        pl.bomType = kids.some((k) => k.bomEditable === false) ? 'production' : 'template'
+      }
+    }
+    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setAtp({})
+    setError('')
+    setPartnerErr('')
+    setFieldErr({})
+    setCopyFromInfo(p)
+    setPickerOpen(false)
+  }
 
   useEffect(() => {
     if (!editOrder) return
@@ -1302,6 +1350,26 @@ export default function OrderFormView({
         </div>
       )}
 
+      {/* "Sao chép từ…" (copy-from): dữ liệu đã điền sẵn từ chứng từ nguồn */}
+      {!isEdit && copyFromInfo && (
+        <div className="fm-alert fm-alert--info" role="status" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <b>Tạo từ {copyFromInfo.sourceLabel}
+              {copyFromInfo.sourceDocNum != null ? ` #${copyFromInfo.sourceDocNum}` : ''} — {copyFromInfo.cardName}</b>
+            {' '}— dữ liệu đã điền sẵn (giữ giá/CK/thuế/kho của chứng từ nguồn). Kiểm tra lại rồi bấm Lưu.
+          </div>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => setPickerOpen(true)} disabled={saving}>
+            Đổi nguồn
+          </button>
+          <button type="button" className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setCopyFromInfo(null)} disabled={saving}>
+            Xóa
+          </button>
+        </div>
+      )}
+      {pickerOpen && (
+        <CopyFromPicker targetType="order" onPick={applyCopyFrom} onClose={() => setPickerOpen(false)} />
+      )}
+
       {/* Phase 2 — banner bản nháp máy chủ + nút chuyển thành chứng từ chính thức */}
       {isEdit && editOrder?.isDraft && (
         <div className="fm-alert fm-alert--warning" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="status">
@@ -1364,6 +1432,15 @@ export default function OrderFormView({
             {templates.length > 0 && (
               <span style={{ fontSize: 12, color: 'var(--fm-text-2)' }}>{templates.length} mẫu có sẵn</span>
             )}
+            <button
+              type="button"
+              className="fm-btn fm-btn--secondary fm-btn--sm"
+              onClick={() => setPickerOpen(true)}
+              disabled={saving}
+              title="Sao chép dữ liệu từ báo giá bán hàng (không tạo chứng từ ngay)"
+            >
+              <Copy size={14} /> Sao chép từ…
+            </button>
           </div>
         )}
         {tplMsg && (

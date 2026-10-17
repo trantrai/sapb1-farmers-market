@@ -17,5 +17,5 @@ interface Props {
 }
 
 export default function DownPaymentFormView(props: Props) {
-  return <SalesDocFormView config={DOWN_PAYMENT_CONFIG} {...props} />
+  return <SalesDocFormView config={DOWN_PAYMENT_CONFIG} {...props} copyFromTarget="downPayment" />
 }

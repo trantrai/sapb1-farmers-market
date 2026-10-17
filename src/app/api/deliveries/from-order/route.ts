@@ -134,6 +134,42 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo phiếu, chỉ trả dữ
+      // liệu (dòng theo OpenQty còn mở) để form phiếu giao hàng điền vào ----
+      if (req.nextUrl.searchParams.get('prefill') === '1') {
+        return {
+          body: {
+            ok: true,
+            prefill: {
+              cardCode: sapOrder.cardCode,
+              cardName: sapOrder.cardName,
+              docDate: new Date().toISOString(),
+              docDueDate: new Date().toISOString(),
+              remarks: `Sao chép từ đơn hàng bán (SAP B1) #${sapOrder.docNum}`,
+              headerDiscPct: 0,
+              warehouseCode: null,
+              lines: picked.map((x) => ({
+                itemCode: x.line.itemCode,
+                itemName: x.line.itemName,
+                uom: x.line.uom || '',
+                warehouseCode: x.line.warehouseCode || null,
+                taxCode: x.line.taxCode || null,
+                quantity: x.qty,
+                unitPrice: x.line.unitPrice,
+                discPct: x.line.discPct ?? 0,
+                vatPct: x.line.vatPct ?? 0,
+                sourceLineId: x.line.id,
+              })),
+              sourceType: 'order',
+              sourceId: orderId,
+              sourceDocNum: sapOrder.docNum ?? null,
+              sourceLabel: 'đơn hàng bán',
+            },
+          },
+          status: 200,
+        }
+      }
+
       const lineTotals = picked.map((x) => Math.round(x.line.unitPrice * x.qty))
       const grandTotal = lineTotals.reduce((sum, t) => sum + t, 0)
 
@@ -175,6 +211,13 @@ export async function POST(req: NextRequest) {
       }
       if (!delivery) return { body: { error: 'Không thể cấp số phiếu' }, status: 500 }
       return { body: { ok: true, delivery }, status: 201 }
+    }
+
+    // Chế độ ?prefill=1 ("Sao chép từ") là chỉ-đọc: gọi runSap() trực tiếp,
+    // không khóa và không dedupe.
+    if (req.nextUrl.searchParams.get('prefill') === '1') {
+      const result = await runSap()
+      return NextResponse.json(result.body, { status: result.status })
     }
 
     // Lock per-order (dùng orderId 'sap-<DocEntry>' làm khóa)
@@ -266,6 +309,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo phiếu, chỉ trả dữ
+    // liệu (dòng theo OpenQty còn mở, SL giao = SL còn mở từng dòng) ----
+    if (req.nextUrl.searchParams.get('prefill') === '1') {
+      return {
+        body: {
+          ok: true,
+          prefill: {
+            cardCode: order.cardCode,
+            cardName: order.cardName,
+            docDate: new Date().toISOString(),
+            docDueDate: new Date().toISOString(),
+            remarks: `Sao chép từ đơn hàng bán #${order.docNum}`,
+            headerDiscPct: 0,
+            warehouseCode: order.warehouseCode ?? null,
+            lines: picked.map((x) => ({
+              itemCode: x.line.itemCode,
+              itemName: x.line.itemName,
+              uom: x.line.uom || '',
+              warehouseCode: x.line.warehouseCode ?? null,
+              taxCode: x.line.taxCode ?? null,
+              quantity: x.qty,
+              unitPrice: x.line.unitPrice,
+              discPct: x.line.discPct ?? 0,
+              vatPct: x.line.vatPct ?? 0,
+              sourceLineId: x.line.id,
+            })),
+            sourceType: 'order',
+            sourceId: orderId,
+            sourceDocNum: order.docNum ?? null,
+            sourceLabel: 'đơn hàng bán',
+          },
+        },
+        status: 200,
+      }
+    }
+
     // grandTotal = tổng các lineTotal đã round (không tính lại từ unitPrice*qty)
     const lineTotals = picked.map((x) => Math.round(x.line.unitPrice * x.qty))
     const grandTotal = lineTotals.reduce((s, t) => s + t, 0)
@@ -308,6 +387,13 @@ export async function POST(req: NextRequest) {
     }
     if (!delivery) return { body: { error: 'Không thể cấp số phiếu' }, status: 500 }
     return { body: { ok: true, delivery }, status: 201 }
+  }
+
+  // Chế độ ?prefill=1 ("Sao chép từ") là chỉ-đọc: gọi run() trực tiếp,
+  // không khóa và không dedupe.
+  if (req.nextUrl.searchParams.get('prefill') === '1') {
+    const result = await run()
+    return NextResponse.json(result.body, { status: result.status })
   }
 
   // Lock per-order: 2 tab/2 request khác fingerprint không chạy song song

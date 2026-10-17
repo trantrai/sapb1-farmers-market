@@ -14,5 +14,5 @@ interface Props {
 }
 
 export default function InvoiceFormView(props: Props) {
-  return <SalesDocFormView config={INVOICE_CONFIG} {...props} />
+  return <SalesDocFormView config={INVOICE_CONFIG} {...props} copyFromTarget="invoice" />
 }

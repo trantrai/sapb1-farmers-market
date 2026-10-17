@@ -12,11 +12,13 @@
 // ============================================================
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, Save, Trash2, Copy } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
+import CopyFromPicker from './copy-from-picker'
+import type { PrefillDoc } from '@/lib/copy-from'
 
 interface FormLine {
   key: number
@@ -56,6 +58,30 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
   const [version, setVersion] = useState<number | undefined>(undefined)
   /** Chế độ sửa: phiếu có liên kết đơn nguồn không (có → khóa thêm/xóa dòng) */
   const [hasSourceOrder, setHasSourceOrder] = useState(false)
+  /** "Sao chép từ…" (copy-from): mở picker + thông tin nguồn đã chọn */
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [copyFromInfo, setCopyFromInfo] = useState<PrefillDoc | null>(null)
+
+  // ---- "Sao chép từ…" (copy-from): điền dữ liệu prefill (?prefill=1) vào form ----
+  // Chỉ dùng khi TẠO phiếu mới. SL từng dòng = SL còn mở (OpenQty) của đơn nguồn.
+  const applyCopyFrom = (p: PrefillDoc) => {
+    setPartner({ code: p.cardCode, name: p.cardName })
+    setDocDate((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setRemarks(p.remarks ?? '')
+    setLines(
+      (p.lines ?? []).map((l) => ({
+        key: nextKey(),
+        item: { code: l.itemCode, name: l.itemName },
+        quantity: l.quantity,
+        unitPrice: l.unitPrice ?? 0,
+        vatPct: l.vatPct ?? 10,
+      })),
+    )
+    setPartnerErr('')
+    setSaveError('')
+    setCopyFromInfo(p)
+    setPickerOpen(false)
+  }
 
   // Tải phiếu khi ở chế độ sửa
   useEffect(() => {
@@ -234,15 +260,45 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
             <ArrowLeft size={16} /> Quay lại
           </button>
           {!isEdit && (
-            <button className="fm-btn fm-btn--secondary" onClick={() => void handleSave(true)} disabled={saving}>
-              <Save size={16} /> {saving ? 'Đang lưu nháp…' : 'Lưu nháp'}
-            </button>
+            <>
+              <button
+                className="fm-btn fm-btn--secondary"
+                onClick={() => setPickerOpen(true)}
+                disabled={saving}
+                title="Sao chép dữ liệu từ đơn hàng bán (không tạo phiếu ngay)"
+              >
+                <Copy size={16} /> Sao chép từ…
+              </button>
+              <button className="fm-btn fm-btn--secondary" onClick={() => void handleSave(true)} disabled={saving}>
+                <Save size={16} /> {saving ? 'Đang lưu nháp…' : 'Lưu nháp'}
+              </button>
+            </>
           )}
           <button className="fm-btn fm-btn--primary" onClick={() => void handleSave()} disabled={saving}>
             <Save size={16} /> {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Tạo phiếu giao hàng'}
           </button>
         </>}
       />
+
+      {/* "Sao chép từ…" (copy-from): dữ liệu đã điền sẵn từ chứng từ nguồn */}
+      {!isEdit && copyFromInfo && (
+        <div className="fm-alert fm-alert--info" role="status" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <b>Tạo từ {copyFromInfo.sourceLabel}
+              {copyFromInfo.sourceDocNum != null ? ` #${copyFromInfo.sourceDocNum}` : ''} — {copyFromInfo.cardName}</b>
+            {' '}— dữ liệu đã điền sẵn (số lượng = số lượng còn mở của đơn nguồn). Kiểm tra lại rồi bấm Lưu.
+          </div>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => setPickerOpen(true)} disabled={saving}>
+            Đổi nguồn
+          </button>
+          <button type="button" className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setCopyFromInfo(null)} disabled={saving}>
+            Xóa
+          </button>
+        </div>
+      )}
+      {pickerOpen && (
+        <CopyFromPicker targetType="delivery" onPick={applyCopyFrom} onClose={() => setPickerOpen(false)} />
+      )}
 
       {saveError && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>{saveError}</div>

@@ -7,15 +7,19 @@
 // giải (OSPP → Price List 1), VAT theo mã thuế, tính tổng bằng order-calc
 // (khớp từng đồng với máy chủ), 409 VERSION_CONFLICT có nút tải lại.
 // Hỗ trợ tạo từ chứng từ nguồn (from-source) với banner "Tạo từ …".
+// Hỗ trợ "Sao chép từ…" (copy-from) trên form tạo mới: picker chọn chứng từ
+// nguồn → API ?prefill=1 trả dữ liệu điền sẵn (không tạo chứng từ ngay).
 // ============================================================
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, ArrowLeft, Wallet } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, ArrowLeft, Wallet, Copy } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
+import CopyFromPicker from './copy-from-picker'
+import type { CopyFromTarget, PrefillDoc } from '@/lib/copy-from'
 import {
   clampPct,
   DOC_TYPE_LABEL,
@@ -55,13 +59,16 @@ interface Props {
   /** Tạo từ chứng từ nguồn: 'quotation'|'order'|'delivery' (hóa đơn), 'invoice'|'return' (ghi có), 'delivery'|'invoice' (trả hàng) */
   sourceType?: string
   sourceId?: string
+  /** "Sao chép từ…" (copy-from): loại chứng từ đích — hiện nút picker trên
+   *  form TẠO mới (không xung đột với sourceType/sourceId của copy-to) */
+  copyFromTarget?: CopyFromTarget
   onBack: () => void
   onSaved: (id: string) => void
   /** Id user đăng nhập (dự phòng cho các mở rộng sau) */
   userId?: string
 }
 
-export default function SalesDocFormView({ config, initialId, sourceType, sourceId, onBack, onSaved, userId }: Props) {
+export default function SalesDocFormView({ config, initialId, sourceType, sourceId, copyFromTarget, onBack, onSaved, userId }: Props) {
   const { apiBase, docLabel, fromSourceApi, enableDownPaymentDraws, enableDocType } = config
   void userId
   /** Id chứng từ vừa được tạo qua from-source — API tạo NGAY (201) rồi trả về,
@@ -118,6 +125,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   const [prefillInfo, setPrefillInfo] = useState<{ sourceLabel: string; sourceDocNum: number | null } | null>(null)
   const [prefillLoading, setPrefillLoading] = useState(false)
   const [prefillError, setPrefillError] = useState('')
+  /** "Sao chép từ…" (copy-from): mở picker + dữ liệu nguồn đã chọn */
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [copyFrom, setCopyFrom] = useState<PrefillDoc | null>(null)
 
   // ---- Điền sẵn dữ liệu khi vào chế độ SỬA ----
   const applyEditData = (o: EditDocData) => {
@@ -159,6 +169,37 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     setError('')
     setPartnerErr('')
     setFieldErr({})
+  }
+
+  // ---- "Sao chép từ…" (copy-from): điền dữ liệu prefill (?prefill=1) vào form ----
+  // Chỉ dùng khi TẠO chứng từ mới (không ở chế độ sửa, không ở chế độ copy-to
+  // tạo-ngay). Giữ giá/CK/thuế/kho + cấu trúc BOM của nguồn; sourceLineId từng
+  // dòng được giữ để lưu kèm khi bấm Lưu (tương đương BaseLine của SAP).
+  const applyCopyFrom = (p: PrefillDoc) => {
+    setPartner({ code: p.cardCode, name: p.cardName })
+    setDocDate((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setDocDueDate((p.docDueDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10))
+    setRemarks(p.remarks ?? '')
+    setHeaderWh(p.warehouseCode ?? '')
+    setHeaderDiscPct(p.headerDiscPct ?? 0)
+    const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
+      key: nextKey(),
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      discPct: l.discPct ?? 0,
+      vatPct: l.vatPct ?? 8,
+      taxCode: l.taxCode || undefined,
+      uom: l.uom || undefined,
+      warehouseCode: l.warehouseCode || p.warehouseCode || undefined,
+      sourceLineId: l.sourceLineId ?? null,
+    }))
+    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setError('')
+    setPartnerErr('')
+    setFieldErr({})
+    setCopyFrom(p)
+    setPickerOpen(false)
   }
 
   // Tải dữ liệu đầu vào 1 lần khi mở form
@@ -527,6 +568,26 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         </div>
       )}
 
+      {/* "Sao chép từ…" (copy-from): dữ liệu đã điền sẵn từ chứng từ nguồn */}
+      {!isEdit && !isFromSource && copyFrom && copyFromTarget && (
+        <div className="fm-alert fm-alert--info" role="status" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <b>Tạo từ {copyFrom.sourceLabel}
+              {copyFrom.sourceDocNum != null ? ` #${copyFrom.sourceDocNum}` : ''} — {copyFrom.cardName}</b>
+            {' '}— dữ liệu đã điền sẵn (giữ giá/CK/thuế/kho của chứng từ nguồn). Kiểm tra lại rồi bấm Lưu.
+          </div>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => setPickerOpen(true)} disabled={saving}>
+            Đổi nguồn
+          </button>
+          <button type="button" className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setCopyFrom(null)} disabled={saving}>
+            Xóa
+          </button>
+        </div>
+      )}
+      {pickerOpen && copyFromTarget && (
+        <CopyFromPicker targetType={copyFromTarget} onPick={applyCopyFrom} onClose={() => setPickerOpen(false)} />
+      )}
+
       {/* Phase 2 — banner bản nháp + nút chuyển thành chứng từ chính thức */}
       {isEdit && isDraftDoc && (
         <div className="fm-alert fm-alert--warning" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="status">
@@ -572,6 +633,21 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ShoppingCart size={18} /> Bước 1 — Thông tin chung
         </h2>
+
+        {!isEdit && !isFromSource && copyFromTarget && (
+          <div style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              className="fm-btn fm-btn--secondary fm-btn--sm"
+              onClick={() => setPickerOpen(true)}
+              disabled={saving}
+              title="Sao chép dữ liệu từ chứng từ nguồn (không tạo chứng từ ngay)"
+            >
+              <Copy size={14} /> Sao chép từ…
+            </button>
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           <div style={{ gridColumn: '1 / -1', maxWidth: 560 }}>
             <Autocomplete

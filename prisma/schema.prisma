@@ -143,6 +143,9 @@ model Delivery {
   // Liên kết đơn hàng nguồn (1 đơn có thể có nhiều delivery)
   sourceOrderId String?
   sourceOrder   SalesOrder? @relation(fields: [sourceOrderId], references: [id])
+  // Liên kết báo giá nguồn (copy-from theo ma trận SAP B1: Delivery ← Quotation)
+  sourceQuotationId String?
+  sourceQuotation   Quotation? @relation(fields: [sourceQuotationId], references: [id])
   // Đơn SAP B1 trực tiếp (id 'sap-<DocEntry>', chưa có bản ghi local):
   // lưu DocEntry đơn nguồn để tính OpenQty và liên kết
   sapSourceDocEntry Int?
@@ -161,6 +164,7 @@ model Delivery {
 
   @@index([sapDatabaseId, status])
   @@index([sourceOrderId])
+  @@index([sourceQuotationId])
   @@index([sapSourceDocEntry])
   @@index([cardCode, docDate])
   @@index([cardName]) // tìm kiếm/lọc theo tên khách hàng trên danh sách Giao hàng
@@ -179,9 +183,12 @@ model DeliveryLine {
   lineTotal  Float    @default(0)
   // Liên kết dòng đơn nguồn — để tính OpenQty (đã giao bao nhiêu)
   sourceOrderLineId String?
+  // Liên kết dòng báo giá nguồn (copy-from: Delivery ← Quotation)
+  sourceQuotationLineId String?
 
   @@index([deliveryId])
   @@index([sourceOrderLineId])
+  @@index([sourceQuotationLineId])
 }
 
 model SalesOrderLine {
@@ -402,6 +409,7 @@ model Quotation {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   lines           QuotationLine[]
+  deliveries      Delivery[] // Phiếu giao hàng copy từ báo giá này
 
   @@index([sapDatabaseId, status])
   @@index([cardCode, docDate])

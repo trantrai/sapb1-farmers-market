@@ -14,5 +14,5 @@ interface Props {
 }
 
 export default function ReturnFormView(props: Props) {
-  return <SalesDocFormView config={RETURN_CONFIG} {...props} />
+  return <SalesDocFormView config={RETURN_CONFIG} {...props} copyFromTarget="return" />
 }
