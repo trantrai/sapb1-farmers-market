@@ -24,6 +24,7 @@ const OrderDetailView = dynamic(() => import('./order-detail-view'), { ssr: fals
 const OrderFormView = dynamic(() => import('./order-form-view'), { ssr: false, loading: ViewLoading })
 const DeliveriesListView = dynamic(() => import('./deliveries-list-view'), { ssr: false, loading: ViewLoading })
 const DeliveryDetailView = dynamic(() => import('./delivery-detail-view'), { ssr: false, loading: ViewLoading })
+const DeliveryFormView = dynamic(() => import('./delivery-form-view'), { ssr: false, loading: ViewLoading })
 const UsersView = dynamic(() => import('./users-view'), { ssr: false, loading: ViewLoading })
 const SettingsView = dynamic(() => import('./settings-view'), { ssr: false, loading: ViewLoading })
 const RolesView = dynamic(() => import('./roles-view'), { ssr: false, loading: ViewLoading })
@@ -56,7 +57,7 @@ import type { EditOrderData } from './order-form-view'
 import { toEditData } from './order-form-view'
 import type { CopyTarget } from './sales-doc-shared'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates' | 'bomImport' | 'quotations' | 'quotationNew' | 'quotationDetail' | 'invoices' | 'invoiceNew' | 'invoiceDetail' | 'creditMemos' | 'creditMemoNew' | 'creditMemoDetail' | 'returns' | 'returnNew' | 'returnDetail' | 'downPayments' | 'downPaymentNew' | 'downPaymentDetail' | 'salesReport' | 'arAgingReport'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'deliveryNew' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates' | 'bomImport' | 'quotations' | 'quotationNew' | 'quotationDetail' | 'invoices' | 'invoiceNew' | 'invoiceDetail' | 'creditMemos' | 'creditMemoNew' | 'creditMemoDetail' | 'returns' | 'returnNew' | 'returnDetail' | 'downPayments' | 'downPaymentNew' | 'downPaymentDetail' | 'salesReport' | 'arAgingReport'
 
 interface MenuItem {
   key: ViewKey
@@ -98,6 +99,7 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   orderDetail: 'Chi tiết đơn hàng bán',
   deliveries: 'Quản lý giao hàng',
   deliveryDetail: 'Chi tiết phiếu giao hàng',
+  deliveryNew: 'Tạo / Cập nhật phiếu giao hàng',
   users: 'Quản lý người dùng',
   settings: 'Cài đặt kết nối SAP B1',
   sapAudit: 'Service Layer Audit — nhật ký & thử lại',
@@ -166,6 +168,8 @@ export default function AppShell({ user, onLogout }: Props) {
   const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null)
   const [editCreditMemoId, setEditCreditMemoId] = useState<string | null>(null)
   const [editReturnId, setEditReturnId] = useState<string | null>(null)
+  /** Phiếu giao hàng đang SỬA (form tạo/sửa trực tiếp) */
+  const [editDeliveryId, setEditDeliveryId] = useState<string | null>(null)
   /** Phase 2 — Hóa đơn đặt cọc phải thu đang SỬA */
   const [editDownPaymentId, setEditDownPaymentId] = useState<string | null>(null)
   /** Số đơn quá hạn giao — hiển thị badge đỏ trên menu Đơn hàng */
@@ -551,6 +555,25 @@ export default function AppShell({ user, onLogout }: Props) {
                 refreshKey={refreshKey}
                 canCreate={user.permissions.ordersNew?.create}
                 onGoCreate={() => { setEditOrder(null); go('ordersNew') }}
+                canCreateDelivery={user.permissions.deliveries?.create}
+                onGoNewDelivery={() => { setEditDeliveryId(null); go('deliveryNew') }}
+              />
+            )}
+            {view === 'deliveryNew' && (
+              <DeliveryFormView
+                deliveryId={editDeliveryId ?? undefined}
+                onCancel={() => { setEditDeliveryId(null); go(editDeliveryId ? 'deliveryDetail' : 'deliveries') }}
+                onSaved={(id) => {
+                  const wasEdit = Boolean(editDeliveryId)
+                  setEditDeliveryId(null)
+                  setRefreshKey((k) => k + 1)
+                  setDetailDeliveryId(id)
+                  showToast(
+                    wasEdit ? 'Đã cập nhật phiếu giao hàng thành công!' : 'Đã tạo phiếu giao hàng thành công!',
+                    'success',
+                  )
+                  go('deliveryDetail')
+                }}
               />
             )}
             {view === 'deliveryDetail' && detailDeliveryId && (
@@ -559,6 +582,8 @@ export default function AppShell({ user, onLogout }: Props) {
                 onBack={() => go('deliveries')}
                 onGoOrder={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
                 onCopyTo={(target, sourceId) => copyDocTo(target, 'delivery', sourceId)}
+                onEdit={(id) => { setEditDeliveryId(id); go('deliveryNew') }}
+                canEditDelivery={user.permissions.deliveries?.edit}
               />
             )}
             {view === 'ordersNew' && (

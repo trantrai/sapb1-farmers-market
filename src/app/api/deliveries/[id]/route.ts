@@ -131,7 +131,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     )
   }
 
-  let body: { lines?: Array<{ id?: string; quantity?: number }>; status?: string; version?: number }
+  let body: { lines?: Array<{ id?: string; quantity?: number }>; status?: string; version?: number; docDate?: string; remarks?: string | null }
   try {
     body = await req.json()
   } catch {
@@ -141,6 +141,21 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   // Whitelist status: chỉ chấp nhận 'Cancelled'
   if (body.status !== undefined && body.status !== 'Cancelled') {
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
+  }
+
+  // Header fields cho form sửa đầy đủ (delivery-form-view): ngày chứng từ + ghi chú
+  // Chỉ cho phép khi phiếu chưa đẩy SAP và chưa hủy (đã kiểm tra ở trên)
+  const headerPatch: { docDate?: Date; remarks?: string | null } = {}
+  if (body.docDate !== undefined) {
+    const d = new Date(String(body.docDate))
+    if (Number.isNaN(d.getTime())) {
+      return NextResponse.json({ error: 'Ngày chứng từ không hợp lệ' }, { status: 400 })
+    }
+    headerPatch.docDate = d
+  }
+  if (body.remarks !== undefined) {
+    const r = body.remarks == null ? null : String(body.remarks).trim()
+    headerPatch.remarks = r || null
   }
 
   // Optimistic locking bắt buộc: client phải gửi đúng version đã đọc
@@ -265,7 +280,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         data: { quantity: u.quantity, lineTotal: u.lineTotal },
       }),
     ),
-    prisma.delivery.update({ where: { id }, data: { grandTotal, version: { increment: 1 } } }),
+    prisma.delivery.update({ where: { id }, data: { grandTotal, version: { increment: 1 }, ...headerPatch } }),
   ])
 
   const updated = await prisma.delivery.findUnique({

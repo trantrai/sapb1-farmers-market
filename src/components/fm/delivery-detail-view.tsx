@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, Receipt, Undo2 } from 'lucide-react'
+import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, Receipt, Undo2, BadgeCheck } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
@@ -60,6 +60,10 @@ interface Props {
   onGoOrder: (orderId: string) => void
   /** Wire ở app-shell: mở form loại đích với sourceType='delivery' + sourceId (Phase 1 Sales A/R) */
   onCopyTo?: (target: CopyTarget, sourceId: string) => void
+  /** Wire ở app-shell: mở form chỉnh sửa đầy đủ (delivery-form-view) */
+  onEdit?: (id: string) => void
+  /** Quyền sửa phiếu giao hàng (RBAC) — ẩn nút Chỉnh sửa nếu không có quyền */
+  canEditDelivery?: boolean
 }
 
 interface EditRow {
@@ -79,7 +83,7 @@ const STATUS_LABEL: Record<string, string> = {
   Cancelled: 'Đã hủy',
 }
 
-export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCopyTo }: Props) {
+export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCopyTo, onEdit, canEditDelivery }: Props) {
   const [delivery, setDelivery] = useState<Delivery | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -173,6 +177,43 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
       confirmLabel: 'Đẩy sang SAP',
       tone: 'warning',
       run: () => { void doPush() },
+    })
+  }
+
+  // Phase 2 — chuyển bản nháp thành chứng từ chính thức
+  const doFinalize = () => {
+    if (!delivery || actionBusy) return
+    setConfirmCfg({
+      title: 'Chuyển thành chứng từ chính thức',
+      message: `Chuyển phiếu giao hàng ${delivery.docNum ?? '(nháp)'} từ bản nháp thành chứng từ chính thức?\nSau khi chuyển, phiếu sẽ có hiệu lực và có thể đẩy sang SAP B1.`,
+      confirmLabel: 'Chuyển chính thức',
+      tone: 'primary',
+      run: () => {
+        const runFinalize = async () => {
+          setConfirmCfg(null)
+          setActionBusy(true)
+          setActionMsg(null)
+          try {
+            const res = await api(`/api/deliveries/${delivery.id}/finalize`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ version: delivery.version ?? 0 }),
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok || !json.ok) {
+              setActionMsg({ type: 'error', text: json.error ?? 'Không thể chuyển thành chứng từ chính thức' })
+              return
+            }
+            setActionMsg({ type: 'success', text: 'Đã chuyển thành chứng từ chính thức.' })
+            await load()
+          } catch {
+            setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
+          } finally {
+            setActionBusy(false)
+          }
+        }
+        void runFinalize()
+      },
     })
   }
 
@@ -351,8 +392,18 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
                   onClick={() => void openEditModal()}
                   disabled={actionBusy || editLoading}
                 >
-                  <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa'}
+                  <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa SL'}
                 </button>
+                {onEdit && canEditDelivery !== false && (
+                  <button
+                    className="fm-btn fm-btn--secondary"
+                    onClick={() => onEdit(delivery.id)}
+                    disabled={actionBusy}
+                    title="Mở form chỉnh sửa đầy đủ (ngày chứng từ, ghi chú, số lượng dòng)"
+                  >
+                    <Pencil size={16} /> Chỉnh sửa
+                  </button>
+                )}
                 <button className="fm-btn fm-btn--secondary" onClick={() => setShowCancel(true)} disabled={actionBusy}>
                   <Ban size={16} /> Hủy phiếu
                 </button>
@@ -379,6 +430,11 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
               </>
             )}
             {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP */}
+            {delivery.isDraft && delivery.status !== 'Cancelled' && (
+              <button className="fm-btn fm-btn--primary" onClick={doFinalize} disabled={actionBusy}>
+                <BadgeCheck size={16} /> {actionBusy ? 'Đang chuyển…' : 'Chuyển thành chứng từ chính thức'}
+              </button>
+            )}
             {!delivery.isDraft && delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled' && (
               <button className="fm-btn fm-btn--primary" onClick={askPush} disabled={actionBusy}>
                 <CloudUpload size={16} /> {actionBusy ? 'Đang đẩy…' : 'Đẩy sang SAP B1'}

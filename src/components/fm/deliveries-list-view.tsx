@@ -53,6 +53,9 @@ interface Props {
   /** Hiện nút “Tạo đơn hàng” ở empty state khi user có quyền tạo đơn */
   canCreate?: boolean
   onGoCreate?: () => void
+  /** Quyền tạo phiếu giao hàng trực tiếp (form tạo mới) */
+  canCreateDelivery?: boolean
+  onGoNewDelivery?: () => void
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -61,7 +64,7 @@ const STATUS_LABEL: Record<string, string> = {
   Cancelled: 'Đã hủy',
 }
 
-export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refreshKey, canCreate, onGoCreate }: Props) {
+export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refreshKey, canCreate, onGoCreate, canCreateDelivery, onGoNewDelivery }: Props) {
   const [rows, setRows] = useState<Delivery[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -247,6 +250,9 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
         title="Quản lý giao hàng"
         actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => void load(true)}><RefreshCw size={14} /> Tải lại</button>
+          {canCreateDelivery && onGoNewDelivery && (
+            <button className="fm-btn fm-btn--primary" onClick={onGoNewDelivery}><Plus size={14} /> Tạo phiếu giao hàng</button>
+          )}
           <span className="fm-hint">{total} phiếu{source === 'sap' ? ' · từ SAP B1' : ''}</span>
         </>}
       />
