@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw, Plus, Network } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
+import { docNumLabel } from './sales-doc-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import PageHeader from './page-header'
@@ -26,6 +27,7 @@ interface DeliveryLine {
 
 interface Delivery {
   id: string
+  /** Bản nháp chưa cấp số thật → API trả null (Phase 2); hiển thị qua docNumLabel() */
   docNum: number
   docDate: string
   cardCode: string
@@ -36,6 +38,8 @@ interface Delivery {
   sapSyncStatus?: string
   /** 'sap' = từ SAP B1 (GET /DeliveryNotes), 'local' = bản ghi local */
   source?: 'sap' | 'local'
+  /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực (API: ?isDraft=) */
+  isDraft?: boolean
   /** id bản ghi local tương ứng (nếu phiếu SAP có bản ghi local) */
   localId?: string | null
   sourceOrder?: { id: string; docNum: number } | null
@@ -72,6 +76,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
     return () => clearTimeout(t)
   }, [q])
   const [status, setStatus] = useState('')
+  /** Phase 2 — lọc nhanh theo trạng thái nháp: '' | 'true' | 'false' (→ ?isDraft=) */
+  const [draftFilter, setDraftFilter] = useState<'' | 'true' | 'false'>('')
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [source, setSource] = useState('')
@@ -92,6 +98,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       const p = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
       if (debouncedQ.trim()) p.set('q', debouncedQ.trim())
       if (status) p.set('status', status)
+      if (draftFilter) p.set('isDraft', draftFilter)
       // fresh = bỏ qua cache 45s phía server, tải mới trực tiếp từ SAP B1
       if (fresh) p.set('fresh', '1')
       const r = await api(`/api/deliveries?${p}`)
@@ -112,7 +119,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [page, pageSize, debouncedQ, status])
+  }, [page, pageSize, debouncedQ, status, draftFilter])
 
   useEffect(() => { void load() }, [load, refreshKey])
 
@@ -174,7 +181,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       const r = await api(`/api/deliveries/${d.id}`, { method: 'DELETE' })
       const j = await r.json().catch(() => ({}))
       if (r.ok) {
-        setAlert({ type: 'success', msg: `Đã xóa phiếu #${d.docNum}` })
+        setAlert({ type: 'success', msg: `Đã xóa phiếu ${docNumLabel(d.docNum, d.isDraft)}` })
         void load()
       } else {
         setRows(prevRows)
@@ -253,6 +260,25 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
           {alert.msg}
         </div>
       )}
+
+      {/* Lọc nhanh theo bản nháp (Phase 2) */}
+      <div className="fm-quickfilter" role="group" aria-label="Lọc nhanh theo bản nháp" style={{ marginBottom: 10 }}>
+        {([
+          { key: '', label: 'Tất cả' },
+          { key: 'false', label: 'Chính thức' },
+          { key: 'true', label: 'Nháp' },
+        ] as const).map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            className={`fm-btn fm-btn--sm ${draftFilter === f.key ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
+            onClick={() => { setDraftFilter(f.key); setPage(1) }}
+            aria-pressed={draftFilter === f.key}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       <div className="fm-filters">
         <div className="fm-search" style={{ flex: '1 1 220px' }}>
@@ -341,7 +367,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                     }
                   }}
                 >
-                  <th scope="row"><b>#{d.docNum}</b></th>
+                  <th scope="row"><b>{docNumLabel(d.docNum, d.isDraft)}</b></th>
                   <td>{formatDateVN(d.docDate)}</td>
                   <td>
                     <div><b>{d.cardCode}</b></div>
@@ -360,7 +386,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                     ) : '—'}
                   </td>
                   <td>
-                    <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>
+                    <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>{d.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}
                   </td>
                   <td>
                     {d.source === 'sap' ? (
@@ -395,7 +421,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                       >
                         <Network size={16} />
                       </button>
-                      {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
+                      {!d.isDraft && d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                         <button
                           type="button"
                           className="fm-btn fm-btn--ghost fm-btn--sm"
@@ -459,8 +485,8 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               }}
             >
               <div className="fm-ocard__top">
-                <span className="fm-ocard__num">#{d.docNum}</span>
-                <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>
+                <span className="fm-ocard__num">{docNumLabel(d.docNum, d.isDraft)}</span>
+                <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>{d.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}
                 {d.source === 'sap' ? (
                   <span className="fm-chip fm-chip--sap">SAP B1</span>
                 ) : d.sapSyncStatus === 'synced' ? (
@@ -502,7 +528,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                   >
                     <Network size={16} />
                   </button>
-                  {d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
+                  {!d.isDraft && d.sapSyncStatus !== 'synced' && d.status !== 'Cancelled' && (
                     <button
                       type="button"
                       className="fm-ocard__push"

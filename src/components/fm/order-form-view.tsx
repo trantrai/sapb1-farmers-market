@@ -79,6 +79,8 @@ export interface EditOrderData {
   sapSyncStatus?: string
   /** Optimistic locking: version lúc mở form */
   version?: number
+  /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực */
+  isDraft?: boolean
   lines: EditOrderLine[]
 }
 
@@ -117,6 +119,8 @@ export interface EditOrderSource {
   version?: number
   source?: string
   localId?: string | null
+  /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực (API: ?isDraft=) */
+  isDraft?: boolean
   lines: EditOrderSourceLine[]
 }
 
@@ -140,6 +144,7 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
   headerDiscPct: o.headerDiscPct ?? 0,
   sapSyncStatus: o.sapSyncStatus ?? (o.source === 'sap' ? 'synced' : 'none'),
   version: o.version,
+  isDraft: o.isDraft ?? false,
   lines: o.lines.map((l) => ({
     dbId: o.source === 'sap' ? undefined : l.id,
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
@@ -222,6 +227,8 @@ export default function OrderFormView({
   /** true = lỗi 409 VERSION_CONFLICT — banner hiện thêm nút "Tải lại" */
   const [versionConflict, setVersionConflict] = useState(false)
   const [reloading, setReloading] = useState(false)
+  /** Phase 2 — finalize (nháp → chính thức) đang chạy */
+  const [finalizing, setFinalizing] = useState(false)
 
   // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
   const [confirmCfg, setConfirmCfg] = useState<{
@@ -1109,7 +1116,8 @@ export default function OrderFormView({
     }
   }
 
-  const save = async () => {
+  /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
+  const save = async (asDraft = false) => {
     setError('')
     setVersionConflict(false)
     setPartnerErr('')
@@ -1153,7 +1161,8 @@ export default function OrderFormView({
           bomQtyPerParent: l.bomQtyPerParent ?? null,
         })),
       }
-      const res = await api(isEdit ? `/api/orders/${editOrder!.id}` : '/api/orders', {
+      const baseUrl = isEdit ? `/api/orders/${editOrder!.id}` : '/api/orders'
+      const res = await api(asDraft ? `${baseUrl}?draft=true` : baseUrl, {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1205,6 +1214,32 @@ export default function OrderFormView({
       setError('Không thể kết nối máy chủ')
     } finally {
       setReloading(false)
+    }
+  }
+
+  // Phase 2 — Chuyển bản nháp thành chứng từ chính thức
+  // (contract: PATCH /api/orders/{id}/finalize { version } — do WORKER A triển khai)
+  const finalizeOrder = async () => {
+    if (!isEdit || !editOrder?.id || finalizing) return
+    setFinalizing(true)
+    try {
+      const r = await api(`/api/orders/${editOrder.id}/finalize`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: editOrder.version ?? 0 }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || !j.ok) {
+        setError(j.error ?? 'Không thể chuyển đơn hàng bán thành chứng từ chính thức')
+        return
+      }
+      // Tải lại dữ liệu mới nhất — bản ghi giờ đã là chính thức (isDraft=false)
+      await reloadLatest()
+      setError('')
+    } catch {
+      setError('Không thể kết nối máy chủ')
+    } finally {
+      setFinalizing(false)
     }
   }
 
@@ -1264,6 +1299,24 @@ export default function OrderFormView({
         <div className="fm-alert fm-alert--info" role="status" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>Đã khôi phục bản nháp chưa lưu của bạn.</div>
           <button type="button" className="fm-btn fm-btn--ghost fm-btn--sm" onClick={discardDraft}>Bỏ nháp</button>
+        </div>
+      )}
+
+      {/* Phase 2 — banner bản nháp máy chủ + nút chuyển thành chứng từ chính thức */}
+      {isEdit && editOrder?.isDraft && (
+        <div className="fm-alert fm-alert--warning" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="status">
+          <div style={{ flex: 1 }}>
+            <b><span className="fm-chip fm-chip--warn">Nháp</span></b>{' '}
+            Đây là bản nháp — chưa có hiệu lực, chưa đẩy được sang SAP B1.
+          </div>
+          <button
+            type="button"
+            className="fm-btn fm-btn--primary fm-btn--sm"
+            onClick={() => void finalizeOrder()}
+            disabled={finalizing || saving}
+          >
+            {finalizing ? 'Đang chuyển…' : 'Chuyển thành chứng từ chính thức'}
+          </button>
         </div>
       )}
 
@@ -1878,9 +1931,17 @@ export default function OrderFormView({
             Nhập lại
           </button>
         )}
-        <button className="fm-btn fm-btn--primary" onClick={save} disabled={saving}>
+        {/* Phase 2 — Lưu nháp: gọi API với ?draft=true (chỉ khi tạo mới; khi sửa
+            bản nháp, nút Lưu chính đã giữ trạng thái nháp) */}
+        {!isEdit && (
+          <button className="fm-btn fm-btn--secondary" onClick={() => save(true)} disabled={saving}>
+            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+            {saving ? 'Đang lưu nháp…' : 'Lưu nháp'}
+          </button>
+        )}
+        <button className="fm-btn fm-btn--primary" onClick={() => save(isEdit && Boolean(editOrder?.isDraft))} disabled={saving}>
           <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-          {saving ? 'Đang lưu…' : isEdit ? 'Lưu thay đổi' : 'Lưu đơn hàng bán'}
+          {saving ? 'Đang lưu…' : isEdit ? (editOrder?.isDraft ? 'Lưu bản nháp' : 'Lưu thay đổi') : 'Lưu đơn hàng bán'}
         </button>
       </div>
 

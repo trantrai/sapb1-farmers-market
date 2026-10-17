@@ -5,6 +5,7 @@ import {
   LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
+  FileText, Receipt, FileMinus2, Undo2, HandCoins, BarChart3, FileClock,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -32,11 +33,30 @@ const VatGroupsSyncView = dynamic(() => import('./vatgroups-sync-view'), { ssr: 
 const PartnersSyncView = dynamic(() => import('./bpartners-sync-view'), { ssr: false, loading: ViewLoading })
 const ExcelTemplatesView = dynamic(() => import('./excel-templates-view'), { ssr: false, loading: ViewLoading })
 const BomImportView = dynamic(() => import('./bom-import-view'), { ssr: false, loading: ViewLoading })
+const QuotationsListView = dynamic(() => import('./quotations-list-view'), { ssr: false, loading: ViewLoading })
+const QuotationFormView = dynamic(() => import('./quotation-form-view'), { ssr: false, loading: ViewLoading })
+const QuotationDetailView = dynamic(() => import('./quotation-detail-view'), { ssr: false, loading: ViewLoading })
+const InvoicesListView = dynamic(() => import('./invoices-list-view'), { ssr: false, loading: ViewLoading })
+const InvoiceFormView = dynamic(() => import('./invoice-form-view'), { ssr: false, loading: ViewLoading })
+const InvoiceDetailView = dynamic(() => import('./invoice-detail-view'), { ssr: false, loading: ViewLoading })
+const CreditMemosListView = dynamic(() => import('./credit-memos-list-view'), { ssr: false, loading: ViewLoading })
+const CreditMemoFormView = dynamic(() => import('./credit-memo-form-view'), { ssr: false, loading: ViewLoading })
+const CreditMemoDetailView = dynamic(() => import('./credit-memo-detail-view'), { ssr: false, loading: ViewLoading })
+const ReturnsListView = dynamic(() => import('./returns-list-view'), { ssr: false, loading: ViewLoading })
+const ReturnFormView = dynamic(() => import('./return-form-view'), { ssr: false, loading: ViewLoading })
+const ReturnDetailView = dynamic(() => import('./return-detail-view'), { ssr: false, loading: ViewLoading })
+// Phase 2 — Hóa đơn đặt cọc phải thu + Báo cáo (Sales / Công nợ)
+const DownPaymentsListView = dynamic(() => import('./down-payments-list-view'), { ssr: false, loading: ViewLoading })
+const DownPaymentFormView = dynamic(() => import('./down-payment-form-view'), { ssr: false, loading: ViewLoading })
+const DownPaymentDetailView = dynamic(() => import('./down-payment-detail-view'), { ssr: false, loading: ViewLoading })
+const SalesReportView = dynamic(() => import('./sales-report-view'), { ssr: false, loading: ViewLoading })
+const ArAgingReportView = dynamic(() => import('./ar-aging-report-view'), { ssr: false, loading: ViewLoading })
 const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
 import type { EditOrderData } from './order-form-view'
 import { toEditData } from './order-form-view'
+import type { CopyTarget } from './sales-doc-shared'
 
-type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates' | 'bomImport'
+type ViewKey = 'dashboard' | 'orders' | 'ordersNew' | 'orderDetail' | 'deliveries' | 'deliveryDetail' | 'users' | 'settings' | 'roles' | 'sapAudit' | 'items' | 'vatGroups' | 'partners' | 'excelTemplates' | 'bomImport' | 'quotations' | 'quotationNew' | 'quotationDetail' | 'invoices' | 'invoiceNew' | 'invoiceDetail' | 'creditMemos' | 'creditMemoNew' | 'creditMemoDetail' | 'returns' | 'returnNew' | 'returnDetail' | 'downPayments' | 'downPaymentNew' | 'downPaymentDetail' | 'salesReport' | 'arAgingReport'
 
 interface MenuItem {
   key: ViewKey
@@ -53,6 +73,13 @@ const MENU: MenuItem[] = [
   { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng bán', short: 'Đơn hàng bán', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
   { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng bán mới', short: 'Tạo đơn bán', icon: <PlusCircle size={16} />, group: 'main' },
   { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main', badge: 'DL' },
+  { key: 'quotations', module: 'quotations', label: 'Báo giá bán hàng', short: 'Báo giá', icon: <FileText size={16} />, group: 'main', badge: 'QT' },
+  { key: 'invoices', module: 'invoices', label: 'Hóa đơn bán hàng', short: 'Hóa đơn', icon: <Receipt size={16} />, group: 'main', badge: 'IV' },
+  { key: 'creditMemos', module: 'creditMemos', label: 'Phiếu ghi có phải thu', short: 'Ghi có', icon: <FileMinus2 size={16} />, group: 'main', badge: 'CM' },
+  { key: 'returns', module: 'returns', label: 'Phiếu trả hàng bán', short: 'Trả hàng', icon: <Undo2 size={16} />, group: 'main', badge: 'RT' },
+  { key: 'downPayments', module: 'downPayments', label: 'Hóa đơn đặt cọc phải thu', short: 'Đặt cọc', icon: <HandCoins size={16} />, group: 'main', badge: 'DP' },
+  { key: 'salesReport', module: 'salesReport', label: 'Báo cáo bán hàng', short: 'BC bán hàng', icon: <BarChart3 size={16} />, group: 'main', badge: 'BC' },
+  { key: 'arAgingReport', module: 'arAgingReport', label: 'Công nợ phải thu', short: 'Công nợ', icon: <FileClock size={16} />, group: 'main', badge: 'CN' },
   { key: 'excelTemplates', module: 'excelTemplates', label: 'Mẫu Excel', short: 'Mẫu Excel', icon: <FileSpreadsheet size={16} />, group: 'main' },
   { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
   { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
@@ -80,6 +107,23 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   roles: 'Ủy quyền',
   excelTemplates: 'Quản lý mẫu Excel',
   bomImport: 'Import BOM/Combo từ Base Workflow',
+  quotations: 'Báo giá bán hàng',
+  quotationNew: 'Tạo / Cập nhật báo giá bán hàng',
+  quotationDetail: 'Chi tiết báo giá bán hàng',
+  invoices: 'Hóa đơn bán hàng',
+  invoiceNew: 'Tạo / Cập nhật hóa đơn bán hàng',
+  invoiceDetail: 'Chi tiết hóa đơn bán hàng',
+  creditMemos: 'Phiếu ghi có phải thu',
+  creditMemoNew: 'Tạo / Cập nhật phiếu ghi có phải thu',
+  creditMemoDetail: 'Chi tiết phiếu ghi có phải thu',
+  returns: 'Phiếu trả hàng bán',
+  returnNew: 'Tạo / Cập nhật phiếu trả hàng bán',
+  returnDetail: 'Chi tiết phiếu trả hàng bán',
+  downPayments: 'Hóa đơn đặt cọc phải thu',
+  downPaymentNew: 'Tạo / Cập nhật hóa đơn đặt cọc phải thu',
+  downPaymentDetail: 'Chi tiết hóa đơn đặt cọc phải thu',
+  salesReport: 'Báo cáo bán hàng',
+  arAgingReport: 'Công nợ phải thu',
 }
 
 interface Props {
@@ -103,6 +147,27 @@ export default function AppShell({ user, onLogout }: Props) {
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
   const [detailDeliveryId, setDetailDeliveryId] = useState<string | null>(null)
+  /** Id chi tiết từng loại chứng từ Phase 1 Sales A/R */
+  const [detailQuotationId, setDetailQuotationId] = useState<string | null>(null)
+  const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
+  const [detailCreditMemoId, setDetailCreditMemoId] = useState<string | null>(null)
+  const [detailReturnId, setDetailReturnId] = useState<string | null>(null)
+  /** Phase 2 — Hóa đơn đặt cọc phải thu */
+  const [detailDownPaymentId, setDetailDownPaymentId] = useState<string | null>(null)
+  /** Nguồn copy cho form tạo chứng từ mới (theo pattern editOrder hiện có) */
+  const [quotationSource, setQuotationSource] = useState<{ type: string; id: string } | null>(null)
+  const [invoiceSource, setInvoiceSource] = useState<{ type: 'quotation' | 'order' | 'delivery'; id: string } | null>(null)
+  const [creditMemoSource, setCreditMemoSource] = useState<{ type: 'invoice' | 'return'; id: string } | null>(null)
+  const [returnSource, setReturnSource] = useState<{ type: 'delivery' | 'invoice'; id: string } | null>(null)
+  /** Phase 2 — nguồn copy cho form tạo hóa đơn đặt cọc (từ Báo giá / Đơn hàng bán) */
+  const [downPaymentSource, setDownPaymentSource] = useState<{ type: 'quotation' | 'order'; id: string } | null>(null)
+  /** Chứng từ đang SỬA (chế độ cập nhật của form — theo pattern editOrder) */
+  const [editQuotationId, setEditQuotationId] = useState<string | null>(null)
+  const [editInvoiceId, setEditInvoiceId] = useState<string | null>(null)
+  const [editCreditMemoId, setEditCreditMemoId] = useState<string | null>(null)
+  const [editReturnId, setEditReturnId] = useState<string | null>(null)
+  /** Phase 2 — Hóa đơn đặt cọc phải thu đang SỬA */
+  const [editDownPaymentId, setEditDownPaymentId] = useState<string | null>(null)
   /** Số đơn quá hạn giao — hiển thị badge đỏ trên menu Đơn hàng */
   const [overdueCount, setOverdueCount] = useState(0)
   /** Command palette tìm kiếm toàn văn (Ctrl+K) */
@@ -237,6 +302,51 @@ export default function AppShell({ user, onLogout }: Props) {
     go('partners')
   }
   const prefillFor = (v: 'items' | 'partners') => (syncPrefill?.view === v ? syncPrefill.q : undefined)
+
+  /**
+   * "Copy sang…" giữa các chứng từ bán hàng: ghi nguồn rồi điều hướng
+   * tới form tạo mới của chứng từ đích. Ví dụ copy từ chi tiết báo giá
+   * sang hóa đơn → mở InvoiceFormView với sourceType='quotation'.
+   * Combo nguồn→đích không hợp lệ (hoặc form chưa hỗ trợ) → báo user.
+   */
+  const copyDocTo = (target: CopyTarget, sourceType: CopyTarget, sourceId: string) => {
+    if (target === 'quotation') {
+      setQuotationSource({ type: sourceType, id: sourceId })
+      go('quotationNew')
+    } else if (target === 'invoice') {
+      if (sourceType === 'quotation' || sourceType === 'order' || sourceType === 'delivery') {
+        setInvoiceSource({ type: sourceType, id: sourceId })
+        go('invoiceNew')
+      } else {
+        showToast('Không hỗ trợ sao chép sang Hóa đơn bán hàng từ loại chứng từ này.', 'warning')
+      }
+    } else if (target === 'creditMemo') {
+      if (sourceType === 'invoice' || sourceType === 'return') {
+        setCreditMemoSource({ type: sourceType, id: sourceId })
+        go('creditMemoNew')
+      } else {
+        showToast('Không hỗ trợ sao chép sang Phiếu ghi có phải thu từ loại chứng từ này.', 'warning')
+      }
+    } else if (target === 'return') {
+      if (sourceType === 'delivery' || sourceType === 'invoice') {
+        setReturnSource({ type: sourceType, id: sourceId })
+        go('returnNew')
+      } else {
+        showToast('Không hỗ trợ sao chép sang Phiếu trả hàng bán từ loại chứng từ này.', 'warning')
+      }
+    } else if (target === 'downPayment') {
+      // Phase 2 — tạo hóa đơn đặt cọc từ Báo giá bán hàng / Đơn hàng bán
+      if (sourceType === 'quotation' || sourceType === 'order') {
+        setDownPaymentSource({ type: sourceType, id: sourceId })
+        go('downPaymentNew')
+      } else {
+        showToast('Không hỗ trợ sao chép sang Hóa đơn đặt cọc phải thu từ loại chứng từ này.', 'warning')
+      }
+    } else {
+      // target 'order' | 'delivery' — OrderFormView/delivery chưa có sourceType
+      showToast(`Chức năng sao chép sang ${target === 'order' ? 'Đơn hàng bán' : 'Phiếu giao hàng'} sẽ được bổ sung sau.`, 'warning')
+    }
+  }
 
   const renderNavItem = (m: MenuItem) => (
     <div
@@ -418,6 +528,7 @@ export default function AppShell({ user, onLogout }: Props) {
                 orderId={detailOrderId}
                 onBack={() => go('orders')}
                 onGoDelivery={(deliveryId) => { setDetailDeliveryId(deliveryId); go('deliveryDetail') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'order', sourceId)}
                 onEdit={(orderId) => {
                   // Lấy dữ liệu đơn để sửa — API trả { order } nên phải bóc lớp vỏ.
                   // Dùng toEditData DÙNG CHUNG (giống đường vào từ danh sách) để map
@@ -447,6 +558,7 @@ export default function AppShell({ user, onLogout }: Props) {
                 deliveryId={detailDeliveryId}
                 onBack={() => go('deliveries')}
                 onGoOrder={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'delivery', sourceId)}
               />
             )}
             {view === 'ordersNew' && (
@@ -478,6 +590,136 @@ export default function AppShell({ user, onLogout }: Props) {
                 }}
               />
             )}
+            {/* ===== Phase 1 Sales A/R: Báo giá → Hóa đơn → Ghi có → Trả hàng ===== */}
+            {view === 'quotations' && (
+              <QuotationsListView
+                user={user}
+                refreshKey={refreshKey}
+                onGoDetail={(id) => { setDetailQuotationId(id); go('quotationDetail') }}
+                onGoNew={() => { setEditQuotationId(null); setQuotationSource(null); go('quotationNew') }}
+              />
+            )}
+            {view === 'quotationNew' && (
+              <QuotationFormView
+                initialId={editQuotationId ?? undefined}
+                sourceType={quotationSource?.type}
+                sourceId={quotationSource?.id}
+                onBack={() => { setEditQuotationId(null); setQuotationSource(null); go('quotations') }}
+                onSaved={() => { setEditQuotationId(null); setQuotationSource(null); setRefreshKey((k) => k + 1); go('quotations') }}
+              />
+            )}
+            {view === 'quotationDetail' && detailQuotationId && (
+              <QuotationDetailView
+                id={detailQuotationId}
+                onBack={() => go('quotations')}
+                onEdit={(id) => { setEditQuotationId(id); setQuotationSource(null); go('quotationNew') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'quotation', sourceId)}
+              />
+            )}
+            {view === 'invoices' && (
+              <InvoicesListView
+                user={user}
+                refreshKey={refreshKey}
+                onGoDetail={(id) => { setDetailInvoiceId(id); go('invoiceDetail') }}
+                onGoNew={() => { setEditInvoiceId(null); setInvoiceSource(null); go('invoiceNew') }}
+              />
+            )}
+            {view === 'invoiceNew' && (
+              <InvoiceFormView
+                initialId={editInvoiceId ?? undefined}
+                sourceType={invoiceSource?.type}
+                sourceId={invoiceSource?.id}
+                onBack={() => { setEditInvoiceId(null); setInvoiceSource(null); go('invoices') }}
+                onSaved={() => { setEditInvoiceId(null); setInvoiceSource(null); setRefreshKey((k) => k + 1); go('invoices') }}
+              />
+            )}
+            {view === 'invoiceDetail' && detailInvoiceId && (
+              <InvoiceDetailView
+                id={detailInvoiceId}
+                onBack={() => go('invoices')}
+                onEdit={(id) => { setEditInvoiceId(id); setInvoiceSource(null); go('invoiceNew') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'invoice', sourceId)}
+              />
+            )}
+            {view === 'creditMemos' && (
+              <CreditMemosListView
+                user={user}
+                refreshKey={refreshKey}
+                onGoDetail={(id) => { setDetailCreditMemoId(id); go('creditMemoDetail') }}
+                onGoNew={() => { setEditCreditMemoId(null); setCreditMemoSource(null); go('creditMemoNew') }}
+              />
+            )}
+            {view === 'creditMemoNew' && (
+              <CreditMemoFormView
+                initialId={editCreditMemoId ?? undefined}
+                sourceType={creditMemoSource?.type}
+                sourceId={creditMemoSource?.id}
+                onBack={() => { setEditCreditMemoId(null); setCreditMemoSource(null); go('creditMemos') }}
+                onSaved={() => { setEditCreditMemoId(null); setCreditMemoSource(null); setRefreshKey((k) => k + 1); go('creditMemos') }}
+              />
+            )}
+            {view === 'creditMemoDetail' && detailCreditMemoId && (
+              <CreditMemoDetailView
+                id={detailCreditMemoId}
+                onBack={() => go('creditMemos')}
+                onEdit={(id) => { setEditCreditMemoId(id); setCreditMemoSource(null); go('creditMemoNew') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'creditMemo', sourceId)}
+              />
+            )}
+            {view === 'returns' && (
+              <ReturnsListView
+                user={user}
+                refreshKey={refreshKey}
+                onGoDetail={(id) => { setDetailReturnId(id); go('returnDetail') }}
+                onGoNew={() => { setEditReturnId(null); setReturnSource(null); go('returnNew') }}
+              />
+            )}
+            {view === 'returnNew' && (
+              <ReturnFormView
+                initialId={editReturnId ?? undefined}
+                sourceType={returnSource?.type}
+                sourceId={returnSource?.id}
+                onBack={() => { setEditReturnId(null); setReturnSource(null); go('returns') }}
+                onSaved={() => { setEditReturnId(null); setReturnSource(null); setRefreshKey((k) => k + 1); go('returns') }}
+              />
+            )}
+            {view === 'returnDetail' && detailReturnId && (
+              <ReturnDetailView
+                id={detailReturnId}
+                onBack={() => go('returns')}
+                onEdit={(id) => { setEditReturnId(id); setReturnSource(null); go('returnNew') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'return', sourceId)}
+              />
+            )}
+            {/* ===== Phase 2 — Hóa đơn đặt cọc phải thu ===== */}
+            {view === 'downPayments' && (
+              <DownPaymentsListView
+                user={user}
+                refreshKey={refreshKey}
+                onGoDetail={(id) => { setDetailDownPaymentId(id); go('downPaymentDetail') }}
+                onGoNew={() => { setEditDownPaymentId(null); setDownPaymentSource(null); go('downPaymentNew') }}
+              />
+            )}
+            {view === 'downPaymentNew' && (
+              <DownPaymentFormView
+                initialId={editDownPaymentId ?? undefined}
+                sourceType={downPaymentSource?.type}
+                sourceId={downPaymentSource?.id}
+                onBack={() => { setEditDownPaymentId(null); setDownPaymentSource(null); go('downPayments') }}
+                onSaved={() => { setEditDownPaymentId(null); setDownPaymentSource(null); setRefreshKey((k) => k + 1); go('downPayments') }}
+              />
+            )}
+            {view === 'downPaymentDetail' && detailDownPaymentId && (
+              <DownPaymentDetailView
+                id={detailDownPaymentId}
+                onBack={() => go('downPayments')}
+                onEdit={(id) => { setEditDownPaymentId(id); setDownPaymentSource(null); go('downPaymentNew') }}
+                onCopyTo={(target, sourceId) => copyDocTo(target, 'downPayment', sourceId)}
+              />
+            )}
+            {/* ===== Phase 3 — Báo cáo ===== */}
+            {view === 'salesReport' && <SalesReportView />}
+            {view === 'arAgingReport' && <ArAgingReportView />}
             {view === 'users' && <UsersView user={user} />}
             {view === 'settings' && <SettingsView canEdit={user.permissions.settings?.edit} />}
             {view === 'sapAudit' && <SapAuditView />}

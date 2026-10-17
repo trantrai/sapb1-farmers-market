@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail, Truck } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail, Truck, Receipt, HandCoins } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import OrderPrintView from './order-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
+import { type CopyTarget } from './sales-doc-shared'
 
 interface OrderLine {
   id: string
@@ -45,6 +46,8 @@ interface Order {
   warehouseCode?: string
   createdBy: string
   version: number
+  /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực */
+  isDraft?: boolean
   totalBeforeDisc: number
   discountAmt: number
   headerDiscPct: number
@@ -64,12 +67,14 @@ interface Props {
   onBack: () => void
   onEdit: (orderId: string) => void
   onGoDelivery?: (deliveryId: string) => void
+  /** Wire ở app-shell: mở form loại đích với sourceType='order' + sourceId (Phase 1 Sales A/R) */
+  onCopyTo?: (target: CopyTarget, sourceId: string) => void
 }
 
 /**
  * Chi tiết đơn hàng dạng full-page (theo thiết kế Stitch màn 04)
  */
-export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery }: Props) {
+export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery, onCopyTo }: Props) {
   const [order, setOrder] = useState<Order | null>(null)
   const [partner, setPartner] = useState<{ address?: string; contactPerson?: string; contactPhone?: string; email?: string } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -525,6 +530,27 @@ actions={
                 <Truck size={16} /> Sao chép sang phiếu giao hàng
               </button>
             )}
+            {order.status === 'Open' && onCopyTo && (
+              <button
+                className="fm-btn fm-btn--secondary"
+                onClick={() => onCopyTo('invoice', order.id)}
+                disabled={!!busyAction}
+                title="Tạo hóa đơn bán hàng từ đơn hàng này (wire ở app-shell)"
+              >
+                <Receipt size={16} /> Sao chép sang hóa đơn bán hàng
+              </button>
+            )}
+            {/* Phase 2 — tạo hóa đơn đặt cọc từ đơn hàng (wire ở app-shell → /api/down-payments/from-source) */}
+            {order.status === 'Open' && onCopyTo && (
+              <button
+                className="fm-btn fm-btn--secondary"
+                onClick={() => onCopyTo('downPayment', order.id)}
+                disabled={!!busyAction}
+                title="Tạo hóa đơn đặt cọc phải thu từ đơn hàng này (wire ở app-shell)"
+              >
+                <HandCoins size={16} /> Sao chép sang hóa đơn đặt cọc
+              </button>
+            )}
             {order.status === 'Open' && (
               <button className="fm-btn fm-btn--secondary" onClick={() => void doCloseOrder()} disabled={!!busyAction}>
                 <Lock size={16} /> {busyAction === 'close' ? 'Đang đóng…' : 'Đóng đơn'}
@@ -545,6 +571,15 @@ actions={
       {order.status === 'Cancelled' && (
         <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }}>
           Đơn hàng bán đã bị hủy — không thể sửa, sao chép sang phiếu giao hàng hoặc đẩy lên SAP B1.
+        </div>
+      )}
+
+      {/* Phase 2 — banner bản nháp */}
+      {order.isDraft && (
+        <div className="fm-alert fm-alert--warning" style={{ marginBottom: 16 }} role="status">
+          <b><span className="fm-chip fm-chip--warn">Nháp</span></b>{' '}
+          Đây là bản nháp — chưa có hiệu lực, chưa đẩy được sang SAP B1.
+          Bấm “Sửa đơn hàng bán” để tiếp tục chỉnh rồi “Chuyển thành chứng từ chính thức” trên form.
         </div>
       )}
 
@@ -751,9 +786,12 @@ actions={
           <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={!!busyAction}>
             <Lock size={16} /> {busyAction === 'toggle' ? 'Đang cập nhật…' : order.status === 'Open' ? 'Đóng đơn hàng (Đã đóng)' : 'Mở lại đơn hàng'}
           </button>
-          <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={!!busyAction}>
-            <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : 'Đẩy sang SAP B1 ngay'}
-          </button>
+          {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP */}
+          {!order.isDraft && (
+            <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={!!busyAction}>
+              <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : 'Đẩy sang SAP B1 ngay'}
+            </button>
+          )}
         </div>
       )}
 

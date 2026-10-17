@@ -20,6 +20,16 @@ async function main() {
 
   await prisma.salesOrderLine.deleteMany()
   await prisma.salesOrder.deleteMany()
+  // Phase 1 Sales A/R: xóa chứng từ mới (dòng trước, header sau) + dãy số
+  await prisma.quotationLine.deleteMany()
+  await prisma.quotation.deleteMany()
+  await prisma.arInvoiceLine.deleteMany()
+  await prisma.arInvoice.deleteMany()
+  await prisma.arCreditMemoLine.deleteMany()
+  await prisma.arCreditMemo.deleteMany()
+  await prisma.salesReturnLine.deleteMany()
+  await prisma.salesReturn.deleteMany()
+  await prisma.docNumSequence.deleteMany()
   await prisma.businessPartner.deleteMany()
   await prisma.item.deleteMany()
   await prisma.user.deleteMany()
@@ -45,6 +55,10 @@ async function main() {
     orders: { view: true, create: true, edit: true, delete: true },
     ordersNew: { view: true, create: true, edit: true, delete: true },
     deliveries: { view: true, create: true, edit: true, delete: true },
+    quotations: { view: true, create: true, edit: true, delete: true },
+    invoices: { view: true, create: true, edit: true, delete: true },
+    creditMemos: { view: true, create: true, edit: true, delete: true },
+    returns: { view: true, create: true, edit: true, delete: true },
     users: { view: true, create: true, edit: true, delete: true },
     settings: { view: true, create: true, edit: true, delete: true },
     roles: { view: true, create: true, edit: true, delete: true },
@@ -56,6 +70,10 @@ async function main() {
     orders: { view: true, create: true, edit: true, delete: false },
     ordersNew: { view: true, create: true, edit: true, delete: false },
     deliveries: { view: true, create: true, edit: true, delete: false },
+    quotations: { view: true, create: true, edit: true, delete: false },
+    invoices: { view: true, create: true, edit: true, delete: false },
+    creditMemos: { view: true, create: true, edit: true, delete: false },
+    returns: { view: true, create: true, edit: true, delete: false },
     users: { view: false, create: false, edit: false, delete: false },
     settings: { view: true, create: false, edit: false, delete: false },
     roles: { view: false, create: false, edit: false, delete: false },
@@ -67,6 +85,10 @@ async function main() {
     orders: { view: true, create: true, edit: false, delete: false },
     ordersNew: { view: true, create: true, edit: false, delete: false },
     deliveries: { view: true, create: false, edit: false, delete: false },
+    quotations: { view: true, create: true, edit: false, delete: false },
+    invoices: { view: true, create: false, edit: false, delete: false },
+    creditMemos: { view: true, create: false, edit: false, delete: false },
+    returns: { view: true, create: false, edit: false, delete: false },
     users: { view: false, create: false, edit: false, delete: false },
     settings: { view: false, create: false, edit: false, delete: false },
     roles: { view: false, create: false, edit: false, delete: false },
@@ -191,6 +213,107 @@ async function main() {
     console.log(`   ✓ SO #${created.docNum} — ${created.cardName}`)
   }
 
+  // ---------- Phase 1 Sales A/R: Báo giá / Hóa đơn / Ghi có / Trả hàng ----------
+  // Dãy đánh số RIÊNG theo loại (chuẩn SAP B1): QT 3001…, IV 4001…, CM 5001…, RT 6001…
+  type ArSeedDoc = {
+    cardCode: string; cardName: string; daysAgo: number; due: number
+    status: 'Open' | 'Closed'; remarks?: string; lines: SeedLine[]
+  }
+  const seedArDocs = async (
+    delegate: 'quotation' | 'arInvoice' | 'arCreditMemo' | 'salesReturn',
+    lineDelegate: 'quotationLine' | 'arInvoiceLine' | 'arCreditMemoLine' | 'salesReturnLine',
+    fk: 'quotationId' | 'invoiceId' | 'creditMemoId' | 'returnId',
+    startNum: number,
+    docs: (ArSeedDoc & { source?: Record<string, string> })[],
+  ): Promise<{ num: number; ids: string[] }> => {
+    const ids: string[] = []
+    let num = startNum
+    for (const o of docs) {
+      const lineData = o.lines.map((l, idx) => {
+        const it = itemMap.get(l.item)!
+        const lineTotal = l.qty * l.price
+        const discPct = l.disc ?? 0
+        const vatPct = l.vat ?? 8
+        const discAmt = Math.round((lineTotal * discPct) / 100)
+        const afterDisc = lineTotal - discAmt
+        const vatAmt = Math.round((afterDisc * vatPct) / 100)
+        return {
+          [fk]: '', // gắn sau khi có id header — ghi đè bên dưới
+          lineNum: idx + 1,
+          itemCode: it.itemCode,
+          itemName: it.itemName,
+          uom: it.uom,
+          quantity: l.qty,
+          unitPrice: l.price,
+          lineTotal,
+          discPct,
+          discAmt,
+          vatPct,
+          vatAmt,
+          grandTotal: afterDisc + vatAmt,
+        }
+      })
+      const totalBeforeDisc = lineData.reduce((s, l) => s + l.lineTotal, 0)
+      const discountAmt = lineData.reduce((s, l) => s + l.discAmt, 0)
+      const vatAmt = lineData.reduce((s, l) => s + l.vatAmt, 0)
+      const grandTotal = lineData.reduce((s, l) => s + l.grandTotal, 0)
+      // Tạo header trước rồi gắn FK cho lines (tránh phụ thuộc thứ tự)
+      const header: any = await (prisma as any)[delegate].create({
+        data: {
+          docNum: num++,
+          cardCode: o.cardCode,
+          cardName: o.cardName,
+          docDate: d(o.daysAgo),
+          docDueDate: dPlus(o.daysAgo, o.due),
+          status: o.status,
+          remarks: o.remarks,
+          totalBeforeDisc,
+          discountAmt,
+          headerDiscPct: 0,
+          headerDiscAmt: 0,
+          vatAmt,
+          grandTotal,
+          createdBy: 'admin',
+          ...(o.source ?? {}),
+        },
+      })
+      await (prisma as any)[lineDelegate].createMany({
+        data: lineData.map((l) => ({ ...l, [fk]: header.id })),
+      })
+      ids.push(header.id)
+      console.log(`   ✓ ${delegate} #${header.docNum} — ${header.cardName}`)
+    }
+    return { num: num - 1, ids }
+  }
+
+  const qt = await seedArDocs('quotation', 'quotationLine', 'quotationId', 3001, [
+    { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', daysAgo: 1, due: 15, status: 'Open', remarks: 'Báo giá combo rau củ Q4', lines: [{ item: 'FM-RAU-001', qty: 50, price: 28000 }, { item: 'FM-RAU-002', qty: 30, price: 45000, disc: 3 }] },
+    { cardCode: 'C20001', cardName: 'Cửa hàng Rau Sạch Đà Lạt', daysAgo: 3, due: 15, status: 'Open', lines: [{ item: 'FM-QUA-001', qty: 20, price: 120000 }, { item: 'FM-MAT-002', qty: 25, price: 95000 }] },
+    { cardCode: 'C20010', cardName: 'Khách sạn Farm Village', daysAgo: 20, due: 15, status: 'Closed', remarks: 'Đã chuyển thành đơn hàng', lines: [{ item: 'FM-MAT-001', qty: 12, price: 220000 }] },
+  ])
+  const iv = await seedArDocs('arInvoice', 'arInvoiceLine', 'invoiceId', 4001, [
+    { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', daysAgo: 1, due: 30, status: 'Open', remarks: 'Hóa đơn VAT điện tử', source: { sourceQuotationId: qt.ids[0] }, lines: [{ item: 'FM-RAU-001', qty: 50, price: 28000 }, { item: 'FM-RAU-002', qty: 30, price: 45000, disc: 3 }] },
+    { cardCode: 'C20008', cardName: 'Bếp Ăn Lành StrongFit', daysAgo: 4, due: 30, status: 'Open', lines: [{ item: 'FM-GAO-001', qty: 10, price: 185000 }, { item: 'FM-TRA-002', qty: 30, price: 39000 }] },
+    { cardCode: 'C20003', cardName: 'Nhà hàng Cánh Đồng Xanh', daysAgo: 25, due: 30, status: 'Closed', lines: [{ item: 'FM-QUA-002', qty: 80, price: 35000 }] },
+  ])
+  const cm = await seedArDocs('arCreditMemo', 'arCreditMemoLine', 'creditMemoId', 5001, [
+    { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', daysAgo: 2, due: 30, status: 'Open', remarks: 'Giảm giá hàng lỗi nhẹ', source: { sourceInvoiceId: iv.ids[0] }, lines: [{ item: 'FM-RAU-002', qty: 5, price: 45000, disc: 3 }] },
+    { cardCode: 'C20001', cardName: 'Cửa hàng Rau Sạch Đà Lạt', daysAgo: 9, due: 30, status: 'Closed', remarks: 'Chiết khấu thanh toán sớm', lines: [{ item: 'FM-RAU-001', qty: 10, price: 28000 }] },
+  ])
+  const rt = await seedArDocs('salesReturn', 'salesReturnLine', 'returnId', 6001, [
+    { cardCode: 'C20001', cardName: 'Cửa hàng Rau Sạch Đà Lạt', daysAgo: 2, due: 0, status: 'Open', remarks: 'Trả hàng dập nát', lines: [{ item: 'FM-RAU-004', qty: 8, price: 25000 }] },
+    { cardCode: 'C20004', cardName: 'Siêu thị Organic Mart', daysAgo: 12, due: 0, status: 'Closed', remarks: 'Trả hàng cận date', lines: [{ item: 'FM-TRA-001', qty: 10, price: 58000 }] },
+  ])
+  // Đồng bộ dãy DocNumSequence để nextDocNum() cấp số tiếp theo sau seed
+  await prisma.docNumSequence.createMany({
+    data: [
+      { docType: 'quotation', lastNum: qt.num },
+      { docType: 'invoice', lastNum: iv.num },
+      { docType: 'creditMemo', lastNum: cm.num },
+      { docType: 'return', lastNum: rt.num },
+    ],
+  })
+
   // ---------- Settings ----------
   // Cấu hình Service Layer MẪU — điền thông tin thật ở trang Cài đặt của app
   // (không commit thông tin kết nối/mật khẩu SAP thật vào repo).
@@ -212,6 +335,10 @@ async function main() {
     partners: await prisma.businessPartner.count(),
     items: await prisma.item.count(),
     orders: await prisma.salesOrder.count(),
+    quotations: await prisma.quotation.count(),
+    invoices: await prisma.arInvoice.count(),
+    creditMemos: await prisma.arCreditMemo.count(),
+    returns: await prisma.salesReturn.count(),
   }
   console.log('✅ Seed done:', JSON.stringify(counts))
 }

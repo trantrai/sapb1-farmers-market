@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
   const status = sp.get('status') ?? ''
   const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10) || 1)
   const pageSize = Math.min(50, Math.max(5, parseInt(sp.get('pageSize') ?? '10', 10) || 10))
+  // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false chỉ lấy chính thức
+  const isDraftParam = sp.get('isDraft') ?? ''
 
   // ---------- 1) Chứng từ từ SAP B1 (nếu đã cấu hình) ----------
   // Phiếu lấy từ đúng database đã chọn khi đăng nhập.
@@ -31,10 +33,11 @@ export async function GET(req: NextRequest) {
   let warning = ''
   let source: 'sap' | 'local' = 'local'
   // fresh=1 (nút "Tải lại") → bỏ qua cache 45s, tải mới trực tiếp từ SAP B1
-  if (isSapConfigured(s) && status !== 'Cancelled' && sp.get('fresh') === '1') {
+  // Phase 2: khi lọc nháp thì chỉ đọc local — SAP không có khái niệm nháp gộp ở đây
+  if (isSapConfigured(s) && status !== 'Cancelled' && sp.get('fresh') === '1' && isDraftParam === '') {
     clearSapDeliveriesCache()
   }
-  if (isSapConfigured(s) && status !== 'Cancelled') {
+  if (isSapConfigured(s) && status !== 'Cancelled' && isDraftParam === '') {
     const live = await fetchSapDeliveries(s, { q, status })
     if (live.ok && live.data) {
       sapRows = live.data
@@ -76,6 +79,8 @@ export async function GET(req: NextRequest) {
     ]
   }
   if (['Open', 'Closed', 'Cancelled'].includes(status)) where.status = status
+  if (isDraftParam === 'true') where.isDraft = true
+  else if (isDraftParam === 'false') where.isDraft = false
 
   const localRows = await prisma.delivery.findMany({
     where,
@@ -91,10 +96,11 @@ export async function GET(req: NextRequest) {
   )
 
   // ---------- 3) Gộp + sắp xếp + phân trang trên máy chủ ----------
+  // docNum null (nháp) xếp cuối — ?? 0 để sort không vỡ với null (Phase 2)
   const merged = [
     ...sapRows,
     ...localOnly.map((o) => ({ ...o, source: 'local' as const })),
-  ].sort((a, b) => b.docNum - a.docNum)
+  ].sort((a, b) => (b.docNum ?? 0) - (a.docNum ?? 0))
 
   const total = merged.length
   const data = merged.slice((page - 1) * pageSize, page * pageSize)
@@ -182,15 +188,18 @@ export async function POST(req: NextRequest) {
   }
 
   // grandTotal = tổng các lineTotal đã round (không tính lại từ unitPrice*qty)
+  // Phase 2: ?draft=true → lưu nháp (isDraft=true, docNum=null, KHÔNG đẩy SAP)
+  const isDraft = req.nextUrl.searchParams.get('draft') === 'true'
   const grandTotal = lines.reduce((s, l) => s + l.lineTotal, 0)
   let delivery: Awaited<ReturnType<typeof prisma.delivery.create>> | null = null
   for (let attempt = 0; attempt < 5 && !delivery; attempt++) {
     try {
-      const last = await prisma.delivery.findFirst({ orderBy: { docNum: 'desc' } })
-      const docNum = (last?.docNum ?? 0) + 1
+      const last = isDraft ? null : await prisma.delivery.findFirst({ orderBy: { docNum: 'desc' } })
+      const docNum = isDraft ? null : (last?.docNum ?? 0) + 1
       delivery = await prisma.delivery.create({
         data: {
           docNum,
+          isDraft,
           cardCode,
           cardName,
           docDate,

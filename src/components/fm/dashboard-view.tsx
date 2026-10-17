@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle, Plus, BarChart3 } from 'lucide-react'
+import { ClipboardList, FolderOpen, FolderCheck, AlarmClock, Wallet, RefreshCw, PlusCircle, Plus, BarChart3, FileText } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
   PieChart, Pie, Legend,
@@ -52,6 +52,13 @@ interface ChartStats {
   warning?: string
 }
 
+/** Phase 3 — số liệu 2 widget công nợ / báo giá chờ (GET /api/dashboard/ar-widgets) */
+interface ArWidgets {
+  unpaidTotal: number
+  unpaidCount: number
+  openQuotationCount: number
+}
+
 // Palette biểu đồ map về token theme (globals.css): gold / navy / green / red / coral / navy-deep
 const CHART_COLORS = ['var(--fm-yellow)', 'var(--fm-navy)', 'var(--fm-green)', 'var(--fm-red)', 'var(--fm-coral)', 'var(--fm-navy-deep)']
 
@@ -63,6 +70,8 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   const [chartError, setChartError] = useState(false)
   const [refreshing, setRefreshing] = useState(false) // nút Tải lại số liệu
   const [chartLoading, setChartLoading] = useState(false) // đổi khoảng biểu đồ
+  /** Phase 3 — widget công nợ / báo giá chờ (tải im lặng, lỗi thì ẩn widget) */
+  const [arWidgets, setArWidgets] = useState<ArWidgets | null>(null)
 
   // setState chỉ nằm trong callback .then/.catch (bất đồng bộ) để qua rule react-hooks/set-state-in-effect
   // refreshing được bật ở onClick (event handler), không bật đồng bộ trong load() vì load() chạy từ useEffect
@@ -86,6 +95,23 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
   useEffect(() => {
     load()
   }, [load])
+
+  // Phase 3 — tải số liệu widget công nợ / báo giá chờ (im lặng, lỗi thì ẩn widget)
+  useEffect(() => {
+    let cancelled = false
+    api('/api/dashboard/ar-widgets')
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((j: ArWidgets) => {
+        if (!cancelled) setArWidgets(j)
+      })
+      .catch(() => {
+        if (!cancelled) setArWidgets(null)
+      })
+    return () => { cancelled = true }
+  }, []) // chỉ tải 1 lần khi mount
 
   // Biểu đồ: tải lại khi đổi khoảng thời gian (lỗi hiện rõ thay vì treo skeleton)
   // chartLoading được bật ở event handler (đổi range / thử lại), không bật đồng bộ trong loadCharts vì nó chạy từ useEffect
@@ -216,6 +242,24 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
               <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(stats.revenueClosed)}</div>
               <div className="fm-stat__meta">Tổng giá trị đơn đã đóng (đã VAT)</div>
             </div>
+            {/* Phase 3 — Hóa đơn chờ thanh toán (dư nợ = Σ(tổng − đã thu)) */}
+            {arWidgets && (
+              <div className="fm-stat fm-stat--red">
+                <div className="fm-stat__icon" style={{ background: 'var(--fm-coral-soft)', color: 'var(--fm-coral-deep)' }}><Wallet size={18} /></div>
+                <div className="fm-stat__label">Hóa đơn chờ thanh toán</div>
+                <div className="fm-stat__value" style={{ fontSize: 22 }}>{formatVND(arWidgets.unpaidTotal)}</div>
+                <div className="fm-stat__meta">{arWidgets.unpaidCount} hóa đơn chưa thanh toán hết</div>
+              </div>
+            )}
+            {/* Phase 3 — Báo giá chờ duyệt (Quotation status Open) */}
+            {arWidgets && (
+              <div className="fm-stat">
+                <div className="fm-stat__icon" style={{ background: 'var(--fm-line)', color: 'var(--fm-text-2)' }}><FileText size={18} /></div>
+                <div className="fm-stat__label">Báo giá chờ duyệt</div>
+                <div className="fm-stat__value">{arWidgets.openQuotationCount}</div>
+                <div className="fm-stat__meta">Báo giá bán hàng đang mở</div>
+              </div>
+            )}
           </>
         )}
       </div>

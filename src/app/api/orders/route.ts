@@ -62,6 +62,10 @@ export async function GET(req: NextRequest) {
     ].filter(Boolean)
   }
   if (status === 'Open' || status === 'Closed') where.status = status
+  // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false chỉ lấy chính thức
+  const isDraftParam = sp.get('isDraft') ?? ''
+  if (isDraftParam === 'true') where.isDraft = true
+  else if (isDraftParam === 'false') where.isDraft = false
   if (from || to) {
     where.docDate = {
       ...(from ? { gte: new Date(from) } : {}),
@@ -75,7 +79,8 @@ export async function GET(req: NextRequest) {
   let sapRows: SapOrderRow[] = []
   let warning = ''
   let source: 'sap' | 'local' = 'local'
-  if (isSapConfigured(s)) {
+  // Phase 2: khi lọc nháp thì chỉ đọc local — SAP không có khái niệm nháp gộp ở đây
+  if (isSapConfigured(s) && isDraftParam === '') {
     const live = await fetchSapOrders(s, { q, status, from, to })
     if (live.ok && live.data) {
       sapRows = live.data
@@ -117,10 +122,11 @@ export async function GET(req: NextRequest) {
   )
 
   // ---------- 3) Gộp + sắp xếp + phân trang trên máy chủ ----------
+  // docNum null (nháp) xếp cuối — ?? 0 để sort không vỡ với null (Phase 2)
   let merged = [
     ...sapRows,
     ...localOnly.map((o) => ({ ...o, source: 'local' as const })),
-  ].sort((a, b) => b.docNum - a.docNum)
+  ].sort((a, b) => (b.docNum ?? 0) - (a.docNum ?? 0))
 
   // Lọc nhanh theo hạn giao: overdue = Open + quá hạn; dueSoon = Open + hạn trong 3 ngày tới
   const due = sp.get('due') ?? ''
@@ -213,6 +219,8 @@ export async function POST(req: NextRequest) {
     // không thể nhận cùng docNum (trước đây findFirst + create rời nhau → trùng số).
     // Vẫn có cửa sổ đua cực hẹp giữa 2 transaction đồng thời → retry tối đa 3 lần
     // khi dính lỗi unique-violation của docNum (P2002) thay vì trả 500.
+    // Phase 2: ?draft=true → lưu nháp (isDraft=true, docNum=null, KHÔNG đẩy SAP)
+    const isDraft = req.nextUrl.searchParams.get('draft') === 'true'
     const createdBy = user.username
     let created: Awaited<ReturnType<typeof createOrderTx>> | null = null
     let lastErr: unknown = null
@@ -229,11 +237,12 @@ export async function POST(req: NextRequest) {
     if (!created) throw lastErr ?? new Error('Không thể cấp số chứng từ')
     async function createOrderTx() {
       return prisma.$transaction(async (tx) => {
-      const last = await tx.salesOrder.findFirst({ orderBy: { docNum: 'desc' } })
-      const docNum = (last?.docNum ?? 1000) + 1
+      const last = isDraft ? null : await tx.salesOrder.findFirst({ orderBy: { docNum: 'desc' } })
+      const docNum = isDraft ? null : (last?.docNum ?? 1000) + 1
       return tx.salesOrder.create({
         data: {
           docNum,
+          isDraft,
           cardCode,
           cardName,
           docDate: new Date(docDate),
@@ -279,8 +288,11 @@ export async function POST(req: NextRequest) {
     // ---- Đẩy đơn sang SAP B1 (POST /Orders). Luôn lưu local trước,
     // thất bại thì đánh dấu 'pending' để đẩy lại từ danh sách đơn ----
     // Khóa theo đơn: tránh 2 lượt đẩy đồng thời tạo trùng chứng từ SAP.
+    // Phase 2: bản nháp KHÔNG đẩy SAP.
     let push: SapPushResult
-    if (acquireOrderPushLock(created.id)) {
+    if (isDraft) {
+      push = { status: 'none' as const }
+    } else if (acquireOrderPushLock(created.id)) {
       try {
         push = await pushOrderToSap({
           cardCode,

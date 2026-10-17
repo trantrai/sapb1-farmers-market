@@ -91,7 +91,8 @@ model BomComponent {
 
 model SalesOrder {
   id              String           @id @default(cuid())
-  docNum          Int              @unique
+  docNum          Int?             @unique // null = nháp (isDraft), cấp số thật khi finalize
+  isDraft         Boolean          @default(false) // true = nháp (ODRF/112), chưa có số chính thức, không đẩy SAP
   cardCode        String
   cardName        String
   docDate         DateTime
@@ -131,7 +132,8 @@ model SalesOrder {
 // ============================================================
 model Delivery {
   id            String    @id @default(cuid())
-  docNum        Int       @unique // cấp thủ công: max+1 (SQLite không autoincrement field phụ)
+  docNum        Int?      @unique // null = nháp (isDraft), cấp số thật khi finalize (cấp thủ công: max+1)
+  isDraft       Boolean   @default(false) // true = nháp, chưa có số chính thức, không đẩy SAP
   docDate       DateTime  @default(now())
   cardCode      String
   cardName      String
@@ -362,4 +364,394 @@ model ImportRun {
 
   @@index([jobId])
   @@index([status])
+}
+
+// ==================== SALES A/R — PHASE 1 (2026-10-17) ====================
+// 4 chứng từ mới: Báo giá bán hàng (23/OQUT), Hóa đơn bán hàng (13/OINV),
+// Phiếu ghi có phải thu (14/ORIN), Phiếu trả hàng bán (16/ORDN).
+// Cấu trúc sao chép SalesOrder/SalesOrderLine; dãy docNum RIÊNG theo loại
+// chứng từ qua DocNumSequence (không dùng chung dãy với Đơn hàng).
+// Đẩy SAP Service Layer: bổ sung ở bước tích hợp (WORKER C).
+
+model Quotation {
+  id              String          @id @default(cuid())
+  docNum          Int?            @unique // null = nháp (isDraft), cấp số thật khi finalize
+  isDraft         Boolean         @default(false) // true = nháp, chưa có số chính thức, không đẩy SAP
+  cardCode        String
+  cardName        String
+  docDate         DateTime
+  docDueDate      DateTime
+  status          String          @default("Open") // Open | Closed | Cancelled
+  version         Int             @default(0) // Optimistic locking: tăng mỗi lần update
+  remarks         String?
+  warehouseCode   String?         // Kho hàng mặc định áp dụng cho các dòng hàng
+  totalBeforeDisc Float           @default(0) // Tổng trước chiết khấu (sum lineTotal)
+  discountAmt     Float           @default(0) // Tổng chiết khấu các dòng
+  headerDiscPct   Float           @default(0) // Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent)
+  headerDiscAmt   Float           @default(0) // Số tiền CK đầu chứng từ sau phân bổ về các dòng
+  vatAmt          Float           @default(0) // Tổng thuế VAT các dòng
+  grandTotal      Float           @default(0) // Tổng cộng (sau CK + VAT)
+  createdBy       String
+  // --- Đồng bộ SAP B1 (POST /Quotations → OQUT) ---
+  sapDocEntry     Int?            // DocEntry do SAP B1 cấp khi đẩy thành công
+  sapDocNum       Int?            // DocNum chứng từ trên SAP B1
+  sapSyncStatus   String          @default("none") // none | pending | synced
+  sapSyncError    String?         // Lỗi lần đẩy gần nhất (nếu có)
+  sapSyncedAt     DateTime?       // Thời điểm đẩy thành công
+  sapDatabaseId   String?         // DB SAP đích của chứng từ
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  lines           QuotationLine[]
+
+  @@index([sapDatabaseId, status])
+  @@index([cardCode, docDate])
+  @@index([docNum])
+}
+
+model QuotationLine {
+  id              String    @id @default(cuid())
+  quotationId     String
+  lineNum         Int
+  itemCode        String
+  itemName        String
+  uom             String    @default("kg")
+  warehouseCode   String?   // Kho xuất của dòng
+  taxCode         String?   // Mã nhóm thuế SAP (SalesVATGroup)
+  quantity        Float
+  unitPrice       Float
+  lineTotal       Float     // Thành tiền trước CK = quantity × unitPrice
+  discPct         Float     @default(0) // Chiết khấu % theo dòng
+  discAmt         Float     @default(0)
+  vatPct          Float     @default(8) // Thuế suất VAT % theo dòng
+  vatAmt          Float     @default(0)
+  grandTotal      Float     @default(0) // Sau CK + VAT của dòng
+  quotation       Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  sapLineNum      Int?      // LineNum do SAP B1 cấp khi đẩy chứng từ
+  // ---------- Dòng thành phần BOM ----------
+  isBomChild      Boolean   @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean   @default(true)
+  bomQtyPerParent Float?
+  // Liên kết dòng chứng từ nguồn (tương đương BaseLine SAP)
+  sourceLineId    String?
+
+  @@index([quotationId])
+  @@index([sourceLineId])
+}
+
+model ArInvoice {
+  id              String        @id @default(cuid())
+  docNum          Int?          @unique // null = nháp (isDraft), cấp số thật khi finalize
+  isDraft         Boolean       @default(false) // true = nháp, chưa có số chính thức, không đẩy SAP
+  /** Loại hóa đơn: Item (hàng hóa) | Service (dịch vụ) | Reserve (hóa đơn dự trữ → SAP ReserveInvoice=tYES) */
+  docType         String        @default("Item")
+  cardCode        String
+  cardName        String
+  docDate         DateTime
+  docDueDate      DateTime
+  status          String        @default("Open") // Open | Closed | Cancelled
+  version         Int           @default(0) // Optimistic locking: tăng mỗi lần update
+  remarks         String?
+  warehouseCode   String?
+  totalBeforeDisc Float         @default(0)
+  discountAmt     Float         @default(0)
+  headerDiscPct   Float         @default(0)
+  headerDiscAmt   Float         @default(0)
+  vatAmt          Float         @default(0)
+  grandTotal      Float         @default(0)
+  // --- Công nợ (dự phòng Phase 3: tuổi nợ phải thu) ---
+  paidAmount      Float         @default(0) // Số tiền đã thu
+  paymentStatus   String        @default("unpaid") // unpaid | partial | paid
+  // --- Chứng từ nguồn (tương đương BaseType/BaseEntry SAP) ---
+  sourceQuotationId String?     // Copy từ Báo giá
+  sourceOrderId     String?     // Copy từ Đơn hàng bán
+  sourceDeliveryId  String?     // Copy từ Phiếu giao hàng
+  createdBy       String
+  // --- Đồng bộ SAP B1 (POST /Invoices → OINV) ---
+  sapDocEntry     Int?
+  sapDocNum       Int?
+  sapSyncStatus   String        @default("none") // none | pending | synced
+  sapSyncError    String?
+  sapSyncedAt     DateTime?
+  sapDatabaseId   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  lines           ArInvoiceLine[]
+  draws           DownPaymentDraw[] // Khấu trừ đặt cọc (DownPaymentsToDraw khi đẩy SAP)
+
+  @@index([sapDatabaseId, status])
+  @@index([cardCode, docDate])
+  @@index([docNum])
+  @@index([sourceQuotationId])
+  @@index([sourceOrderId])
+  @@index([sourceDeliveryId])
+}
+
+model ArInvoiceLine {
+  id              String    @id @default(cuid())
+  invoiceId       String
+  lineNum         Int
+  itemCode        String
+  itemName        String
+  uom             String    @default("kg")
+  warehouseCode   String?
+  taxCode         String?
+  quantity        Float
+  unitPrice       Float
+  lineTotal       Float
+  discPct         Float     @default(0)
+  discAmt         Float     @default(0)
+  vatPct          Float     @default(8)
+  vatAmt          Float     @default(0)
+  grandTotal      Float     @default(0)
+  invoice         ArInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sapLineNum      Int?
+  isBomChild      Boolean   @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean   @default(true)
+  bomQtyPerParent Float?
+  sourceLineId    String?   // id dòng chứng từ nguồn (tương đương BaseLine SAP)
+
+  @@index([invoiceId])
+  @@index([sourceLineId])
+}
+
+model ArCreditMemo {
+  id              String           @id @default(cuid())
+  docNum          Int?             @unique // null = nháp (isDraft), cấp số thật khi finalize
+  isDraft         Boolean          @default(false) // true = nháp, chưa có số chính thức, không đẩy SAP
+  cardCode        String
+  cardName        String
+  docDate         DateTime
+  docDueDate      DateTime
+  status          String           @default("Open") // Open | Closed | Cancelled
+  version         Int              @default(0) // Optimistic locking: tăng mỗi lần update
+  remarks         String?
+  warehouseCode   String?
+  totalBeforeDisc Float            @default(0)
+  discountAmt     Float            @default(0)
+  headerDiscPct   Float            @default(0)
+  headerDiscAmt   Float            @default(0)
+  vatAmt          Float            @default(0)
+  grandTotal       Float            @default(0)
+  // --- Chứng từ nguồn (tương đương BaseType/BaseEntry SAP) ---
+  sourceInvoiceId String?          // Copy từ Hóa đơn bán hàng
+  sourceReturnId  String?          // Copy từ Phiếu trả hàng bán
+  createdBy       String
+  // --- Đồng bộ SAP B1 (POST /CreditNotes → ORIN) ---
+  sapDocEntry     Int?
+  sapDocNum       Int?
+  sapSyncStatus   String           @default("none") // none | pending | synced
+  sapSyncError    String?
+  sapSyncedAt     DateTime?
+  sapDatabaseId   String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  lines           ArCreditMemoLine[]
+
+  @@index([sapDatabaseId, status])
+  @@index([cardCode, docDate])
+  @@index([docNum])
+  @@index([sourceInvoiceId])
+  @@index([sourceReturnId])
+}
+
+model ArCreditMemoLine {
+  id              String       @id @default(cuid())
+  creditMemoId    String
+  lineNum         Int
+  itemCode        String
+  itemName        String
+  uom             String       @default("kg")
+  warehouseCode   String?
+  taxCode         String?
+  quantity        Float
+  unitPrice       Float
+  lineTotal       Float
+  discPct         Float        @default(0)
+  discAmt         Float        @default(0)
+  vatPct          Float        @default(8)
+  vatAmt          Float        @default(0)
+  grandTotal      Float        @default(0)
+  creditMemo      ArCreditMemo @relation(fields: [creditMemoId], references: [id], onDelete: Cascade)
+  sapLineNum      Int?
+  isBomChild      Boolean      @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean      @default(true)
+  bomQtyPerParent Float?
+  sourceLineId    String?      // id dòng chứng từ nguồn (tương đương BaseLine SAP)
+
+  @@index([creditMemoId])
+  @@index([sourceLineId])
+}
+
+model SalesReturn {
+  id              String          @id @default(cuid())
+  docNum          Int?            @unique // null = nháp (isDraft), cấp số thật khi finalize
+  isDraft         Boolean         @default(false) // true = nháp, chưa có số chính thức, không đẩy SAP
+  cardCode        String
+  cardName        String
+  docDate         DateTime
+  docDueDate      DateTime
+  status          String          @default("Open") // Open | Closed | Cancelled
+  version         Int             @default(0) // Optimistic locking: tăng mỗi lần update
+  remarks         String?
+  warehouseCode   String?
+  totalBeforeDisc Float           @default(0)
+  discountAmt     Float           @default(0)
+  headerDiscPct   Float           @default(0)
+  headerDiscAmt   Float           @default(0)
+  vatAmt          Float           @default(0)
+  grandTotal      Float           @default(0)
+  // --- Chứng từ nguồn (tương đương BaseType/BaseEntry SAP) ---
+  sourceDeliveryId String?        // Copy từ Phiếu giao hàng
+  sourceInvoiceId  String?        // Copy từ Hóa đơn bán hàng
+  createdBy       String
+  // --- Đồng bộ SAP B1 (POST /Returns → ORDN) ---
+  sapDocEntry     Int?
+  sapDocNum       Int?
+  sapSyncStatus   String          @default("none") // none | pending | synced
+  sapSyncError    String?
+  sapSyncedAt     DateTime?
+  sapDatabaseId   String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  lines           SalesReturnLine[]
+
+  @@index([sapDatabaseId, status])
+  @@index([cardCode, docDate])
+  @@index([docNum])
+  @@index([sourceDeliveryId])
+  @@index([sourceInvoiceId])
+}
+
+model SalesReturnLine {
+  id              String      @id @default(cuid())
+  returnId        String
+  lineNum         Int
+  itemCode        String
+  itemName        String
+  uom             String      @default("kg")
+  warehouseCode   String?
+  taxCode         String?
+  quantity        Float
+  unitPrice       Float
+  lineTotal       Float
+  discPct         Float       @default(0)
+  discAmt         Float       @default(0)
+  vatPct          Float       @default(8)
+  vatAmt          Float       @default(0)
+  grandTotal      Float       @default(0)
+  salesReturn     SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  sapLineNum      Int?
+  isBomChild      Boolean     @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean     @default(true)
+  bomQtyPerParent Float?
+  sourceLineId    String?     // id dòng chứng từ nguồn (tương đương BaseLine SAP)
+
+  @@index([returnId])
+  @@index([sourceLineId])
+}
+
+// ==================== SALES A/R — PHASE 2 (2026-10-17) ====================
+// Hóa đơn đặt cọc phải thu (203/ODPI) + khấu trừ dần (DownPaymentsToDraw)
+// khi xuất Hóa đơn bán hàng + lưu nháp (isDraft) cho mọi chứng từ.
+
+model ArDownPayment {
+  id              String              @id @default(cuid())
+  docNum          Int?                @unique // null = nháp (isDraft), cấp số thật khi finalize
+  isDraft         Boolean             @default(false) // true = nháp, chưa có số chính thức, không đẩy SAP
+  cardCode        String
+  cardName        String
+  docDate         DateTime
+  docDueDate      DateTime
+  status          String              @default("Open") // Open | Closed | Cancelled
+  version         Int                 @default(0) // Optimistic locking: tăng mỗi lần update
+  remarks         String?
+  warehouseCode   String?
+  totalBeforeDisc Float               @default(0)
+  discountAmt     Float               @default(0)
+  headerDiscPct   Float               @default(0)
+  headerDiscAmt   Float               @default(0)
+  vatAmt          Float               @default(0)
+  grandTotal      Float               @default(0)
+  /** Số tiền cọc còn lại chưa khấu trừ — khởi tạo = grandTotal, trừ dần mỗi lần hóa đơn draw */
+  remainingAmount Decimal             @default(0)
+  // --- Chứng từ nguồn (tương đương BaseType/BaseEntry SAP) ---
+  sourceQuotationId String?           // Copy từ Báo giá
+  sourceOrderId     String?           // Copy từ Đơn hàng bán
+  createdBy       String
+  // --- Đồng bộ SAP B1 (POST /DownPayments → ODPI) ---
+  sapDocEntry     Int?
+  sapDocNum       Int?
+  sapSyncStatus   String              @default("none") // none | pending | synced
+  sapSyncError    String?
+  sapSyncedAt     DateTime?
+  sapDatabaseId   String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  lines           ArDownPaymentLine[]
+  draws           DownPaymentDraw[]   // Các lần hóa đơn khấu trừ từ đặt cọc này
+
+  @@index([sapDatabaseId, status])
+  @@index([cardCode, docDate])
+  @@index([docNum])
+  @@index([sourceQuotationId])
+  @@index([sourceOrderId])
+}
+
+model ArDownPaymentLine {
+  id              String        @id @default(cuid())
+  downPaymentId   String
+  lineNum         Int
+  itemCode        String
+  itemName        String
+  uom             String        @default("kg")
+  warehouseCode   String?
+  taxCode         String?
+  quantity        Float
+  unitPrice       Float
+  lineTotal       Float
+  discPct         Float         @default(0)
+  discAmt         Float         @default(0)
+  vatPct          Float         @default(8)
+  vatAmt          Float         @default(0)
+  grandTotal      Float         @default(0)
+  downPayment     ArDownPayment @relation(fields: [downPaymentId], references: [id], onDelete: Cascade)
+  sapLineNum      Int?
+  isBomChild      Boolean       @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean       @default(true)
+  bomQtyPerParent Float?
+  sourceLineId    String?       // id dòng chứng từ nguồn (tương đương BaseLine SAP)
+
+  @@index([downPaymentId])
+  @@index([sourceLineId])
+}
+
+// Bảng trung gian: Hóa đơn bán hàng khấu trừ bao nhiêu từ Hóa đơn đặt cọc nào.
+// Tương đương DownPaymentsToDraw của Service Layer khi POST /Invoices.
+model DownPaymentDraw {
+  id            String        @id @default(cuid())
+  invoiceId     String
+  invoice       ArInvoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  downPaymentId String
+  downPayment   ArDownPayment @relation(fields: [downPaymentId], references: [id], onDelete: Cascade)
+  drawAmount    Decimal       // Số tiền khấu trừ từ đặt cọc này
+  createdAt     DateTime      @default(now())
+
+  @@index([invoiceId])
+  @@index([downPaymentId])
+}
+
+// ==================== DÃY ĐÁNH SỐ CHỨNG TỪ (Phase 1 Sales A/R) ====================
+// Mỗi loại chứng từ có dãy số RIÊNG (tương đương Numbering Series SAP B1),
+// không dùng chung dãy docNum với Đơn hàng/Phiếu giao hàng.
+// Phase 2: thêm dãy 'downPayment' cho Hóa đơn đặt cọc phải thu.
+model DocNumSequence {
+  id        String   @id @default(cuid())
+  docType   String   @unique // quotation | invoice | creditMemo | return | downPayment
+  lastNum   Int      @default(0)
+  updatedAt DateTime @updatedAt
 }

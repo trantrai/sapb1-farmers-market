@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy, Printer, Mail, BookmarkPlus, MoreVertical, X } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
+import { docNumLabel } from './sales-doc-shared'
 import { api } from '@/lib/fm-client'
 import FmPagination from './fm-pagination'
 import type { EditOrderData } from './order-form-view'
@@ -33,6 +34,7 @@ interface Line {
 }
 interface Order {
   id: string
+  /** Bản nháp chưa cấp số thật → API trả null (Phase 2); hiển thị qua docNumLabel() */
   docNum: number
   cardCode: string
   cardName: string
@@ -56,6 +58,8 @@ interface Order {
   sapSyncedAt?: string | null
   /** 'sap' = lấy trực tiếp từ SAP B1 (không xóa/đóng được), 'local' = đơn local */
   source?: string
+  /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực (API: ?isDraft=) */
+  isDraft?: boolean
   /** id bản ghi local tương ứng (đơn SAP có bản ghi local → SỬA được) */
   localId?: string | null
   /** Optimistic locking version */
@@ -197,6 +201,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const [to, setTo] = useState('')
   /** Lọc nhanh theo hạn giao: '' | 'overdue' (quá hạn) | 'dueSoon' (sắp đến hạn 3 ngày) */
   const [dueFilter, setDueFilter] = useState<'' | 'overdue' | 'dueSoon'>('')
+  /** Phase 2 — lọc nhanh theo trạng thái nháp: '' | 'true' | 'false' (→ ?isDraft=) */
+  const [draftFilter, setDraftFilter] = useState<'' | 'true' | 'false'>('')
 
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [source, setSource] = useState('')
@@ -214,6 +220,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
       if (from) sp.set('from', from)
       if (to) sp.set('to', to)
       if (dueFilter) sp.set('due', dueFilter)
+      if (draftFilter) sp.set('isDraft', draftFilter)
       const res = await api(`/api/orders?${sp.toString()}`)
       if (seq !== loadSeq.current) return
       if (res.status === 401) { window.location.reload(); return }
@@ -239,11 +246,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [page, pageSize, debouncedQ, status, from, to, dueFilter])
+  }, [page, pageSize, debouncedQ, status, from, to, dueFilter, draftFilter])
 
   useEffect(() => { load() }, [load, refreshKey])
 
-  const resetFilter = () => { setQ(''); setStatus(''); setFrom(''); setTo(''); setDueFilter(''); setPage(1) }
+  const resetFilter = () => { setQ(''); setStatus(''); setFrom(''); setTo(''); setDueFilter(''); setDraftFilter(''); setPage(1) }
 
   const openDetail = (o: Order) => {
     // Chi tiết đơn mở dạng full-page (đồng nhất với màn tạo mới), không dùng modal
@@ -262,7 +269,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         return
       }
       setOrders((os) => os.filter((x) => x.id !== o.id))
-      setAlert({ type: 'success', msg: `Đã xóa đơn hàng #${o.docNum}` })
+      setAlert({ type: 'success', msg: `Đã xóa đơn hàng ${docNumLabel(o.docNum, o.isDraft)}` })
       load()
     } finally {
       setDeletingId(null)
@@ -272,7 +279,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const askDelete = (o: Order) => {
     setConfirmCfg({
       title: 'Xóa đơn hàng bán',
-      message: `Xóa đơn hàng bán #${o.docNum} — ${o.cardName}?\nHành động không thể hoàn tác.`,
+      message: `Xóa đơn hàng bán ${docNumLabel(o.docNum, o.isDraft)} — ${o.cardName}?\nHành động không thể hoàn tác.`,
       confirmLabel: 'Xóa đơn hàng bán',
       tone: 'danger',
       run: () => { void deleteOrder(o) },
@@ -287,6 +294,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     if (from) sp.set('from', from)
     if (to) sp.set('to', to)
     if (dueFilter) sp.set('due', dueFilter)
+    if (draftFilter) sp.set('isDraft', draftFilter)
     return sp
   }
 
@@ -538,6 +546,25 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
           ))}
         </div>
 
+        {/* Lọc nhanh theo bản nháp (Phase 2) */}
+        <div className="fm-quickfilter" role="group" aria-label="Lọc nhanh theo bản nháp">
+          {([
+            { key: '', label: 'Tất cả' },
+            { key: 'false', label: 'Chính thức' },
+            { key: 'true', label: 'Nháp' },
+          ] as const).map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              className={`fm-btn fm-btn--sm ${draftFilter === f.key ? 'fm-btn--primary' : 'fm-btn--secondary'}`}
+              onClick={() => { setDraftFilter(f.key); setPage(1) }}
+              aria-pressed={draftFilter === f.key}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
         <div className="fm-filterbar">
           <div style={{ position: 'relative' }} data-search>
             <input
@@ -637,7 +664,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                         }
                       }}
                     >
-                      <th scope="row"><b>#{o.docNum}</b></th>
+                      <th scope="row"><b>{docNumLabel(o.docNum, o.isDraft)}</b>{o.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}</th>
                       <td>{o.cardCode}</td>
                       <td>{o.cardName}</td>
                       <td>{formatDateVN(o.docDate)}</td>
@@ -655,7 +682,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                           <span className="fm-chip fm-chip--closed">Đã đóng</span>
                         )}
                       </td>
-                      <td>{sapChip(o, canCreate, syncingId === o.id, () => askSync(o))}</td>
+                      {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP (canSync=false) */}
+                      <td>{sapChip(o, Boolean(canCreate) && !o.isDraft, syncingId === o.id, () => askSync(o))}</td>
                       <td className="fm-num">{formatVND(o.totalBeforeDisc - o.discountAmt - (o.headerDiscAmt ?? 0))}</td>
                       <td className="fm-num"><b>{formatVND(o.grandTotal)}</b></td>
                       <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -703,7 +731,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                   }}
                 >
                   <div className="fm-ocard__top">
-                    <span className="fm-ocard__num">#{o.docNum}</span>
+                    <span className="fm-ocard__num">{docNumLabel(o.docNum, o.isDraft)}</span>
+                    {o.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}
                     {isOverdue(o.docDueDate, o.status) ? (
                       <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>
                     ) : isDueSoon(o.docDueDate, o.status) ? (
@@ -715,7 +744,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                     ) : (
                       <span className="fm-chip fm-chip--closed">Đã đóng</span>
                     )}
-                    {sapChip(o, canCreate, syncingId === o.id, () => askSync(o))}
+                    {sapChip(o, Boolean(canCreate) && !o.isDraft, syncingId === o.id, () => askSync(o))}
                     {/* Nút thao tác thêm (mobile không có right-click) → mở bottom-sheet */}
                     <button
                       type="button"

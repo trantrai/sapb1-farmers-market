@@ -6,12 +6,13 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer } from 'lucide-react'
+import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, Receipt, Undo2 } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import DeliveryPrintView from './delivery-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
+import { type CopyTarget } from './sales-doc-shared'
 
 interface DeliveryLine {
   id: string
@@ -36,6 +37,8 @@ interface Delivery {
   grandTotal: number
   /** 'sap' = dữ liệu lấy trực tiếp từ SAP B1, không có bản ghi local */
   source?: string | null
+  /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực */
+  isDraft?: boolean
   /** Người tạo phiếu (user id) — không có với phiếu SAP */
   createdBy?: string | null
   createdAt?: string | null
@@ -55,6 +58,8 @@ interface Props {
   deliveryId: string
   onBack: () => void
   onGoOrder: (orderId: string) => void
+  /** Wire ở app-shell: mở form loại đích với sourceType='delivery' + sourceId (Phase 1 Sales A/R) */
+  onCopyTo?: (target: CopyTarget, sourceId: string) => void
 }
 
 interface EditRow {
@@ -74,7 +79,7 @@ const STATUS_LABEL: Record<string, string> = {
   Cancelled: 'Đã hủy',
 }
 
-export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Props) {
+export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCopyTo }: Props) {
   const [delivery, setDelivery] = useState<Delivery | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -353,7 +358,28 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
                 </button>
               </>
             )}
-            {delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled' && (
+            {onCopyTo && delivery.status !== 'Cancelled' && (
+              <>
+                <button
+                  className="fm-btn fm-btn--secondary"
+                  onClick={() => onCopyTo('invoice', delivery.id)}
+                  disabled={actionBusy}
+                  title="Tạo hóa đơn bán hàng từ phiếu giao hàng này (wire ở app-shell)"
+                >
+                  <Receipt size={16} /> Sao chép sang hóa đơn bán hàng
+                </button>
+                <button
+                  className="fm-btn fm-btn--secondary"
+                  onClick={() => onCopyTo('return', delivery.id)}
+                  disabled={actionBusy}
+                  title="Tạo phiếu trả hàng bán từ phiếu giao hàng này (wire ở app-shell)"
+                >
+                  <Undo2 size={16} /> Sao chép sang phiếu trả hàng bán
+                </button>
+              </>
+            )}
+            {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP */}
+            {!delivery.isDraft && delivery.sapSyncStatus !== 'synced' && delivery.status !== 'Cancelled' && (
               <button className="fm-btn fm-btn--primary" onClick={askPush} disabled={actionBusy}>
                 <CloudUpload size={16} /> {actionBusy ? 'Đang đẩy…' : 'Đẩy sang SAP B1'}
               </button>
@@ -361,6 +387,14 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder }: Pr
           </>
         }
       />
+
+      {/* Phase 2 — banner bản nháp */}
+      {delivery.isDraft && (
+        <div className="fm-alert fm-alert--warning" style={{ marginBottom: 12 }} role="status">
+          <b><span className="fm-chip fm-chip--warn">Nháp</span></b>{' '}
+          Đây là bản nháp — chưa có hiệu lực, chưa đẩy được sang SAP B1.
+        </div>
+      )}
 
       {actionMsg && (
         <div className={`fm-alert fm-alert--${actionMsg.type === 'success' ? 'success' : 'error'}`} role="alert" style={{ marginBottom: 12 }}>
