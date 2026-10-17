@@ -75,11 +75,15 @@ export async function dedupeRequest<T>(
  * được chạy tại 1 thời điểm (chống 2 tab vượt OpenQty).
  * Lượt thứ 2 nhận lỗi 409 thay vì chạy song song.
  */
-const orderLocks = new Set<string>()
+const orderLocks = new Map<string, number>()
+const LOCK_TTL_MS = 60_000 // Lock tự hết hạn sau 60s — chống kẹt khi request crash giữa chừng
 
 export function acquireOrderLock(orderId: string): boolean {
-  if (orderLocks.has(orderId)) return false
-  orderLocks.add(orderId)
+  const now = Date.now()
+  const held = orderLocks.get(orderId)
+  // Lock đã hết hạn → coi như đã release, cho phép acquire lại
+  if (held !== undefined && now - held < LOCK_TTL_MS) return false
+  orderLocks.set(orderId, now)
   return true
 }
 
