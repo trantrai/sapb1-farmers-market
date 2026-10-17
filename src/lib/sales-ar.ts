@@ -934,6 +934,7 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
  * WORKER C bổ sung ở bước tích hợp — hiện tại báo rõ chưa hỗ trợ.
  */
 export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDocConfig) {
+  try {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
   if (!user.permissions[cfg.permModule]?.view) {
@@ -969,6 +970,13 @@ export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDoc
     return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
   }
   return NextResponse.json({ ok: true, [cfg.resultKey]: doc })
+  } catch (e) {
+    console.error(`[salesDocDetail:${cfg.docType}]`, e)
+    return NextResponse.json(
+      { error: `Lỗi tải chi tiết ${cfg.short}: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500 },
+    )
+  }
 }
 
 // ==================== PATCH update ====================
