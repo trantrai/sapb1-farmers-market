@@ -20,7 +20,7 @@ interface UserRow {
   role: string
 }
 
-const MODULE_KEYS: ModuleKey[] = ['orders', 'ordersNew', 'users', 'settings', 'roles', 'excelTemplates', 'orderTemplates']
+const MODULE_KEYS: ModuleKey[] = ['orders', 'ordersNew', 'deliveries', 'quotations', 'invoices', 'creditMemos', 'returns', 'downPayments', 'salesReport', 'arAgingReport', 'users', 'settings', 'roles', 'excelTemplates', 'orderTemplates', 'bomImport']
 const ACTIONS: ActionKey[] = ['view', 'create', 'edit', 'delete']
 
 interface Props {
