@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   // B1: cách ly DB (giống trang Đơn hàng)
   const s = await loadSapSettings(user.databaseId)
-  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: null }] } : {}
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: "" }] } : {}
 
   const localOrders = await prisma.salesOrder.findMany({
     where: dbScope,

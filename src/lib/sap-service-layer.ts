@@ -139,7 +139,7 @@ export async function ensureSapDatabases(): Promise<void> {
   await prisma.item.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
   await prisma.businessPartner.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
   await prisma.vatGroup.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
-  await prisma.salesOrder.updateMany({ where: { sapDatabaseId: null }, data: { sapDatabaseId: db.id } })
+  await prisma.salesOrder.updateMany({ where: { sapDatabaseId: '' }, data: { sapDatabaseId: db.id } })
   // Xóa cấu hình legacy — từ nay mọi thứ đọc từ SapDatabase
   await prisma.appSettings.update({
     where: { id: 'main' },

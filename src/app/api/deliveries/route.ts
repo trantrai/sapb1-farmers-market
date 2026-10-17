@@ -182,7 +182,7 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {}
   // B1: cách ly DB (kèm phiếu NULL sapDatabaseId — tạo trước khi có multi-DB)
   const andConds: Record<string, unknown>[] = []
-  if (dbId) andConds.push({ OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: null }] })
+  if (dbId) andConds.push({ OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: "" }] })
   if (q) {
     andConds.push({
       OR: [

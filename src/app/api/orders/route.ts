@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
   const andConds: Record<string, unknown>[] = []
   {
     const sDb = await loadSapSettings(user.databaseId)
-    if (sDb?.dbId) andConds.push({ OR: [{ sapDatabaseId: sDb.dbId }, { sapDatabaseId: null }] })
+    if (sDb?.dbId) andConds.push({ OR: [{ sapDatabaseId: sDb.dbId }, { sapDatabaseId: "" }] })
   }
   if (q) {
     andConds.push({
