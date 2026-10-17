@@ -44,7 +44,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   // B1: cách ly DB
-  if (user.databaseId && delivery.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && delivery.sapDatabaseId && delivery.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   }
   return NextResponse.json({ ok: true, delivery })
@@ -64,7 +64,7 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params
   const delivery = await prisma.delivery.findUnique({ where: { id } })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
-  if (user.databaseId && delivery.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && delivery.sapDatabaseId && delivery.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   }
   if (delivery.sapSyncStatus === 'synced') {
@@ -118,7 +118,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   // B1: cách ly DB
-  if (user.databaseId && delivery.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && delivery.sapDatabaseId && delivery.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   }
   if (delivery.sapSyncStatus === 'synced') {

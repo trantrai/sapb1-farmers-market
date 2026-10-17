@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   })
   if (!delivery) return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   // B1: cách ly DB
-  if (user.databaseId && delivery.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && delivery.sapDatabaseId && delivery.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   }
   if (delivery.sapSyncStatus === 'synced') {

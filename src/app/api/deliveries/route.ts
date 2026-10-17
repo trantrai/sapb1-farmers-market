@@ -180,16 +180,20 @@ export async function GET(req: NextRequest) {
 
   // ---------- 2) Phiếu local (gộp: các phiếu chưa đẩy / SAP không còn) ----------
   const where: Record<string, unknown> = {}
-  // B1: cách ly DB
-  if (dbId) where.sapDatabaseId = dbId
+  // B1: cách ly DB (kèm phiếu NULL sapDatabaseId — tạo trước khi có multi-DB)
+  const andConds: Record<string, unknown>[] = []
+  if (dbId) andConds.push({ OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: null }] })
   if (q) {
-    where.OR = [
-      { cardCode: { contains: q } },
-      { cardName: { contains: q } },
-      { numAtCard: { contains: q } },
-      ...(isNaN(Number(q)) ? [] : [{ docNum: Number(q) }]),
-    ]
+    andConds.push({
+      OR: [
+        { cardCode: { contains: q } },
+        { cardName: { contains: q } },
+        { numAtCard: { contains: q } },
+        ...(isNaN(Number(q)) ? [] : [{ docNum: Number(q) }]),
+      ],
+    })
   }
+  if (andConds.length > 0) where.AND = andConds
   if (['Open', 'Closed', 'Cancelled'].includes(status)) where.status = status
   if (isDraftParam === 'true') where.isDraft = true
   else if (isDraftParam === 'false') where.isDraft = false
@@ -290,7 +294,7 @@ export async function POST(req: NextRequest) {
       where: { id: sourceOrderId },
       select: { id: true, sapDatabaseId: true },
     })
-    if (!sourceOrder || sourceOrder.sapDatabaseId !== user.databaseId) {
+    if (!sourceOrder || (user.databaseId && sourceOrder.sapDatabaseId && sourceOrder.sapDatabaseId !== user.databaseId)) {
       return NextResponse.json({ error: 'Đơn nguồn không hợp lệ' }, { status: 400 })
     }
   }

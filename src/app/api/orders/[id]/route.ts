@@ -77,7 +77,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   })
   if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   // B1: cách ly DB — không cho xem đơn của database khác
-  if (user.databaseId && (order as { sapDatabaseId?: string }).sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && (order as { sapDatabaseId?: string }).sapDatabaseId && (order as { sapDatabaseId?: string }).sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
 
@@ -261,7 +261,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     include: { lines: { orderBy: { lineNum: 'asc' } } },
   })
   if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
-  if (user.databaseId && (order as { sapDatabaseId?: string }).sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && (order as { sapDatabaseId?: string }).sapDatabaseId && (order as { sapDatabaseId?: string }).sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
   if (order.status !== 'Open') {
@@ -417,7 +417,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   if (!order) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
-  if (user.databaseId && order.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && order.sapDatabaseId && order.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
   const updated = await prisma.salesOrder.update({ where: { id }, data: { status, version: { increment: 1 } } })
@@ -439,7 +439,7 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
     if (!existing) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng cần xóa' }, { status: 404 })
     }
-    if (user.databaseId && existing.sapDatabaseId !== user.databaseId) {
+    if (user.databaseId && existing.sapDatabaseId && existing.sapDatabaseId !== user.databaseId) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng cần xóa' }, { status: 404 })
     }
     // Không xóa đơn đã đẩy/đang đẩy sang SAP hoặc đã đóng — tránh lệch dữ liệu

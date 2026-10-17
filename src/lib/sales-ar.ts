@@ -558,20 +558,25 @@ export async function salesDocList(req: NextRequest, cfg: SalesDocConfig) {
   const draftFilter = isDraftParam === 'true' ? true : isDraftParam === 'false' ? false : null
 
   // B1: cách ly theo database — user chỉ thấy chứng từ của DB mình đăng nhập
+  // (kèm chứng từ NULL sapDatabaseId — tạo trước khi có multi-DB, coi như thuộc DB hiện tại)
   const s = await loadSapSettings(user.databaseId)
   const dbId = s?.dbId ?? null
   const where: Record<string, unknown> = {}
-  if (dbId) where.sapDatabaseId = dbId
+  const andConds: Record<string, unknown>[] = []
+  if (dbId) andConds.push({ OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: null }] })
   if (draftFilter !== null) where.isDraft = draftFilter
   if (q) {
-    where.OR = [
-      { docNum: isNaN(Number(q)) ? undefined : Number(q) },
-      { cardName: { contains: q } },
-      { cardCode: { contains: q } },
-      // Đợt 2: tìm theo số PO của khách hàng (SAP NumAtCard)
-      { numAtCard: { contains: q } },
-    ].filter(Boolean)
+    andConds.push({
+      OR: [
+        { docNum: isNaN(Number(q)) ? undefined : Number(q) },
+        { cardName: { contains: q } },
+        { cardCode: { contains: q } },
+        // Đợt 2: tìm theo số PO của khách hàng (SAP NumAtCard)
+        { numAtCard: { contains: q } },
+      ].filter(Boolean),
+    })
   }
+  if (andConds.length > 0) where.AND = andConds
   if (status === 'Open' || status === 'Closed' || status === 'Cancelled') where.status = status
   if (from || to) {
     where.docDate = {
@@ -949,7 +954,7 @@ export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDoc
   })
   if (!doc) return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
   // B1: cách ly DB — không cho xem chứng từ của database khác
-  if (user.databaseId && doc.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && doc.sapDatabaseId && doc.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
   }
   return NextResponse.json({ ok: true, [cfg.resultKey]: doc })
@@ -976,7 +981,7 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
 
   const doc = await cfg.model.findUnique({ where: { id } })
   if (!doc) return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
-  if (user.databaseId && doc.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && doc.sapDatabaseId && doc.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
   }
   // Optimistic locking: client BẮT BUỘC gửi đúng version đã đọc khi mở form
@@ -1189,7 +1194,7 @@ export async function salesDocDelete(req: NextRequest, id: string, cfg: SalesDoc
     if (!existing) {
       return NextResponse.json({ error: `Không tìm thấy ${cfg.short} cần xóa` }, { status: 404 })
     }
-    if (user.databaseId && existing.sapDatabaseId !== user.databaseId) {
+    if (user.databaseId && existing.sapDatabaseId && existing.sapDatabaseId !== user.databaseId) {
       return NextResponse.json({ error: `Không tìm thấy ${cfg.short} cần xóa` }, { status: 404 })
     }
     if (existing.sapSyncStatus === 'synced' || existing.sapSyncStatus === 'pending') {
@@ -1252,7 +1257,7 @@ export async function salesDocFinalize(req: NextRequest, id: string, cfg: SalesD
   })
   if (!doc) return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
   // B1: cách ly DB
-  if (user.databaseId && doc.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && doc.sapDatabaseId && doc.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: `Không tìm thấy ${cfg.short}` }, { status: 404 })
   }
   if (typeof version !== 'number') {
@@ -1383,7 +1388,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
       return { body: { error: `Không tìm thấy ${spec.label}` }, status: 404 }
     }
     // B1: cách ly DB
-    if (user.databaseId && src.sapDatabaseId !== user.databaseId) {
+    if (user.databaseId && src.sapDatabaseId && src.sapDatabaseId !== user.databaseId) {
       return { body: { error: `Không tìm thấy ${spec.label}` }, status: 404 }
     }
     if (src.status === 'Cancelled') {

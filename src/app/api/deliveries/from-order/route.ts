@@ -248,7 +248,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
   // B1: cách ly DB
-  if (user.databaseId && order.sapDatabaseId !== user.databaseId) {
+  if (user.databaseId && order.sapDatabaseId && order.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
   }
   if (order.status === 'Cancelled') {
