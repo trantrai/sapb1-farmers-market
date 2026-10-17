@@ -1,20 +1,32 @@
-// Patch quyền cho DB đã seed từ trước (thiếu downPayments/salesReport/arAgingReport)
+// Patch quyền cho DB đã seed từ trước (thiếu quotations/invoices/creditMemos/returns/downPayments/salesReport/arAgingReport)
 // Chạy: node scripts/patch-permissions.js
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 const PATCH = {
   Admin: {
+    quotations: { view: true, create: true, edit: true, delete: true },
+    invoices: { view: true, create: true, edit: true, delete: true },
+    creditMemos: { view: true, create: true, edit: true, delete: true },
+    returns: { view: true, create: true, edit: true, delete: true },
     downPayments: { view: true, create: true, edit: true, delete: true },
     salesReport: { view: true, create: false, edit: false, delete: false },
     arAgingReport: { view: true, create: false, edit: false, delete: false },
   },
   KeToan: {
+    quotations: { view: true, create: true, edit: true, delete: false },
+    invoices: { view: true, create: true, edit: true, delete: false },
+    creditMemos: { view: true, create: true, edit: true, delete: false },
+    returns: { view: true, create: true, edit: true, delete: false },
     downPayments: { view: true, create: true, edit: true, delete: false },
     salesReport: { view: true, create: false, edit: false, delete: false },
     arAgingReport: { view: true, create: false, edit: false, delete: false },
   },
   NhanVien: {
+    quotations: { view: true, create: true, edit: false, delete: false },
+    invoices: { view: true, create: false, edit: false, delete: false },
+    creditMemos: { view: true, create: false, edit: false, delete: false },
+    returns: { view: true, create: false, edit: false, delete: false },
     downPayments: { view: true, create: false, edit: false, delete: false },
     salesReport: { view: true, create: false, edit: false, delete: false },
     arAgingReport: { view: true, create: false, edit: false, delete: false },
