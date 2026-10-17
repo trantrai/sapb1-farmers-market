@@ -159,18 +159,23 @@ export async function GET(req: NextRequest) {
 
   const where: Record<string, unknown> = {}
   // B1: cách ly theo database — user chỉ thấy đơn của DB mình đăng nhập
+  // (kèm đơn NULL sapDatabaseId — tạo trước khi có multi-DB)
+  const andConds: Record<string, unknown>[] = []
   {
     const sDb = await loadSapSettings(user.databaseId)
-    if (sDb?.dbId) where.sapDatabaseId = sDb.dbId
+    if (sDb?.dbId) andConds.push({ OR: [{ sapDatabaseId: sDb.dbId }, { sapDatabaseId: null }] })
   }
   if (q) {
-    where.OR = [
-      { docNum: isNaN(Number(q)) ? undefined : Number(q) },
-      { cardName: { contains: q } },
-      { cardCode: { contains: q } },
-      { numAtCard: { contains: q } },
-    ].filter(Boolean)
+    andConds.push({
+      OR: [
+        { docNum: isNaN(Number(q)) ? undefined : Number(q) },
+        { cardName: { contains: q } },
+        { cardCode: { contains: q } },
+        { numAtCard: { contains: q } },
+      ].filter(Boolean),
+    })
   }
+  if (andConds.length > 0) where.AND = andConds
   if (status === 'Open' || status === 'Closed') where.status = status
   // Phase 2: lọc nháp — ?isDraft=true chỉ lấy nháp, ?isDraft=false chỉ lấy chính thức
   const isDraftParam = sp.get('isDraft') ?? ''

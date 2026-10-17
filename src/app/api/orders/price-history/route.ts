@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
   // 5 đơn gần nhất của KH có chứa mặt hàng (kèm dòng hàng đó)
   // B1: cách ly DB
-  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: null }] } : {}
   const orders = await prisma.salesOrder.findMany({
     where: {
       ...dbScope,

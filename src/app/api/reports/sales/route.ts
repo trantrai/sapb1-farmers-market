@@ -27,8 +27,8 @@ export async function GET(req: NextRequest) {
     ? new Date(`${sp.get('from')}T00:00:00.000Z`)
     : new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - 29))
 
-  // B1: cách ly DB (giống /api/stats)
-  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
+  // B1: cách ly DB (giống /api/stats) — kèm chứng từ NULL sapDatabaseId
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: null }] } : {}
   const anyPrisma = prisma as any
 
   try {

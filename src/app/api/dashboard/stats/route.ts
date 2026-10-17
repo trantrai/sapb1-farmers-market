@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   // B1: cách ly DB (giống trang Đơn hàng)
   const s = await loadSapSettings(user.databaseId)
-  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: null }] } : {}
   const sp = req.nextUrl.searchParams
   const range = sp.get('range') === '30' ? 30 : 7
 

@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Bạn không có quyền xem Công nợ phải thu' }, { status: 403 })
   }
 
-  // B1: cách ly DB (giống /api/stats)
-  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
+  // B1: cách ly DB (giống /api/stats) — kèm chứng từ NULL sapDatabaseId
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: null }] } : {}
 
   try {
     // Map ĐKTT: paymentGroupCode → số ngày (PaymentTerm.code unique toàn cục)

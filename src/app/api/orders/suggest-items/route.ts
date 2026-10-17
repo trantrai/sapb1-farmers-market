@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   // Lấy các đơn của khách hàng trong khoảng thời gian (kèm dòng hàng)
   // B1: cách ly DB
-  const dbScope = user.databaseId ? { sapDatabaseId: user.databaseId } : {}
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: null }] } : {}
   const orders = await prisma.salesOrder.findMany({
     where: { ...dbScope, cardCode, docDate: { gte: fromDate } },
     select: {
