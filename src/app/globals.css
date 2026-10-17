@@ -611,7 +611,22 @@
 }
 .fm-table th:first-child { border-top-left-radius: var(--fm-r-lg); }
 .fm-table th:last-child { border-top-right-radius: var(--fm-r-lg); }
-.fm-table td { padding: 10px 12px; border-bottom: 1px solid var(--fm-line-soft); vertical-align: middle; overflow-wrap: break-word; }
+.fm-table td { padding: 10px 12px; border-bottom: 1px solid var(--fm-line-soft); vertical-align: top; overflow-wrap: break-word; }
+/* Lưới dòng hàng trong form: input/select/autocomplete cùng chiều cao 38px, align top */
+.fm-table td .fm-input,
+.fm-table td select.fm-input,
+.fm-table td input.fm-input {
+  height: 38px;
+  padding: 8px 10px;
+  margin: 0;
+  box-sizing: border-box;
+}
+.fm-table td .fm-autocomplete { width: 100%; display: block; }
+.fm-table td .fm-autocomplete input { height: 38px; box-sizing: border-box; margin: 0; }
+/* Cell text trong lưới dòng hàng (STT, thành tiền): padding-top bù để text căn giữa theo input 38px */
+.fm-table:has(td .fm-autocomplete) td:not(:has(input, select, .fm-autocomplete, button)) {
+  padding-top: 20px;
+}
 /* Ô tiêu đề dòng (th scope="row") trong tbody: giữ giao diện như ô dữ liệu thường */
 .fm-table tbody th[scope="row"] {
   padding: 10px 12px; border-bottom: 1px solid var(--fm-line-soft); vertical-align: middle; overflow-wrap: break-word;
