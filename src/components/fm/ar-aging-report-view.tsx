@@ -73,10 +73,10 @@ interface ReportData {
 }
 
 const BUCKET_COLORS: Record<string, string> = {
-  notDue: 'var(--fm-green)',
-  d1_30: 'var(--fm-yellow)',
+  notDue: 'var(--fm-navy)',
+  d1_30: 'var(--fm-gold)',
   d31_60: 'var(--fm-coral)',
-  d61_90: 'var(--fm-red)',
+  d61_90: 'var(--fm-coral-deep)',
   over90: 'var(--fm-navy-deep)',
 }
 

@@ -6,7 +6,7 @@
 // Mỗi node: loại, số CT, ngày, trạng thái; click nhảy sang chi tiết.
 // ============================================================
 
-import { FileText, Truck, Receipt } from 'lucide-react'
+import { FileText, Truck, Receipt, ArrowRight } from 'lucide-react'
 import { formatDateVN } from '@/lib/fm-shared'
 
 export interface RelNode {
@@ -50,7 +50,7 @@ export default function RelationshipMap({ nodes, onGoOrder, onGoDelivery }: Prop
         const clickable = n.kind !== 'invoice'
         return (
           <div key={`${n.kind}-${n.id}`} className="fm-relmap__step" role="listitem">
-            {i > 0 && <div className="fm-relmap__arrow" aria-hidden>→</div>}
+            {i > 0 && <div className="fm-relmap__arrow" aria-hidden><ArrowRight size={16} /></div>}
             <button
               type="button"
               className={`fm-relmap__node${n.current ? ' is-current' : ''}`}

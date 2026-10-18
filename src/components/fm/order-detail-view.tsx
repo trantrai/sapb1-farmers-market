@@ -8,7 +8,7 @@ import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import OrderPrintView from './order-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
-import { type CopyTarget } from './sales-doc-shared'
+import { type CopyTarget, docNumLabel } from './sales-doc-shared'
 
 interface OrderLine {
   id: string
@@ -624,6 +624,9 @@ actions={
           </>
         }
       />
+
+      {/* Folio — số chứng từ lớn neo đầu trang (Phase 3, anchor Swiss) */}
+      <div className="fm-docnum" style={{ fontSize: 30, margin: '4px 0 16px' }}>{docNumLabel(order.docNum, order.isDraft)}</div>
 
       {order.status === 'Cancelled' && (
         <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }}>

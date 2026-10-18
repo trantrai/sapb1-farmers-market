@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Search, TriangleAlert } from 'lucide-react'
 import { api, ApiNetworkError } from '@/lib/fm-client'
 
 export interface ACOption {
@@ -310,7 +310,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
       notice = detail
         ? `Không thể truy vấn dữ liệu: ${detail}`
         : 'Không thể truy vấn dữ liệu — kiểm tra kết nối SAP B1 ở trang Cài đặt'
-    } else if (meta.error) notice = `⚠ Lỗi SAP: ${meta.error}`
+    } else if (meta.error) notice = `Lỗi SAP: ${meta.error}`
     else if (all && all.length === 0)
       notice =
         meta.source === 'sap'
@@ -401,7 +401,10 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           >
             {loading && <div className="fm-autocomplete__opt">{minChars !== undefined ? 'Đang tìm mặt hàng…' : 'Đang tải toàn bộ danh sách…'}</div>}
             {!loading && notice && (
-              <div className="fm-autocomplete__opt" style={notice.startsWith('⚠') || meta.error ? { color: 'var(--fm-red)' } : undefined}>{notice}</div>
+              <div className="fm-autocomplete__opt" style={meta.error ? { color: 'var(--fm-coral-deep)', fontWeight: 600 } : undefined}>
+                {meta.error && <TriangleAlert size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />}
+                <span>{notice}</span>
+              </div>
             )}
             {!loading && !notice && options.length === 0 && (
               <div className="fm-autocomplete__opt">Không tìm thấy kết quả</div>

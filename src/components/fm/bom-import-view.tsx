@@ -729,7 +729,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
           className="fm-card"
           style={{
             marginBottom: 16,
-            borderLeft: `4px solid ${msg.type === 'error' ? 'var(--fm-coral)' : msg.type === 'success' ? 'var(--fm-green)' : 'var(--fm-gold)'}`,
+            borderLeft: `4px solid ${msg.type === 'error' ? 'var(--fm-coral)' : msg.type === 'success' ? 'var(--fm-navy)' : 'var(--fm-gold)'}`,
           }}
         >
           {msg.text}
@@ -881,7 +881,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
               <div className="fm-card__head">
                 <CheckCircle2 size={18} /> Parse & Validate — {parents.length > 0 ? parents.length : (canonicalSummary?.parents ?? 0)} mã mặt hàng cha
                 {parents.length > 0 && blocked && <span className="fm-chip" style={{ background: 'var(--fm-coral)', color: 'var(--fm-surface)' }}>{errors.length} lỗi fail-fast</span>}
-                {parents.length > 0 && !blocked && <span className="fm-chip" style={{ background: 'var(--fm-green)', color: 'var(--fm-surface)' }}>Không lỗi fail-fast</span>}
+                {parents.length > 0 && !blocked && <span className="fm-chip" style={{ background: 'var(--fm-navy)', color: 'var(--fm-surface)' }}>Không lỗi fail-fast</span>}
                 {parents.length > 0 && warnings.length > 0 && <span className="fm-chip" style={{ background: 'var(--fm-gold)', color: 'var(--fm-navy)' }}>{warnings.length} cảnh báo</span>}
               </div>
               <div className="fm-card__body">
@@ -922,7 +922,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
 
                 {errors.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <h4 style={{ color: 'var(--fm-coral)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <h4 style={{ color: 'var(--fm-coral-deep)', display: 'flex', alignItems: 'center', gap: 6 }}>
                       <XCircle size={16} /> Lỗi fail-fast ({errors.length}) — chặn apply
                     </h4>
                     <ul style={{ paddingLeft: 18, fontSize: 13 }}>
@@ -934,7 +934,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 )}
                 {warnings.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <h4 style={{ color: 'var(--fm-warn-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <h4 style={{ color: 'var(--fm-gold-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
                       <AlertTriangle size={16} /> Cảnh báo ({warnings.length}) — không chặn
                     </h4>
                     <ul style={{ paddingLeft: 18, fontSize: 13 }}>
@@ -969,7 +969,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       </span>
                     )}
                     {!preview.blocked && (
-                      <span className="fm-chip" style={{ background: 'var(--fm-green)', color: 'var(--fm-surface)' }}>
+                      <span className="fm-chip" style={{ background: 'var(--fm-navy)', color: 'var(--fm-surface)' }}>
                         Không lỗi fail-fast
                       </span>
                     )}
@@ -1020,7 +1020,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                       className="fm-field fm-row"
                       style={{
                         alignItems: 'flex-end', flexWrap: 'wrap',
-                        padding: 12, background: 'var(--fm-hover-bg)', borderRadius: 8, marginBottom: 12,
+                        padding: 12, background: 'var(--fm-line-soft)', borderRadius: 8, marginBottom: 12,
                       }}
                     >
                       <div style={{ minWidth: 220 }}>
@@ -1059,7 +1059,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     </div>
 
                     {preview.quotationWarnings.length > 0 && (
-                      <ul style={{ paddingLeft: 18, fontSize: 13, color: 'var(--fm-warn-ink)', marginBottom: 12 }}>
+                      <ul style={{ paddingLeft: 18, fontSize: 13, color: 'var(--fm-gold-ink)', marginBottom: 12 }}>
                         {preview.quotationWarnings.map((w, i) => <li key={i}>{w}</li>)}
                       </ul>
                     )}
@@ -1092,13 +1092,12 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                           {preview.parents.map((p, pi) => {
                             const w7 = p.crossChecks.find((c) => c.check === 'W7')
                             const isOpen = expanded.has(p.rowNo)
-                            // Minor #7 — nền sticky khớp zebra (dòng cha i ở vị trí DOM 2i + số dòng con đang mở trước nó)
-                            const openBefore = preview.parents.slice(0, pi).filter((q) => expanded.has(q.rowNo)).length
-                            const stickyBg = p.approved ? 'var(--fm-green-soft)' : ((2 * pi + openBefore) % 2 === 1 ? 'var(--fm-zebra)' : 'var(--fm-surface)')
+                            // Swiss: không zebra — dòng phân cách bằng hairline của fm-table; dòng đã duyệt tô navy-soft
+                            const stickyBg = p.approved ? 'var(--fm-navy-soft)' : 'var(--fm-surface)'
                             return (
                               <Fragment key={p.rowNo}>
-                                <tr style={p.approved ? { background: 'var(--fm-green-soft)' } : undefined}>
-                                  <td style={{ textAlign: 'center', ...stickyTd(0, stickyBg) }}>
+                                <tr style={p.approved ? { background: 'var(--fm-navy-soft)' } : undefined}>
+                                  <td style={{ textAlign: 'left', ...stickyTd(0, stickyBg) }}>
                                     <input
                                       type="checkbox"
                                       checked={p.approved}
@@ -1164,7 +1163,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                     className="fm-mono"
                                     style={{
                                       textAlign: 'right',
-                                      color: w7 && w7.verdict === 'warn' ? 'var(--fm-coral)' : undefined,
+                                      color: w7 && w7.verdict === 'warn' ? 'var(--fm-coral-deep)' : undefined,
                                       fontWeight: w7 && w7.verdict === 'warn' ? 700 : undefined,
                                     }}
                                   >
@@ -1173,7 +1172,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                 </tr>
                                 {isOpen && (
                                   <tr>
-                                    <td colSpan={17} style={{ background: 'var(--fm-hover-bg)', padding: '8px 12px' }}>
+                                    <td colSpan={17} style={{ background: 'var(--fm-line-soft)', padding: '8px 12px' }}>
                                       <strong style={{ fontSize: 13 }}>Thành phần NVL ({p.components.length}):</strong>
                                       <table className="fm-table" style={{ marginTop: 6 }}>
                                         <thead>
@@ -1198,7 +1197,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                             {p.crossChecks.map((cc, i) => (
                                               <li
                                                 key={i}
-                                                style={cc.verdict === 'warn' ? { color: 'var(--fm-coral)', fontWeight: 600 } : undefined}
+                                                style={cc.verdict === 'warn' ? { color: 'var(--fm-coral-deep)', fontWeight: 600 } : undefined}
                                               >
                                                 <code>{cc.check}</code>
                                                 {cc.setName ? ` (${cc.setName}${cc.linkAuto ? '' : ', gán tay'})` : ''}: {cc.detail}
@@ -1220,7 +1219,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     {/* Lỗi / cảnh báo của preview (đã tính link tay) */}
                     {preview.issues.filter((x) => x.severity === 'error').length > 0 && (
                       <div style={{ marginTop: 12 }}>
-                        <h4 style={{ color: 'var(--fm-coral)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <h4 style={{ color: 'var(--fm-coral-deep)', display: 'flex', alignItems: 'center', gap: 6 }}>
                           <XCircle size={16} /> Lỗi fail-fast ({preview.errors}) — chặn apply
                         </h4>
                         <ul style={{ paddingLeft: 18, fontSize: 13 }}>
@@ -1232,7 +1231,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     )}
                     {preview.issues.filter((x) => x.severity === 'warning').length > 0 && (
                       <div style={{ marginTop: 12 }}>
-                        <h4 style={{ color: 'var(--fm-warn-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <h4 style={{ color: 'var(--fm-gold-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
                           <AlertTriangle size={16} /> Cảnh báo ({preview.warnings}) — không chặn
                         </h4>
                         <ul style={{ paddingLeft: 18, fontSize: 13 }}>
@@ -1255,7 +1254,6 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                         zIndex: 30,
                         background: 'var(--fm-surface)',
                         borderTop: '1px solid var(--fm-line)',
-                        boxShadow: '0 -6px 20px rgba(30, 58, 95, 0.12)',
                         marginTop: 16,
                         padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
                         display: 'flex',
@@ -1313,13 +1311,13 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                                 <td><b>{r.code}</b></td>
                                 <td>{r.rowNo}</td>
                                 <td>
-                                  {r.item === 'created' ? <span className="fm-chip" style={{ background: 'var(--fm-green)', color: 'var(--fm-surface)' }}>Đã tạo</span>
-                                    : r.item === 'exists' ? <span className="fm-chip" style={{ background: 'var(--fm-chip-closed-bg)', color: 'var(--fm-text-2)' }}>Đã tồn tại</span>
+                                  {r.item === 'created' ? <span className="fm-chip" style={{ background: 'var(--fm-navy)', color: 'var(--fm-surface)' }}>Đã tạo</span>
+                                    : r.item === 'exists' ? <span className="fm-chip" style={{ background: 'var(--fm-line-soft)', color: 'var(--fm-text-2)' }}>Đã tồn tại</span>
                                       : <span className="fm-chip fm-chip--error">Lỗi</span>}
                                 </td>
                                 <td>
-                                  {r.tree === 'created' ? <span className="fm-chip" style={{ background: 'var(--fm-green)', color: 'var(--fm-surface)' }}>Đã tạo</span>
-                                    : r.tree === 'exists' ? <span className="fm-chip" style={{ background: 'var(--fm-chip-closed-bg)', color: 'var(--fm-text-2)' }}>Đã tồn tại</span>
+                                  {r.tree === 'created' ? <span className="fm-chip" style={{ background: 'var(--fm-navy)', color: 'var(--fm-surface)' }}>Đã tạo</span>
+                                    : r.tree === 'exists' ? <span className="fm-chip" style={{ background: 'var(--fm-line-soft)', color: 'var(--fm-text-2)' }}>Đã tồn tại</span>
                                       : r.tree === 'skipped' ? <span className="fm-hint">Bỏ qua</span>
                                         : <span className="fm-chip fm-chip--error">Lỗi</span>}
                                 </td>
@@ -1333,7 +1331,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     <p className="fm-hint" style={{ marginTop: 8 }}>
                       Báo giá: {preview.summary.sets} set · {preview.summary.costingRows} dòng Final Cost · {preview.summary.deliveryRows} dòng lịch giao (chỉ lưu trace).
                       <br />
-                      <strong style={{ color: 'var(--fm-coral)' }}>
+                      <strong style={{ color: 'var(--fm-coral-deep)' }}>
                         Apply ghi THẬT mặt hàng + định mức (ProductTrees) lên SAP B1 (DB: {user.databaseLabel ?? 'mặc định'})
                       </strong>
                       {' '}— kiểm tra kỹ DB đích trước khi bấm. Có thể rollback theo run bằng nút "Rollback run này".
@@ -1362,7 +1360,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                 </thead>
                 <tbody>
                   {runs.map((r) => (
-                    <tr key={r.id} style={run?.id === r.id ? { background: 'var(--fm-info-soft)' } : undefined}>
+                    <tr key={r.id} style={run?.id === r.id ? { background: 'var(--fm-navy-soft)' } : undefined}>
                       <td className="fm-mono" style={{ fontSize: 12 }}>{r.id.slice(0, 8)}…</td>
                       <td className="fm-mono">{r.jobId}</td>
                       <td>{STATUS_LABEL[r.status] ?? r.status}</td>
@@ -1373,7 +1371,7 @@ export default function BomImportView({ user }: { user: SessionUser }) {
                     </tr>
                   ))}
                   {runs.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--fm-muted-line)' }}>Chưa có lượt chạy nào</td></tr>
+                    <tr><td colSpan={7} style={{ textAlign: 'left', color: 'var(--fm-muted-line)' }}>Chưa có lượt chạy nào</td></tr>
                   )}
                 </tbody>
               </table>

@@ -77,9 +77,9 @@ export function SyncProgressCard({ progress }: { progress: SyncProgress | null }
     ? Math.max(0, Math.floor((Date.now() - new Date(progress.startedAt).getTime()) / 1000))
     : 0
   return (
-    <div className="fm-card" style={{ marginBottom: 16, borderColor: 'var(--fm-green)' }} data-testid="sync-progress">
+    <div className="fm-card" style={{ marginBottom: 16, borderColor: 'var(--fm-navy)' }} data-testid="sync-progress">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <RefreshCw size={16} style={{ animation: 'fm-spin 1s linear infinite', color: 'var(--fm-green)' }} />
+        <RefreshCw size={16} style={{ animation: 'fm-spin 1s linear infinite', color: 'var(--fm-navy)' }} />
         <b>Đang đồng bộ từ SAP B1</b>
         <span className="fm-chip fm-chip--role" style={{ marginLeft: 'auto' }}>Đã chạy {elapsedSec}s</span>
       </div>

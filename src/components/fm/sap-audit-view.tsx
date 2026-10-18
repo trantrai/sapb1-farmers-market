@@ -272,12 +272,12 @@ actions={<>
             <p className="fm-card__desc">
               Gửi lại <b>{confirmRetry.method} {fmtPath(confirmRetry.path)}</b> lên Service Layer?
               {confirmRetry.method === 'POST' && (
-                <span style={{ color: 'var(--fm-red)', fontWeight: 600 }}>
+                <span style={{ color: 'var(--fm-coral-deep)', fontWeight: 600 }}>
                   {' '}Lưu ý: với POST /Orders, SAP sẽ tạo CHỨNG TỪ MỚI — có thể trùng đơn nếu lệnh gốc thực tế đã thành công.
                 </span>
               )}
               {confirmRetry.method === 'PATCH' && (
-                <span style={{ color: 'var(--fm-amber, #B8860B)', fontWeight: 600 }}>
+                <span style={{ color: 'var(--fm-gold-ink)', fontWeight: 600 }}>
                   {' '}Lệnh PATCH sẽ cập nhật lại chứng từ theo payload đã lưu — chỉ chạy được khi chứng từ còn Open.
                 </span>
               )}

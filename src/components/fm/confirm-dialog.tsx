@@ -17,7 +17,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string
   /** Nhãn nút hủy — mặc định "Hủy bỏ" */
   cancelLabel?: string
-  /** Tông màu: danger (đỏ) | warning (vàng) | primary (navy) */
+  /** Tông màu: danger (coral) | warning (gold) | primary (navy) */
   tone?: ConfirmTone
   /** Gọi khi bấm xác nhận */
   onConfirm: () => void
@@ -26,8 +26,8 @@ interface ConfirmDialogProps {
 }
 
 const TONE_STYLE: Record<ConfirmTone, { icon: typeof Info; color: string; border: string; btnClass: string }> = {
-  danger: { icon: AlertOctagon, color: 'var(--fm-red-text)', border: 'var(--fm-red)', btnClass: 'fm-btn--danger' },
-  warning: { icon: AlertTriangle, color: '#8A6D00', border: 'var(--fm-yellow)', btnClass: 'fm-btn--primary' },
+  danger: { icon: AlertOctagon, color: 'var(--fm-coral-deep)', border: 'var(--fm-coral)', btnClass: 'fm-btn--danger' },
+  warning: { icon: AlertTriangle, color: 'var(--fm-gold-ink)', border: 'var(--fm-gold)', btnClass: 'fm-btn--primary' },
   primary: { icon: Info, color: 'var(--fm-navy)', border: 'var(--fm-navy)', btnClass: 'fm-btn--primary' },
 }
 

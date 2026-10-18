@@ -6,7 +6,7 @@ import {
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
   FileText, Receipt, FileMinus2, Undo2, HandCoins, BarChart3, FileClock,
-  UserCheck, CalendarClock,
+  UserCheck, CalendarClock, ArrowLeftRight, ArrowRight,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -14,8 +14,8 @@ import { api } from '@/lib/fm-client'
 
 // Lazy load các views — chỉ tải khi user chuyển đến màn hình đó
 const ViewLoading = () => (
-  <div className="fm-card" style={{ padding: 48, textAlign: 'center', color: 'var(--fm-text-2)' }}>
-    <div className="fm-spin" style={{ width: 28, height: 28, border: '3px solid var(--fm-line)', borderTopColor: 'var(--fm-primary)', borderRadius: '50%', margin: '0 auto 12px' }} />
+  <div className="fm-card" style={{ padding: 48, color: 'var(--fm-text-2)' }}>
+    <div className="fm-spin" style={{ width: 28, height: 28, border: '3px solid var(--fm-line)', borderTopColor: 'var(--fm-primary)', borderRadius: '50%', margin: '0 0 12px' }} />
     Đang tải…
   </div>
 )
@@ -411,11 +411,11 @@ export default function AppShell({ user, onLogout }: Props) {
         {/* Box trạng thái SAP Service Layer */}
         <div className="fm-sap-status">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="fm-sap-status__icon">⇄</span>
+            <span className="fm-sap-status__icon"><ArrowLeftRight size={16} aria-hidden /></span>
             <span>SAP Service Layer</span>
           </div>
-          <span className="fm-sap-status__live" style={sapStatus === 'none' ? { opacity: 0.6 } : sapStatus === 'error' ? { color: 'var(--fm-red)' } : undefined}>
-            <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: 'var(--fm-muted-line)' } : sapStatus === 'error' ? { background: 'var(--fm-red)' } : undefined} />
+          <span className="fm-sap-status__live" style={sapStatus === 'none' ? { opacity: 0.6 } : sapStatus === 'error' ? { color: 'var(--fm-coral-deep)' } : undefined}>
+            <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: 'var(--fm-muted-line)' } : sapStatus === 'error' ? { background: 'var(--fm-coral)' } : undefined} />
             {sapStatus === 'ok' ? 'Đang kết nối' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi'}
           </span>
         </div>
@@ -805,7 +805,7 @@ export default function AppShell({ user, onLogout }: Props) {
       {toasts.length > 0 && (
         <div className="fm-toast-host">
           {toasts.map((toast) => (
-            <div key={toast.id} role={toast.type === 'error' ? 'alert' : 'status'} className={`fm-alert fm-alert--${toast.type}`} style={{ boxShadow: 'var(--fm-shadow-pop)', margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <div key={toast.id} role={toast.type === 'error' ? 'alert' : 'status'} className={`fm-alert fm-alert--${toast.type}`} style={{ margin: 0, minWidth: 260, maxWidth: 420, pointerEvents: 'auto', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <b>{toast.type === 'success' ? 'Hoàn tất' : toast.type === 'warning' ? 'Lưu ý' : 'Lỗi'}</b>{' '}{toast.msg}
                 {toast.action && (
@@ -814,7 +814,7 @@ export default function AppShell({ user, onLogout }: Props) {
                     className="fm-toast__action"
                     onClick={() => { dismissToast(toast.id); toast.action!.onClick() }}
                   >
-                    {toast.action.label} →
+                    {toast.action.label}<ArrowRight size={14} aria-hidden />
                   </button>
                 )}
               </div>

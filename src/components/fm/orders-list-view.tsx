@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy, Printer, Mail, BookmarkPlus, MoreVertical, X } from 'lucide-react'
+import { Filter, Plus, RotateCcw, Trash2, LockOpen, Search, Inbox, RefreshCw, Pencil, Download, Copy, Printer, Mail, BookmarkPlus, MoreVertical, X, TriangleAlert } from 'lucide-react'
 import { formatVND, formatDateVN, formatNum, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import type { SessionUser } from '@/lib/fm-shared'
 import { docNumLabel } from './sales-doc-shared'
@@ -606,7 +606,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
 
         {/* Cảnh báo SAP lỗi khi load danh sách */}
         {sapWarn && (
-          <div className="fm-hint" style={{ color: 'var(--fm-red)', marginBottom: 8 }} role="alert">⚠ {sapWarn}</div>
+          <div className="fm-hint" style={{ color: 'var(--fm-coral-deep)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }} role="alert"><TriangleAlert size={14} aria-hidden /> {sapWarn}</div>
         )}
 
         {/* Bảng dữ liệu */}
@@ -676,7 +676,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                         }
                       }}
                     >
-                      <th scope="row"><b>{docNumLabel(o.docNum, o.isDraft)}</b>{o.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}</th>
+                      <th scope="row"><b className="fm-docnum">{docNumLabel(o.docNum, o.isDraft)}</b>{o.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}</th>
                       <td>{o.cardCode}</td>
                       <td>{o.cardName}</td>
                       <td>{formatDateVN(o.docDate)}</td>
@@ -715,7 +715,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                         )}
                         {canDelete && o.source !== 'sap' && (
                           <button className="fm-row-del" title={deletingId === o.id ? 'Đang xóa…' : 'Xóa đơn hàng bán'} aria-label={deletingId === o.id ? 'Đang xóa đơn hàng bán' : 'Xóa đơn hàng bán'} disabled={deletingId === o.id} onClick={() => askDelete(o)}>
-                            {deletingId === o.id ? <span className="fm-spin" style={{ width: 14, height: 14, border: '2px solid var(--fm-line)', borderTopColor: 'var(--fm-red)', borderRadius: '50%', display: 'inline-block' }} /> : <Trash2 size={14} />}
+                            {deletingId === o.id ? <span className="fm-spin" style={{ width: 14, height: 14, border: '2px solid var(--fm-line)', borderTopColor: 'var(--fm-coral)', borderRadius: '50%', display: 'inline-block' }} /> : <Trash2 size={14} />}
                           </button>
                         )}
                       </td>
@@ -743,7 +743,7 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
                   }}
                 >
                   <div className="fm-ocard__top">
-                    <span className="fm-ocard__num">{docNumLabel(o.docNum, o.isDraft)}</span>
+                    <span className="fm-ocard__num fm-docnum">{docNumLabel(o.docNum, o.isDraft)}</span>
                     {o.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}
                     {isOverdue(o.docDueDate, o.status) ? (
                       <span className="fm-chip fm-chip--overdue">Quá hạn {daysOverdue(o.docDueDate)} ngày</span>

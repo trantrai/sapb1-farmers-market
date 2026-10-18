@@ -1271,7 +1271,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                             type="text"
                             aria-label={`Tài khoản dòng ${idx + 1}`}
                             className="fm-line-input"
-                            style={acctInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : undefined}
+                            style={acctInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
                             value={l.accountCode || ''}
                             disabled={saving}
                             placeholder="VD: 5111"
@@ -1289,7 +1289,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         inputMode="decimal"
                         aria-label={`Số lượng dòng ${idx + 1}`}
                         className="fm-line-input"
-                        style={qtyInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : undefined}
+                        style={qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
                         value={l.quantity || ''}
                         disabled={saving}
                         title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : undefined}
@@ -1350,7 +1350,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         inputMode="decimal"
                         aria-label={`Đơn giá dòng ${idx + 1}`}
                         className="fm-line-input"
-                        style={priceInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : undefined}
+                        style={priceInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
                         value={l.unitPrice || ''}
                         disabled={saving}
                         onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value) || 0 })}
@@ -1511,7 +1511,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           {enableDownPaymentDraws && drawTotals.totalDraw > 0 && (
             <>
               <div><dt>Khấu trừ đặt cọc</dt><dd>−{formatVND(drawTotals.totalDraw)}</dd></div>
-              <div><dt><b>Tổng phải thu sau khấu trừ</b></dt><dd><b style={{ fontSize: 17, color: 'var(--fm-green)' }}>{formatVND(drawTotals.payable)}</b></dd></div>
+              <div><dt><b>Tổng phải thu sau khấu trừ</b></dt><dd><b style={{ fontSize: 17, color: 'var(--fm-navy)' }}>{formatVND(drawTotals.payable)}</b></dd></div>
             </>
           )}
         </dl>

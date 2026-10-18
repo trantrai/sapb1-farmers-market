@@ -182,13 +182,13 @@ actions={<>
           <div className="fm-stat__meta">Tài khoản truy cập hệ thống</div>
         </div>
         <div className="fm-stat fm-stat--green">
-          <div className="fm-stat__icon" style={{ background: 'var(--fm-green-soft)', color: 'var(--fm-green)' }}><ShieldCheck size={18} /></div>
+          <div className="fm-stat__icon" style={{ background: 'var(--fm-navy-soft)', color: 'var(--fm-navy)' }}><ShieldCheck size={18} /></div>
           <div className="fm-stat__label">Đang hoạt động</div>
           <div className="fm-stat__value">{nActive}</div>
           <div className="fm-stat__meta">Được phép đăng nhập</div>
         </div>
         <div className="fm-stat fm-stat--red">
-          <div className="fm-stat__icon" style={{ background: 'var(--fm-red-soft)', color: 'var(--fm-red)' }}><KeyRound size={18} /></div>
+          <div className="fm-stat__icon" style={{ background: 'var(--fm-coral-soft)', color: 'var(--fm-coral-deep)' }}><KeyRound size={18} /></div>
           <div className="fm-stat__label">Bị vô hiệu hóa</div>
           <div className="fm-stat__value">{nLocked}</div>
           <div className="fm-stat__meta">Không thể đăng nhập</div>
@@ -266,7 +266,7 @@ actions={<>
                             />
                             <span className="track" />
                           </label>{' '}
-                          <span style={{ fontSize: 11, color: u.active ? 'var(--fm-green)' : 'var(--fm-red)', fontWeight: 600 }}>
+                          <span style={{ fontSize: 11, color: u.active ? 'var(--fm-navy)' : 'var(--fm-coral)', fontWeight: 600 }}>
                             {u.active ? 'Hoạt động' : 'Vô hiệu'}
                           </span>
                         </td>
@@ -310,7 +310,7 @@ actions={<>
                         <input type="checkbox" checked={u.active} disabled={!canEdit || isMe} onChange={() => askToggleActive(u)} aria-label={u.active ? `Vô hiệu hóa tài khoản ${u.username}` : `Kích hoạt tài khoản ${u.username}`} />
                         <span className="track" />
                       </label>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: u.active ? 'var(--fm-green)' : 'var(--fm-red)' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: u.active ? 'var(--fm-navy)' : 'var(--fm-coral)' }}>
                         {u.active ? 'Hoạt động' : 'Vô hiệu'}
                       </span>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>

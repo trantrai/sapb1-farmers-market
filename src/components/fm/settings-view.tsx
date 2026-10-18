@@ -289,16 +289,16 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             {dbs.map((d) => (
-              <div key={d.id} className="fm-card" style={{ padding: 12, margin: 0, border: d.isDefault ? '1.5px solid var(--fm-accent)' : undefined }}>
+              <div key={d.id} className="fm-card" style={{ padding: 12, margin: 0, border: d.isDefault ? '1.5px solid var(--fm-gold)' : undefined }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <b style={{ fontSize: 14 }}>{d.label}</b>
                   {d.isDefault && <span className="fm-chip fm-chip--role"><Star size={14} style={{ verticalAlign: -1, marginRight: 3 }} />Mặc định</span>}
                   <span
                     className="fm-chip"
-                    style={d.connected ? { background: 'var(--fm-green-soft)', color: 'var(--fm-green)' } : undefined}
+                    style={d.connected ? { background: 'var(--fm-navy-soft)', color: 'var(--fm-navy)' } : undefined}
                     title={d.lastTestAt ? `Test gần nhất: ${new Date(d.lastTestAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}` : 'Chưa kiểm tra'}
                   >
-                    <span className="dot" style={{ background: d.connected ? 'var(--fm-green)' : '#B0B0B0' }} />
+                    <span className="dot" style={{ background: d.connected ? 'var(--fm-navy)' : 'var(--fm-muted-line)' }} />
                     {d.connected ? 'Đã kết nối' : 'Chưa kiểm tra'}
                   </span>
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -382,7 +382,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
               <div className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input id="db-ssl" type="checkbox" checked={form.sslSkipVerify} onChange={(e) => updateForm({ sslSkipVerify: e.target.checked })} style={{ width: 16, height: 16, accentColor: 'var(--fm-primary)' }} />
                 <label className="fm-label" htmlFor="db-ssl" style={{ margin: 0 }}>Bỏ qua xác thực SSL</label>
-                <span className="fm-hint" style={{ color: 'var(--fm-coral)' }}>Chỉ dùng khi test nội bộ — tắt xác thực SSL khiến kết nối dễ bị nghe lén.</span>
+                <span className="fm-hint" style={{ color: 'var(--fm-coral-deep)' }}>Chỉ dùng khi test nội bộ — tắt xác thực SSL khiến kết nối dễ bị nghe lén.</span>
               </div>
             </div>
             <label className="fm-field" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 12 }}>

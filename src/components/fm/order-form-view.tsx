@@ -2306,7 +2306,7 @@ export default function OrderFormView({
                         aria-invalid={qtyInvalid || undefined}
                         aria-describedby={qtyInvalid ? `fm-line-${l.key}-qty-err` : undefined}
                         className="fm-line-input"
-                        style={{ ...(qtyInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : {}) }}
+                        style={{ ...(qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : {}) }}
                         value={l.quantity || ''}
                         disabled={saving || (l.isBomChild && l.bomEditable === false)}
                         title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
@@ -2400,7 +2400,7 @@ export default function OrderFormView({
                           aria-invalid={priceInvalid || undefined}
                           aria-describedby={priceInvalid ? `fm-line-${l.key}-price-err` : undefined}
                           className="fm-line-input"
-                          style={{ flex: 1, minWidth: 0, ...(priceInvalid ? { borderColor: 'var(--fm-red)', background: 'var(--fm-red-soft)' } : {}) }}
+                          style={{ flex: 1, minWidth: 0, ...(priceInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : {}) }}
                           value={l.unitPrice || ''}
                           title={priceInvalid ? 'Đơn giá không được âm' : l.priceSource === 'special' ? 'Giá đặc biệt theo khách hàng (SAP OSPP)' : l.item ? 'Giá từ Price List 1' : undefined}
                           disabled={saving}
@@ -2469,7 +2469,7 @@ export default function OrderFormView({
                         onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
                       />
                       {l.vatOverridden && (
-                        <div style={{ fontSize: 11, color: 'var(--fm-warn-ink)', lineHeight: 1.3, marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: 'var(--fm-gold-ink)', lineHeight: 1.3, marginTop: 2 }}>
                           Đã ghi đè thuế suất từ mã thuế
                         </div>
                       )}
@@ -2592,7 +2592,6 @@ export default function OrderFormView({
           zIndex: 30,
           background: 'var(--fm-surface)',
           borderTop: '1px solid var(--fm-line)',
-          boxShadow: '0 -6px 20px rgba(30, 58, 95, 0.12)',
           marginTop: 16,
           padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
           display: 'flex',
@@ -2743,9 +2742,9 @@ export default function OrderFormView({
               {priceHistFor.itemName} ({priceHistFor.itemCode}) — {partner?.name} ({partner?.code})
             </p>
             {priceHistLoading ? (
-              <div style={{ textAlign: 'center', padding: 24, color: 'var(--fm-text-2)' }}>Đang tải…</div>
+              <div style={{ textAlign: 'left', padding: 24, color: 'var(--fm-text-2)' }}>Đang tải…</div>
             ) : priceHist.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 24, color: 'var(--fm-text-2)' }}>
+              <div style={{ textAlign: 'left', padding: 24, color: 'var(--fm-text-2)' }}>
                 Chưa có lịch sử bán mặt hàng này cho khách hàng.
               </div>
             ) : (

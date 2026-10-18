@@ -62,8 +62,8 @@ interface ArWidgets {
   openQuotationCount: number
 }
 
-// Palette biểu đồ map về token theme (globals.css): gold / navy / green / red / coral / navy-deep
-const CHART_COLORS = ['var(--fm-yellow)', 'var(--fm-navy)', 'var(--fm-green)', 'var(--fm-red)', 'var(--fm-coral)', 'var(--fm-navy-deep)']
+// Palette biểu đồ map về token theme (globals.css, Swiss anchor): gold / navy / coral / navy-deep / coral-deep / gold-ink
+const CHART_COLORS = ['var(--fm-gold)', 'var(--fm-navy)', 'var(--fm-coral)', 'var(--fm-navy-deep)', 'var(--fm-coral-deep)', 'var(--fm-gold-ink)']
 
 export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail }: { onGoOrders: () => void; onGoCreate: () => void; onGoOrderDetail: (id: string) => void }) {
   const [stats, setStats] = useState<Stats | null>(null)

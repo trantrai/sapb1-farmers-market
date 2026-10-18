@@ -27,8 +27,8 @@ export default function Page() {
   if (loading) {
     return (
       <div className="fm-login">
-        <div role="status" style={{ textAlign: 'center', color: 'var(--fm-text-2)', fontSize: 14 }}>
-          <img src="/logo-farmers-market.png" alt="" style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px', border: '3px solid var(--fm-yellow)' }} />
+        <div role="status" style={{ textAlign: 'left', color: 'var(--fm-text-2)', fontSize: 14 }}>
+          <img src="/logo-farmers-market.png" alt="" style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 0 12px', border: '3px solid var(--fm-gold)' }} />
           Đang tải hệ thống…
         </div>
       </div>

@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw, Plus, Network } from 'lucide-react'
+import { Search, Truck, Trash2, CloudUpload, Eye, RefreshCw, Plus, Network, TriangleAlert } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { docNumLabel } from './sales-doc-shared'
 import { api } from '@/lib/fm-client'
@@ -258,7 +258,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
       />
 
       {sapWarn && (
-        <div className="fm-hint" style={{ color: 'var(--fm-red)', marginBottom: 8 }} role="alert">⚠ {sapWarn}</div>
+        <div className="fm-hint" style={{ color: 'var(--fm-coral-deep)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }} role="alert"><TriangleAlert size={14} aria-hidden /> {sapWarn}</div>
       )}
 
       {alert && (
@@ -373,7 +373,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
                     }
                   }}
                 >
-                  <th scope="row"><b>{docNumLabel(d.docNum, d.isDraft)}</b></th>
+                  <th scope="row"><b className="fm-docnum">{docNumLabel(d.docNum, d.isDraft)}</b></th>
                   <td>{formatDateVN(d.docDate)}</td>
                   <td>
                     <div><b>{d.cardCode}</b></div>
@@ -491,7 +491,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               }}
             >
               <div className="fm-ocard__top">
-                <span className="fm-ocard__num">{docNumLabel(d.docNum, d.isDraft)}</span>
+                <span className="fm-ocard__num fm-docnum">{docNumLabel(d.docNum, d.isDraft)}</span>
                 <span className={`fm-chip fm-chip--${d.status.toLowerCase()}`}>{STATUS_LABEL[d.status] ?? d.status}</span>{d.isDraft && <span className="fm-chip fm-chip--warn" title="Bản nháp — chưa có hiệu lực">Nháp</span>}
                 {d.source === 'sap' ? (
                   <span className="fm-chip fm-chip--sap">SAP B1</span>

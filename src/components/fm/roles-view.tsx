@@ -196,8 +196,8 @@ actions={<>
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
                   padding: '10px 12px', borderRadius: 'var(--fm-r-md)', marginBottom: 4, fontSize: 12.5,
-                  background: r.id === selectedId ? 'var(--fm-yellow-faint)' : 'transparent',
-                  borderLeft: r.id === selectedId ? '3px solid var(--fm-yellow)' : '3px solid transparent',
+                  background: r.id === selectedId ? 'var(--fm-gold-faint)' : 'transparent',
+                  borderLeft: r.id === selectedId ? '3px solid var(--fm-gold)' : '3px solid transparent',
                   fontWeight: r.id === selectedId ? 700 : 500,
                   color: r.id === selectedId ? 'var(--fm-navy)' : 'var(--fm-text)',
                 }}

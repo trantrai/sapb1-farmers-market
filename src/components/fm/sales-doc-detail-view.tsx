@@ -324,6 +324,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
           </>
         }
       />
+      <div className="fm-docnum" style={{ fontSize: 30, margin: '4px 0 16px' }}>{docNumLabel(doc.docNum, doc.isDraft)}</div>
 
       {isCancelled && (
         <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }}>

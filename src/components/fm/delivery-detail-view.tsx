@@ -12,7 +12,7 @@ import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import DeliveryPrintView from './delivery-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
-import { type CopyTarget } from './sales-doc-shared'
+import { type CopyTarget, docNumLabel } from './sales-doc-shared'
 
 interface DeliveryLine {
   id: string
@@ -512,6 +512,9 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
         }
       />
 
+      {/* Folio — số chứng từ lớn neo đầu trang (Phase 3, anchor Swiss) */}
+      <div className="fm-docnum" style={{ fontSize: 30, margin: '4px 0 16px' }}>{docNumLabel(delivery.docNum, delivery.isDraft)}</div>
+
       {/* Phase 2 — banner bản nháp */}
       {delivery.isDraft && (
         <div className="fm-alert fm-alert--warning" style={{ marginBottom: 12 }} role="status">
@@ -719,7 +722,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
           events.push({ label: 'Cập nhật', time: delivery.updatedAt, tone: 'var(--fm-text-2)' })
         }
         if (delivery.sapSyncedAt) {
-          events.push({ label: 'Đẩy sang SAP B1', time: delivery.sapSyncedAt, tone: 'var(--fm-green)' })
+          events.push({ label: 'Đẩy sang SAP B1', time: delivery.sapSyncedAt, tone: 'var(--fm-navy)' })
         }
         if (delivery.status === 'Cancelled') {
           events.push({ label: 'Hủy phiếu', time: delivery.updatedAt ?? '', tone: 'var(--fm-coral)' })

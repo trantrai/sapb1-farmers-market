@@ -46,7 +46,8 @@ interface ReportData {
   deliveryPerf: { total: number; onTime: number; late: number; onTimePct: number }
 }
 
-const CHART_COLORS = ['var(--fm-yellow)', 'var(--fm-navy)', 'var(--fm-green)', 'var(--fm-red)', 'var(--fm-coral)', 'var(--fm-navy-deep)']
+// Palette biểu đồ map về token theme (globals.css, Swiss anchor): gold / navy / coral / navy-deep / coral-deep / gold-ink
+const CHART_COLORS = ['var(--fm-gold)', 'var(--fm-navy)', 'var(--fm-coral)', 'var(--fm-navy-deep)', 'var(--fm-coral-deep)', 'var(--fm-gold-ink)']
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10)
 
@@ -292,7 +293,7 @@ export default function SalesReportView() {
                         labelLine={false}
                         fontSize={12}
                       >
-                        <Cell fill="var(--fm-green)" />
+                        <Cell fill="var(--fm-navy)" />
                         <Cell fill="var(--fm-coral)" />
                       </Pie>
                       <Tooltip formatter={(v) => [`${v} phiếu`, '']} />
