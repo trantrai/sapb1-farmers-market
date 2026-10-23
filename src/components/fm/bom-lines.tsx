@@ -11,7 +11,7 @@
 // buildSapLines: cha TreeType=iNotATree, con U_BOMID = mã cha).
 // ============================================================
 
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeftRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { formatNum } from '@/lib/fm-shared'
 
@@ -162,18 +162,35 @@ export function BomToggle({ collapsed, count, onToggle, parentLabel }: {
 }
 
 /** Ô mặt hàng của dòng con: mã, tên, định mức và mã BOM cha (U_BOMID) */
-export function BomChildCell({ code, name, qtyPerParent, uom, parentCode }: {
+export function BomChildCell({ code, name, qtyPerParent, uom, parentCode, onSwap, disabled }: {
   code?: string
   name?: string
   qtyPerParent?: number
   uom?: string
   parentCode?: string
+  /** BOM Template: mở popup hoán đổi thành phần với mặt hàng khác */
+  onSwap?: () => void
+  disabled?: boolean
 }) {
   return (
     <div className="fm-bom-child-cell">
       <span className="fm-bom-child-cell__branch" aria-hidden>└─</span>
-      <div>
-        <b>{code}</b>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="fm-bom-child-cell__top">
+          <b>{code}</b>
+          {onSwap && (
+            <button
+              type="button"
+              className="fm-bom-swap-btn"
+              title="Hoán đổi thành phần với mặt hàng khác"
+              aria-label={`Hoán đổi thành phần ${code ?? ''}`}
+              onClick={onSwap}
+              disabled={disabled}
+            >
+              <ArrowLeftRight size={13} aria-hidden /> Hoán đổi
+            </button>
+          )}
+        </div>
         <div className="fm-bom-child-cell__name">{name}</div>
         <div className="fm-bom-child-cell__meta">
           Định mức: <span className="fm-num-inline">{formatNum(qtyPerParent ?? 0)}</span>{uom ? ` ${uom}` : ''} / 1 cha

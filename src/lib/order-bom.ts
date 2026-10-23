@@ -3,11 +3,13 @@
 // - Dòng con: giá = 0 (đã ép ở validateOrderLines), phải thuộc nhóm có dòng cha
 // - BOM Production: số lượng con PHẢI đúng công thức (SL cha × định mức),
 //   client gửi sai → 400 (chống giả mạo / công thức cũ)
-// - BOM Template: số lượng con được chỉnh tự do, chỉ kiểm tra mã con
-//   có thuộc công thức của cha không
+// - BOM Template: số lượng con được chỉnh tự do; được HOÁN ĐỔI thành phần
+//   sang mặt hàng khác (không thuộc công thức) — mặt hàng thay thế phải có
+//   trong danh mục mặt hàng đã đồng bộ và không được là chính mặt hàng cha
 // ============================================================
 
 import { getBomDefinitions, recalcChildQty } from './fm-bom'
+import { db as prisma } from './db'
 import type { OrderLineInput } from './order-calc'
 
 export interface BomLineInput extends OrderLineInput {
@@ -47,6 +49,26 @@ export async function normalizeBomLines<T extends BomLineInput>(
   )]
   const defs = await getBomDefinitions(dbId, parentCodes)
 
+  // BOM Template: thành phần hoán đổi (ngoài công thức) → kiểm tra có trong danh mục mặt hàng
+  const swapCodes = new Set<string>()
+  for (const g of groups.values()) {
+    const def = g.parent ? defs.get(g.parent.itemCode) : undefined
+    if (!def || def.bomType !== 'template') continue
+    const inDef = new Set(def.components.map((c) => c.childItemCode))
+    for (const child of g.children) if (!inDef.has(child.itemCode)) swapCodes.add(child.itemCode)
+  }
+  const knownItems = new Set<string>()
+  if (swapCodes.size > 0) {
+    const rows = await prisma.item.findMany({
+      where: { ...(dbId ? { sapDatabaseId: dbId } : {}), itemCode: { in: [...swapCodes] } },
+      select: { itemCode: true },
+    })
+    for (const r of rows) knownItems.add(r.itemCode)
+  }
+  // Danh mục mặt hàng chưa đồng bộ (form đang tìm trực tiếp trên SAP) → không đối chiếu được, bỏ qua kiểm tra
+  const catalogEmpty = swapCodes.size > 0 && knownItems.size === 0
+    && (await prisma.item.count({ where: dbId ? { sapDatabaseId: dbId } : {} })) === 0
+
   for (const [gk, g] of groups) {
     if (!g.parent || g.children.length === 0) continue
     const def = defs.get(g.parent.itemCode)
@@ -55,6 +77,17 @@ export async function normalizeBomLines<T extends BomLineInput>(
     const compMap = new Map(def.components.map((c) => [c.childItemCode, c]))
     for (const child of g.children) {
       const comp = compMap.get(child.itemCode)
+      if (!comp && def.bomType === 'template') {
+        // Thành phần đã được người dùng hoán đổi sang mặt hàng khác
+        if (child.itemCode === g.parent.itemCode) {
+          return { lines: [], error: `Không thể dùng chính mặt hàng ${g.parent.itemCode} làm thành phần BOM của nó` }
+        }
+        if (!catalogEmpty && !knownItems.has(child.itemCode)) {
+          return { lines: [], error: `Mặt hàng thay thế ${child.itemCode} không có trong danh mục mặt hàng đã đồng bộ` }
+        }
+        child.bomEditable = true
+        continue
+      }
       if (!comp) {
         return {
           lines: [],

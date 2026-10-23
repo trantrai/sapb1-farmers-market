@@ -626,6 +626,31 @@
 .fm-bom-child-cell__name { font-size: 11px; color: var(--fm-text-2); }
 .fm-bom-child-cell__meta { font-size: 11px; color: var(--fm-navy); margin-top: 2px; }
 .fm-num-inline { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fm-bom-child-cell__top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fm-bom-swap-btn {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 2px 8px;
+  border: 1px solid var(--fm-line); border-radius: var(--fm-r-sm); background: var(--fm-surface);
+  color: var(--fm-navy); font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.fm-bom-swap-btn:hover:not(:disabled) { background: var(--fm-navy-soft); border-color: var(--fm-navy); }
+.fm-bom-swap-btn:focus-visible { outline: 2px solid var(--fm-navy); outline-offset: 1px; }
+.fm-bom-swap-btn:disabled { opacity: .5; cursor: not-allowed; }
+/* Popup hoán đổi thành phần BOM */
+.fm-modal.fm-bom-swap { max-width: 720px; width: 100%; }
+.fm-bom-swap__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.fm-bom-swap__head .fm-modal__title { display: flex; align-items: center; gap: 8px; }
+.fm-bom-swap__current { margin: 0 0 12px; font-size: 13px; color: var(--fm-text-2); }
+.fm-bom-swap__list { margin-top: 10px; max-height: 340px; overflow-y: auto; border: 1px solid var(--fm-line); border-radius: var(--fm-r-lg); padding: 8px; }
+.fm-bom-swap__list .fm-table tbody tr { cursor: pointer; }
+.fm-bom-swap__list .fm-table tbody tr.is-selected td { background: var(--fm-navy-soft); }
+.fm-bom-swap__barcode { font-variant-numeric: tabular-nums; color: var(--fm-text-2); }
+.fm-bom-swap__foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.fm-bom-swap__foot .fm-hint { margin-right: auto; margin-top: 0; }
+@media (max-width: 640px) {
+  .fm-bom-swap-btn { min-height: 40px; }
+  .fm-bom-swap__list { max-height: 50dvh; }
+  .fm-bom-swap__foot .fm-btn { flex: 1; min-height: 44px; }
+}
 @media (max-width: 640px) {
   .fm-bom-toggle { min-height: 40px; min-width: 40px; justify-content: center; }
   .fm-bom-child-cell { padding-left: 0; }

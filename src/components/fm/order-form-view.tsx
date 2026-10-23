@@ -13,6 +13,7 @@ import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
+import BomSwapDialog from './bom-swap-dialog'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
@@ -1610,6 +1611,26 @@ export default function OrderFormView({
     }
   }
 
+  // ---------- BOM Template: hoán đổi thành phần con với mặt hàng khác ----------
+  const [swapKey, setSwapKey] = useState<number | null>(null)
+  const swapTarget = swapKey != null ? lines.find((x) => x.key === swapKey && x.isBomChild) ?? null : null
+  const swapParentCode = swapTarget
+    ? lines.find((x) => !x.isBomChild && x.bomGroupKey === swapTarget.bomGroupKey)?.item?.code
+    : undefined
+  /** Xác nhận hoán đổi: thay mã thành phần + nạp tên/ĐVT/mã thuế/barcode; giữ SL, định mức, giá 0, nhóm BOM */
+  const swapBomComponent = (key: number, v: ACOption) => {
+    const cur = lines.find((x) => x.key === key)
+    const wh = cur?.warehouseCode || headerWh || undefined
+    updateLine(key, {
+      item: v,
+      uom: v.uom || undefined,
+      taxCode: v.taxCode || undefined,
+      ...(typeof v.vatRate === 'number' ? { vatPct: v.vatRate, vatOverridden: false } : {}),
+    })
+    void checkAtp(key, v.code, wh)
+    setSwapKey(null)
+  }
+
   /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
   const quickAddLine = (v: ACOption, quantity: number) => {
     const empty = lines.find((x) => !x.item && !x.isBomChild)
@@ -2266,6 +2287,8 @@ export default function OrderFormView({
                           qtyPerParent={l.bomQtyPerParent}
                           uom={l.uom || l.item?.uom}
                           parentCode={parentCodes.get(l.bomGroupKey as string)}
+                          onSwap={l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          disabled={saving}
                         />
                       ) : (
                       <>
@@ -2504,6 +2527,16 @@ export default function OrderFormView({
         </div>
 
         <LineQuickAdd onAdd={quickAddLine} disabled={saving} />
+        {swapTarget && (
+          <BomSwapDialog
+            key={swapTarget.key}
+            open
+            component={swapTarget.item ? { code: swapTarget.item.code, name: swapTarget.item.name } : null}
+            parentCode={swapParentCode}
+            onConfirm={(v) => swapBomComponent(swapTarget.key, v)}
+            onCancel={() => setSwapKey(null)}
+          />
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()} disabled={saving || importProgress !== null}>
             <Upload size={14} /> {importProgress ? 'Đang nhập…' : 'Nhập từ Excel'}

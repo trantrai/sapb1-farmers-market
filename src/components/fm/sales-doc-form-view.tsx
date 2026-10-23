@@ -20,6 +20,7 @@ import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import CopyFromPicker from './copy-from-picker'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import BomSwapDialog from './bom-swap-dialog'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import {
   BomChildCell, BomToggle, applyParentQty, bomChildCounts, explodeBom, fetchBomDef,
@@ -586,6 +587,23 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     })
     if (v) void resolvePrice(key, v.code, partner?.code ?? null)
     void expandBom(key, v?.code ?? '')
+  }
+
+  // ---------- BOM Template: hoán đổi thành phần con với mặt hàng khác ----------
+  const [swapKey, setSwapKey] = useState<number | null>(null)
+  const swapTarget = swapKey != null ? lines.find((x) => x.key === swapKey && x.isBomChild) ?? null : null
+  const swapParentCode = swapTarget
+    ? lines.find((x) => !x.isBomChild && x.bomGroupKey === swapTarget.bomGroupKey)?.item?.code
+    : undefined
+  /** Xác nhận hoán đổi: thay mã thành phần + nạp tên/ĐVT/mã thuế/barcode; giữ SL, định mức, giá 0, nhóm BOM */
+  const swapBomComponent = (key: number, v: ACOption) => {
+    updateLine(key, {
+      item: v,
+      uom: v.uom || undefined,
+      taxCode: v.taxCode || undefined,
+      ...(typeof v.vatRate === 'number' ? { vatPct: v.vatRate } : {}),
+    })
+    setSwapKey(null)
   }
 
   /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
@@ -1283,6 +1301,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                           qtyPerParent={l.bomQtyPerParent}
                           uom={uomText}
                           parentCode={parentCodes.get(l.bomGroupKey as string)}
+                          onSwap={l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          disabled={saving}
                         />
                       ) : (
                       <Autocomplete
@@ -1455,6 +1475,16 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           </table>
         </div>
         <LineQuickAdd onAdd={quickAddLine} disabled={saving} />
+        {swapTarget && (
+          <BomSwapDialog
+            key={swapTarget.key}
+            open
+            component={swapTarget.item ? { code: swapTarget.item.code, name: swapTarget.item.name } : null}
+            parentCode={swapParentCode}
+            onConfirm={(v) => swapBomComponent(swapTarget.key, v)}
+            onCancel={() => setSwapKey(null)}
+          />
+        )}
       </div>
 
       {/* Phase 2 — Khấu trừ đặt cọc (chỉ form Hóa đơn bán hàng) */}
