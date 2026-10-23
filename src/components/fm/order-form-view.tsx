@@ -12,6 +12,7 @@ import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
 interface DraftLine {
@@ -1573,6 +1574,16 @@ export default function OrderFormView({
     setFieldErr((fe) => ({ ...fe, [parentKey]: '' }))
   }
 
+  /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
+  const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleBomGroup = (gk: string) =>
+    setBomCollapsed((cur) => {
+      const next = new Set(cur)
+      if (next.has(gk)) next.delete(gk)
+      else next.add(gk)
+      return next
+    })
+
   const addLine = () =>
     setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
   const removeLine = (key: number) => {
@@ -2152,19 +2163,13 @@ export default function OrderFormView({
             </thead>
             <tbody>
               {(() => {
-                // Chỉ vẽ dòng con của BOM Template; Production/Assembly ẩn
-                // (vẫn giữ trong data để submit và validate theo công thức).
-                const pType = new Map(
-                  lines.filter((x) => !x.isBomChild && x.bomGroupKey)
-                    .map((x) => [x.bomGroupKey as string, x.bomType ?? 'none']),
+                // Chỉ vẽ dòng con của BOM Template (Production/Assembly ẩn — vẫn
+                // giữ trong data để submit/validate) và nhóm đang mở rộng.
+                const vis = visibleBomLines(lines, bomCollapsed)
+                const childCounts = bomChildCounts(lines)
+                const parentCodes = new Map(
+                  lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
                 )
-                const vis = lines.filter((x) => {
-                  if (!x.isBomChild) return true
-                  const pt = pType.get(x.bomGroupKey as string)
-                  if (pt === 'production' || pt === 'assembly') return false
-                  if (pt === 'template') return true
-                  return x.bomEditable !== false
-                })
                 let stt = 0
                 return vis.map((l) => {
                 const invalid = Boolean(fieldErr[l.key])
@@ -2177,16 +2182,32 @@ export default function OrderFormView({
                 const afterDisc = lineTotal - discAmt
                 const isChild = Boolean(l.isBomChild)
                 if (!isChild) stt += 1
+                /** Dòng cha BOM Template có thành phần hiển thị → nút thu gọn/mở rộng */
+                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
                 return (
-                  <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}`}>
-                    <td data-label="Dòng">{isChild ? '' : stt}</td>
+                  <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                    <td data-label="Dòng">
+                      {isChild ? '' : showToggle ? (
+                        <div className="fm-bom-parent-no">
+                          {stt}
+                          <BomToggle
+                            collapsed={bomCollapsed.has(l.bomGroupKey as string)}
+                            count={childCounts.get(l.bomGroupKey as string) ?? 0}
+                            parentLabel={l.item?.code ?? ''}
+                            onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
+                          />
+                        </div>
+                      ) : stt}
+                    </td>
                     <td data-label="Hàng hóa (ItemCode)" data-full>
                       {isChild ? (
-                        <div style={{ paddingLeft: 18 }}>
-                          <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>
-                          <b>{l.item?.code}</b>
-                          <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>{l.item?.name}</div>
-                        </div>
+                        <BomChildCell
+                          code={l.item?.code}
+                          name={l.item?.name}
+                          qtyPerParent={l.bomQtyPerParent}
+                          uom={l.uom || l.item?.uom}
+                          parentCode={parentCodes.get(l.bomGroupKey as string)}
+                        />
                       ) : (
                       <>
                       <Autocomplete

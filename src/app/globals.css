@@ -610,6 +610,26 @@
 .fm-table tr.is-bom-child td { background: var(--fm-navy-soft); }
 .fm-table tr.is-bom-child td:first-child { box-shadow: inset 3px 0 0 var(--fm-navy); }
 .fm-table tr.is-bom-parent td { background: var(--fm-gold-faint); font-weight: 600; }
+/* Nút thu gọn / mở rộng nhóm thành phần BOM (ô # của dòng cha) */
+.fm-bom-toggle {
+  display: inline-flex; align-items: center; gap: 2px; min-height: 28px; padding: 2px 6px;
+  border: 1px solid var(--fm-line); border-radius: var(--fm-r-sm); background: var(--fm-surface);
+  color: var(--fm-navy); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.fm-bom-toggle:hover { background: var(--fm-navy-soft); }
+.fm-bom-toggle:focus-visible { outline: 2px solid var(--fm-navy); outline-offset: 1px; }
+.fm-bom-toggle[aria-expanded="false"] { background: var(--fm-gold-faint); border-color: var(--fm-gold); }
+.fm-bom-parent-no { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+/* Ô mặt hàng của dòng con: thụt lề + định mức + mã BOM cha */
+.fm-bom-child-cell { display: flex; gap: 6px; padding-left: 14px; }
+.fm-bom-child-cell__branch { color: var(--fm-text-3); }
+.fm-bom-child-cell__name { font-size: 11px; color: var(--fm-text-2); }
+.fm-bom-child-cell__meta { font-size: 11px; color: var(--fm-navy); margin-top: 2px; }
+.fm-num-inline { font-variant-numeric: tabular-nums; font-weight: 600; }
+@media (max-width: 640px) {
+  .fm-bom-toggle { min-height: 40px; min-width: 40px; justify-content: center; }
+  .fm-bom-child-cell { padding-left: 0; }
+}
 .fm-chip--bom { background: var(--fm-gold); color: var(--fm-gold-ink); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--fm-r-sm); margin-left: 8px; vertical-align: middle; }
 /* Mobile: khối thành phần BOM lồng trong card cha */
 .fm-lcard__bom { margin: 8px 0 4px; padding: 8px 10px; background: var(--fm-navy-soft); border-left: 3px solid var(--fm-navy); border-radius: 0 8px 8px 0; font-size: 12.5px; }

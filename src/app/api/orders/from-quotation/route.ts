@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { bomLineFields } from '@/lib/sap-push-document'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
@@ -219,6 +220,7 @@ export async function POST(req: NextRequest) {
           databaseId: orderDbId,
           lines: created.lines.map((l) => ({
             itemCode: l.itemCode,
+            ...bomLineFields(l),
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             discPct: l.discPct,

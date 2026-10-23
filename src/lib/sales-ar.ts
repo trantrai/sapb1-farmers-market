@@ -22,8 +22,9 @@ import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { calcOrderLines, orderTotals, validateOrderLines, type OrderLineInput } from '@/lib/order-calc'
+import { normalizeBomLines } from '@/lib/order-bom'
 import { nextDocNum, type SalesDocType } from '@/lib/doc-num'
-import { pushDocumentToSap, patchDocumentToSap } from '@/lib/sap-push-document'
+import { pushDocumentToSap, patchDocumentToSap, bomLineFields } from '@/lib/sap-push-document'
 // WORKER C: đọc chứng từ trực tiếp từ SAP B1 Service Layer.
 // Contract: fetchSapDocuments(entitySet, databaseId?) →
 //   Promise<{ ok: boolean; rows: SapDocRow[]; error?: string }>
@@ -720,6 +721,7 @@ async function pushSalesDocAfterCreate(
     localId: created.id,
     lines: (created.lines as any[]).map((l) => ({
       itemCode: l.itemCode,
+      ...bomLineFields(l),
       // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)
       accountCode: l.accountCode ?? null,
       quantity: l.quantity,
@@ -810,6 +812,11 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
     const { lines: validLines, error: linesError } = validateOrderLines(lines)
     if (linesError) {
       return NextResponse.json({ error: linesError }, { status: 400 })
+    }
+    // BOM: con phải thuộc công thức của cha; Production/Assembly khóa SL theo công thức
+    const { error: bomError } = await normalizeBomLines(user.databaseId ?? null, validLines as any[])
+    if (bomError) {
+      return NextResponse.json({ error: bomError }, { status: 400 })
     }
     // Hóa đơn dịch vụ: mọi dòng phải có mã tài khoản (SAP: AccountCode) —
     // validate TRƯỚC khi cấp docNum để lỗi của user không đốt số chứng từ
@@ -1049,6 +1056,11 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
+  // BOM: con phải thuộc công thức của cha; Production/Assembly khóa SL theo công thức
+  const { error: bomError } = await normalizeBomLines((doc as any).sapDatabaseId ?? user.databaseId ?? null, validLines as any[])
+  if (bomError) {
+    return NextResponse.json({ error: bomError }, { status: 400 })
+  }
   // Hóa đơn dịch vụ: mọi dòng phải có mã tài khoản (SAP: AccountCode)
   let effInvoiceDocType: 'Item' | 'Service' | 'Reserve' = 'Item'
   if (cfg.docType === 'invoice') {
@@ -1154,6 +1166,7 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
           // dòng bị bỏ khỏi danh sách sẽ bị XÓA (B1S-ReplaceCollectionsOnPatch)
           lineNum: oldLineNums.get(l.lineNum) ?? null,
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)
           accountCode: l.accountCode ?? null,
           quantity: l.quantity,

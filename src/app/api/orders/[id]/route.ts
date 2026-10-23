@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { bomLineFields } from '@/lib/sap-push-document'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
@@ -228,6 +229,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         return {
           lineNum: resolveLn(l.itemCode, l.warehouseCode, sub.sapLineNum, idx),
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,
@@ -318,6 +320,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         lines: calcLines.map((l) => ({
           lineNum: resolveLineNum(l as { dbId?: string; sapLineNum?: number }),
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,

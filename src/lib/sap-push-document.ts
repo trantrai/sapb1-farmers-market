@@ -63,6 +63,43 @@ export interface SapPushLine {
    * giữ nguyên hành vi cũ.
    */
   batchNumber?: string | null
+  /**
+   * BOM: dòng cha và các dòng con cùng `bomGroupKey`. Nhóm BOM Template
+   * (con sửa được — bomEditable ≠ false) được đẩy như sau:
+   *  - Dòng cha: TreeType = iNotATree → SAP KHÔNG tự bung lại theo định mức cũ
+   *  - Dòng con: dòng thường với SỐ LƯỢNG NGƯỜI DÙNG đã chỉnh, giá 0,
+   *    U_BOMID = mã mặt hàng cha
+   */
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean | null
+}
+
+/** UDF dòng chứng từ lưu mã BOM cha của dòng thành phần */
+export const UDF_BOM_ID = 'U_BOMID'
+
+/** Lấy các trường BOM của dòng (DB/calc line) để truyền vào push/PATCH */
+export function bomLineFields(l: { isBomChild?: boolean | null; bomGroupKey?: string | null; bomEditable?: boolean | null }) {
+  return { isBomChild: l.isBomChild ?? false, bomGroupKey: l.bomGroupKey ?? null, bomEditable: l.bomEditable ?? null }
+}
+
+/** Nhóm BOM Template trong danh sách dòng: bomGroupKey → mã mặt hàng cha */
+function templateBomGroups(lines: SapPushLine[]): Map<string, string> {
+  const parents = new Map<string, string>()
+  const kids = new Map<string, SapPushLine[]>()
+  for (const l of lines) {
+    const gk = l.bomGroupKey || ''
+    if (!gk) continue
+    if (l.isBomChild) kids.set(gk, [...(kids.get(gk) ?? []), l])
+    else parents.set(gk, l.itemCode)
+  }
+  const out = new Map<string, string>()
+  for (const [gk, parentCode] of parents) {
+    const children = kids.get(gk) ?? []
+    // Production/Assembly: con khóa theo công thức (bomEditable=false) → giữ hành vi cũ
+    if (children.length > 0 && children.every((c) => c.bomEditable !== false)) out.set(gk, parentCode)
+  }
+  return out
 }
 
 /**
@@ -467,10 +504,13 @@ export function buildSapLines(
   // Hóa đơn dịch vụ (SAP: Documents.DocType = dDocument_Service): dòng là
   // dòng dịch vụ — chuẩn SAP B1 bắt buộc dùng AccountCode, không dùng ItemCode.
   const isServiceDoc = invoiceDocType === 'Service'
+  const tplGroups = templateBomGroups(lines)
   return lines.map((l, i) => {
     const ln = dbLineNums?.[i]
     const b = bases?.[i]
     const acct = (l.accountCode ?? '').toString().trim()
+    const tplParent = l.bomGroupKey ? tplGroups.get(l.bomGroupKey) : undefined
+    const isTplChild = !!tplParent && !!l.isBomChild
     return {
       ...(typeof ln === 'number' ? { LineNum: ln } : {}),
       // Copy-from: liên kết dòng với chứng từ/dòng nguồn trên SAP
@@ -481,8 +521,11 @@ export function buildSapLines(
       Quantity: l.quantity,
       // Đơn vị tính: chỉ gửi khi có giá trị — rỗng thì SAP dùng mặc định của mặt hàng
       ...(l.uom?.trim() ? { MeasureUnit: l.uom.trim() } : {}),
-      UnitPrice: l.unitPrice,
-      DiscountPercent: Number(l.discPct) || 0,
+      UnitPrice: isTplChild ? 0 : l.unitPrice,
+      DiscountPercent: isTplChild ? 0 : Number(l.discPct) || 0,
+      // BOM Template: cha không cho SAP bung lại; con mang mã BOM cha
+      ...(tplParent && !l.isBomChild ? { TreeType: 'iNotATree' } : {}),
+      ...(isTplChild ? { [UDF_BOM_ID]: tplParent } : {}),
       ...(l.taxCode ? { VatGroup: l.taxCode } : {}),
       ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
       // Lô hàng (SAP: DocumentLines.BatchNumbers) — chỉ dòng có batchNumber

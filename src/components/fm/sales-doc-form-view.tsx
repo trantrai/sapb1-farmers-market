@@ -20,6 +20,10 @@ import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import CopyFromPicker from './copy-from-picker'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import {
+  BomChildCell, BomToggle, applyParentQty, bomChildCounts, explodeBom, fetchBomDef,
+  inferBomTypes, removeWithBom, roundQty, visibleBomLines, type BomKind,
+} from './bom-lines'
 import type { B2BPartySelection } from '@/lib/bp-b2b'
 
 const EMPTY_PARTY: B2BPartySelection = { shipToCode: '', billToCode: '', contactPersonCode: '' }
@@ -55,7 +59,21 @@ interface DraftLine {
   accountCode?: string
   /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán (Đợt 2) */
   batchNumber?: string
+  // ---------- BOM (xem bom-lines.tsx) ----------
+  bomType?: BomKind
+  isBomChild?: boolean
+  bomGroupKey?: string
+  bomEditable?: boolean
+  bomQtyPerParent?: number
 }
+
+/** Trường BOM của dòng nạp từ chứng từ đã lưu / prefill */
+const bomFromSaved = (l: { isBomChild?: boolean | null; bomGroupKey?: string | null; bomEditable?: boolean | null; bomQtyPerParent?: number | null }) => ({
+  isBomChild: l.isBomChild ?? false,
+  bomGroupKey: l.bomGroupKey ?? undefined,
+  bomEditable: l.bomEditable ?? true,
+  bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+})
 
 let keyCounter = 0
 const nextKey = () => ++keyCounter
@@ -240,8 +258,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
       sourceLineId: l.sourceLineId ?? null,
       accountCode: l.accountCode ?? undefined,
       batchNumber: l.batchNumber ?? undefined,
+      ...bomFromSaved(l),
     }))
-    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setLines(prefilled.length > 0 ? inferBomTypes(prefilled) : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
     setError('')
     setPartnerErr('')
     setFieldErr({})
@@ -296,8 +315,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
       sourceLineId: l.sourceLineId ?? null,
       accountCode: l.accountCode ?? undefined,
       batchNumber: (l as { batchNumber?: string | null }).batchNumber ?? undefined,
+      ...bomFromSaved(l),
     }))
-    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setLines(prefilled.length > 0 ? inferBomTypes(prefilled) : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
     setError('')
     setPartnerErr('')
     setFieldErr({})
@@ -500,15 +520,55 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   }, [enableDownPaymentDraws, drawOpts, drawSel, totals.grand])
 
   const updateLine = (key: number, patch: Partial<DraftLine>) => {
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+    setLines((ls) => {
+      const next = ls.map((l) => (l.key === key ? { ...l, ...patch } : l))
+      // Đổi SL dòng cha BOM → SL con = SL cha × định mức
+      return patch.quantity !== undefined ? applyParentQty(next, key, patch.quantity) : next
+    })
     setFieldErr((fe) => ({ ...fe, [key]: '' }))
+  }
+
+  /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
+  const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleBomGroup = (gk: string) =>
+    setBomCollapsed((cur) => {
+      const next = new Set(cur)
+      if (next.has(gk)) next.delete(gk)
+      else next.add(gk)
+      return next
+    })
+
+  // ---------- BOM: chọn mặt hàng BOM → bung thành phần con (giá 0, SL = SL cha × định mức) ----------
+  const expandBom = async (parentKey: number, itemCode: string) => {
+    const def = itemCode ? await fetchBomDef(itemCode) : null
+    setLines((ls) => {
+      const parent = ls.find((l) => l.key === parentKey)
+      // Người dùng đã đổi sang mặt hàng khác trong lúc chờ → bỏ qua
+      if (!parent || (parent.item?.code ?? '') !== itemCode) return ls
+      if (!def && !parent.bomGroupKey) return ls
+      return explodeBom(ls, parentKey, def, (c, p, groupKey) => ({
+        key: nextKey(),
+        item: { code: c.childItemCode, name: c.childItemName || c.childItemCode, uom: c.uom || '' },
+        quantity: roundQty((Number(p.quantity) || 0) * Number(c.qtyPerParent || 0)),
+        unitPrice: 0, // thành phần con giá bán luôn = 0
+        discPct: 0,
+        vatPct: 0,
+        uom: c.uom || undefined,
+        warehouseCode: p.warehouseCode || headerWh || undefined,
+        isBomChild: true,
+        bomGroupKey: groupKey,
+        bomEditable: def!.bomType === 'template',
+        bomQtyPerParent: Number(c.qtyPerParent || 0),
+      })).lines
+    })
   }
 
   const addLine = () =>
     setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
   const removeLine = (key: number) => {
     setLines((ls) => {
-      const next = ls.filter((l) => l.key !== key)
+      // Xóa dòng cha BOM → xóa cả nhóm thành phần con
+      const next = removeWithBom(ls, key)
       return next.length > 0
         ? next
         : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }]
@@ -619,10 +679,15 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           taxCode: l.taxCode || l.item!.taxCode || undefined,
           warehouseCode: l.warehouseCode || headerWh || undefined,
           quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discPct: clampPct(l.discPct),
+          unitPrice: l.isBomChild ? 0 : l.unitPrice,
+          discPct: l.isBomChild ? 0 : clampPct(l.discPct),
           vatPct: clampPct(l.vatPct),
           sourceLineId: l.sourceLineId ?? null,
+          // BOM: SL con là SL người dùng đã chỉnh — đẩy SAP đúng SL này
+          isBomChild: l.isBomChild ?? false,
+          bomGroupKey: l.bomGroupKey ?? null,
+          bomEditable: l.bomEditable ?? true,
+          bomQtyPerParent: l.bomQtyPerParent ?? null,
           // Mã tài khoản kế toán (dòng hóa đơn dịch vụ) — API validate bắt buộc
           accountCode: l.accountCode?.trim() || undefined,
           // Số lô (SAP BatchNumbers) — chỉ phiếu trả hàng (Đợt 2)
@@ -1140,7 +1205,18 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
               </tr>
             </thead>
             <tbody>
-              {lines.map((l, idx) => {
+              {(() => {
+                const vis = visibleBomLines(lines, bomCollapsed)
+                const childCounts = bomChildCounts(lines)
+                const parentCodes = new Map(
+                  lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
+                )
+                let stt = 0
+                return vis.map((l) => {
+                const isChild = Boolean(l.isBomChild)
+                if (!isChild) stt += 1
+                const idx = stt - 1
+                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
                 const invalid = Boolean(fieldErr[l.key])
                 const qtyInvalid = Boolean(l.item) && l.quantity <= 0
                 const priceInvalid = l.unitPrice < 0
@@ -1149,9 +1225,30 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
                 return (
-                  <tr key={l.key} className={l.item ? '' : 'is-draft'}>
-                    <td data-label="Dòng">{idx + 1}</td>
+                  <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                    <td data-label="Dòng">
+                      {isChild ? '' : showToggle ? (
+                        <div className="fm-bom-parent-no">
+                          {stt}
+                          <BomToggle
+                            collapsed={bomCollapsed.has(l.bomGroupKey as string)}
+                            count={childCounts.get(l.bomGroupKey as string) ?? 0}
+                            parentLabel={l.item?.code ?? ''}
+                            onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
+                          />
+                        </div>
+                      ) : stt}
+                    </td>
                     <td data-label="Hàng hóa (ItemCode)" data-full>
+                      {isChild ? (
+                        <BomChildCell
+                          code={l.item?.code}
+                          name={l.item?.name}
+                          qtyPerParent={l.bomQtyPerParent}
+                          uom={l.uom || l.item?.uom}
+                          parentCode={parentCodes.get(l.bomGroupKey as string)}
+                        />
+                      ) : (
                       <Autocomplete
                         label="Hàng hóa"
                         hideLabel
@@ -1175,9 +1272,12 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                             ...(vat !== null ? { vatPct: vat } : {}),
                           })
                           if (v) void resolvePrice(l.key, v.code, partner?.code ?? null)
+                          // Mặt hàng BOM → tự bung thành phần con; bỏ chọn → gỡ nhóm con cũ
+                          void expandBom(l.key, v?.code ?? '')
                         }}
                         error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                       />
+                      )}
                     </td>
                     {showAccountCol && (
                       <td data-label="Tài khoản">
@@ -1206,8 +1306,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         className="fm-line-input"
                         style={qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
                         value={l.quantity || ''}
-                        disabled={saving}
-                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : undefined}
+                        disabled={saving || (isChild && l.bomEditable === false)}
+                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : isChild ? 'BOM Template: được chỉnh số lượng thành phần — SL này được đẩy lên SAP' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
                     </td>
@@ -1258,6 +1358,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                       </td>
                     )}
                     <td data-label="Đơn giá (₫)">
+                      {isChild ? (
+                        <span className="fm-line-meta" title="Thành phần BOM: giá bán luôn = 0đ">0</span>
+                      ) : (
                       <input
                         type="number"
                         min={0}
@@ -1270,6 +1373,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         disabled={saving}
                         onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value) || 0 })}
                       />
+                      )}
                     </td>
                     <td data-label="Chiết khấu (%)">
                       <input
@@ -1282,7 +1386,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         className="fm-line-input"
                         value={l.discPct || ''}
                         placeholder="0"
-                        disabled={saving}
+                        disabled={saving || isChild}
+                        title={isChild ? 'Thành phần BOM: không chiết khấu (giá = 0)' : undefined}
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value) || 0) })}
                       />
                     </td>
@@ -1308,20 +1413,25 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                     </td>
                     <td className="fm-num" data-label="Sau chiết khấu (₫)">{formatVND(afterDisc)}</td>
                     <td>
+                      {isChild ? (
+                        <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
+                      ) : (
                       <button
                         type="button"
                         className="fm-row-del"
-                        title="Xóa dòng"
-                        aria-label={`Xóa dòng ${idx + 1}`}
+                        title={showToggle ? 'Xóa dòng (gồm cả các thành phần BOM)' : 'Xóa dòng'}
+                        aria-label={`Xóa dòng ${idx + 1}${showToggle ? ' và các thành phần BOM' : ''}`}
                         disabled={saving}
                         onClick={() => removeLine(l.key)}
                       >
                         <Trash2 size={14} />
                       </button>
+                      )}
                     </td>
                   </tr>
                 )
-              })}
+              })
+              })()}
             </tbody>
           </table>
         </div>

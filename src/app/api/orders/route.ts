@@ -3,7 +3,7 @@ import { parsePageParam } from '@/lib/fm-shared'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { pushOrderToSap, type SapPushResult } from '@/lib/sap-push-order'
-import { headerExtrasFromRecord } from '@/lib/sap-push-document'
+import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
@@ -430,6 +430,7 @@ export async function POST(req: NextRequest) {
           databaseId: orderDbId,
           lines: created.lines.map((l) => ({
             itemCode: l.itemCode,
+            ...bomLineFields(l),
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             discPct: l.discPct,

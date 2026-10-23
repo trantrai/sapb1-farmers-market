@@ -3,7 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings } from '@/lib/sap-service-layer'
 import { pushOrderToSap } from '@/lib/sap-push-order'
-import { headerExtrasFromRecord } from '@/lib/sap-push-document'
+import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -101,6 +101,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         databaseId: orderDbId,
         lines: finalized.lines.map((l) => ({
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           quantity: Number(l.quantity),
           unitPrice: Number(l.unitPrice),
           discPct: Number(l.discPct),

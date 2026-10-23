@@ -63,6 +63,11 @@ export interface SalesDocLine {
   sourceLineId?: string | null
   /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  /** BOM: dòng con + khóa nhóm + sửa được SL + định mức */
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
+  bomQtyPerParent?: number | null
 }
 
 /** Khấu trừ đặt cọc gắn trên hóa đơn (model DownPaymentDraw của API — WORKER A) */
@@ -145,6 +150,10 @@ export interface EditDocLine {
   accountCode?: string | null
   /** Số lô (SAP BatchNumbers) — dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
+  bomQtyPerParent?: number | null
 }
 
 export interface EditDocData {
@@ -201,6 +210,10 @@ export interface EditDocSourceLine {
   accountCode?: string | null
   /** Số lô (SAP BatchNumbers) — dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  isBomChild?: boolean | null
+  bomGroupKey?: string | null
+  bomEditable?: boolean | null
+  bomQtyPerParent?: number | null
 }
 
 export interface EditDocSource {
@@ -289,6 +302,10 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
     sourceLineId: l.sourceLineId ?? null,
     accountCode: l.accountCode ?? null,
     batchNumber: l.batchNumber ?? null,
+    isBomChild: l.isBomChild ?? false,
+    bomGroupKey: l.bomGroupKey ?? null,
+    bomEditable: l.bomEditable ?? true,
+    bomQtyPerParent: l.bomQtyPerParent ?? null,
   })),
 })
 
