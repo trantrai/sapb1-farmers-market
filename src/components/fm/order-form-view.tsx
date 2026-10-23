@@ -14,6 +14,7 @@ import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
+import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
@@ -1824,6 +1825,13 @@ export default function OrderFormView({
   }
 
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
+  // Phím tắt nhập liệu: Alt+N/Alt+K, Ctrl+Enter lưu, Ctrl+Shift+Enter lưu nháp, Enter giữa các dòng, ?
+  const shortcuts = useFormShortcuts({
+    onSave: () => void save(isEdit && Boolean(editOrder?.isDraft)),
+    onSaveDraft: !isEdit ? () => void save(true) : undefined,
+    disabled: saving,
+  })
+
   const save = async (asDraft = false) => {
     setError('')
     setVersionConflict(false)
@@ -2733,6 +2741,7 @@ export default function OrderFormView({
         )}
         {/* Phase 2 — Lưu nháp: gọi API với ?draft=true (chỉ khi tạo mới; khi sửa
             bản nháp, nút Lưu chính đã giữ trạng thái nháp) */}
+        <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         {!isEdit && (
           <button className="fm-btn fm-btn--secondary" onClick={() => save(true)} disabled={saving}>
             <Save size={16} />

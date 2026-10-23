@@ -20,6 +20,7 @@ import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import CopyFromPicker from './copy-from-picker'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import {
@@ -660,6 +661,13 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   }
 
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
+  // Phím tắt nhập liệu: Alt+N/Alt+K, Ctrl+Enter lưu, Ctrl+Shift+Enter lưu nháp, Enter giữa các dòng, ?
+  const shortcuts = useFormShortcuts({
+    onSave: () => void save(isDraftDoc),
+    onSaveDraft: !isEdit ? () => void save(true) : undefined,
+    disabled: saving || prefillLoading,
+  })
+
   const save = async (asDraft = false) => {
     setError('')
     setActionMsg(null)
@@ -1618,6 +1626,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           zIndex: 10,
         }}
       >
+        <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         <button type="button" className="fm-btn fm-btn--secondary" onClick={onBack} disabled={saving}>
           <ArrowLeft size={16} /> Quay lại
         </button>

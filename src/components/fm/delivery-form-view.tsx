@@ -27,6 +27,7 @@ import {
   type B2BFormState,
 } from './order-form-view'
 import { useBpB2BInfo } from './b2b-party-fields'
+import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 
 interface FormLine {
@@ -341,6 +342,13 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
     }
     return true
   }
+
+  // Phím tắt nhập liệu: Alt+N/Alt+K, Ctrl+Enter lưu, Ctrl+Shift+Enter lưu nháp, Enter giữa các dòng, ?
+  const shortcuts = useFormShortcuts({
+    onSave: () => void handleSave(),
+    onSaveDraft: !isEdit ? () => void handleSave(true) : undefined,
+    disabled: saving,
+  })
 
   const handleSave = async (asDraft = false) => {
     if (saving || !validate()) return
@@ -826,6 +834,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--fm-bg)', padding: '12px 0' }}>
+        <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         <button className="fm-btn fm-btn--secondary" onClick={onCancel} disabled={saving}>Hủy bỏ</button>
         {!isEdit && (
           <button className="fm-btn fm-btn--secondary" onClick={() => void handleSave(true)} disabled={saving}>
