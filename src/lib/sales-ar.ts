@@ -22,7 +22,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode, type OrderLineInput } from '@/lib/order-calc'
-import { normalizeBomLines } from '@/lib/order-bom'
+import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { nextDocNum, type SalesDocType } from '@/lib/doc-num'
 import { pushDocumentToSap, patchDocumentToSap, bomLineFields } from '@/lib/sap-push-document'
 // WORKER C: đọc chứng từ trực tiếp từ SAP B1 Service Layer.
@@ -815,7 +815,9 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
       return NextResponse.json({ error: linesError }, { status: 400 })
     }
     // BOM: con phải thuộc công thức của cha; Production/Assembly khóa SL theo công thức
-    const { error: bomError } = await normalizeBomLines(user.databaseId ?? null, validLines as any[])
+    const { error: bomError } = await normalizeBomLines(user.databaseId ?? null, validLines as any[], {
+      allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    })
     if (bomError) {
       return NextResponse.json({ error: bomError }, { status: 400 })
     }
@@ -1058,7 +1060,15 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
   // BOM: con phải thuộc công thức của cha; Production/Assembly khóa SL theo công thức
-  const { error: bomError } = await normalizeBomLines((doc as any).sapDatabaseId ?? user.databaseId ?? null, validLines as any[])
+  // Dòng con BOM đã lưu: giữ nguyên khi sửa (BOM bị xóa khỏi mirror / đã hoán đổi trước đó)
+  const savedChildren = await cfg.model.findUnique({
+    where: { id },
+    select: { lines: { where: { isBomChild: true }, select: { bomGroupKey: true, itemCode: true } } },
+  })
+  const { error: bomError } = await normalizeBomLines((doc as any).sapDatabaseId ?? user.databaseId ?? null, validLines as any[], {
+    allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    existingChildren: new Set(((savedChildren?.lines ?? []) as { bomGroupKey: string | null; itemCode: string }[]).map((l) => bomChildKey(l.bomGroupKey, l.itemCode))),
+  })
   if (bomError) {
     return NextResponse.json({ error: bomError }, { status: 400 })
   }

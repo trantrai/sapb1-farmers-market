@@ -44,6 +44,33 @@ const toOption = (r: ItemRow): ACOption => ({
   price: typeof r.price === 'number' && r.price > 0 ? r.price : undefined,
 })
 
+/**
+ * Quyền hoán đổi thành phần BOM (permissions.bomSwap.edit) của người đăng nhập.
+ * Đọc /api/auth/me 1 lần mỗi lần tải trang (cache module); máy chủ vẫn kiểm
+ * tra lại khi lưu — ẩn nút chỉ là UX.
+ */
+// Cache theo token phiên: đăng xuất → đăng nhập user khác (không tải lại trang) không dùng nhầm quyền cũ
+const swapPermCache = new Map<string, Promise<boolean>>()
+export function useCanSwapBom(): boolean {
+  const [can, setCan] = useState(false)
+  useEffect(() => {
+    let token = ''
+    try { token = localStorage.getItem('fm_token') ?? '' } catch { /* bỏ qua */ }
+    let p = swapPermCache.get(token)
+    if (!p) {
+      p = api('/api/auth/me')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => Boolean(j?.user?.permissions?.bomSwap?.edit))
+        .catch(() => false)
+      swapPermCache.set(token, p)
+    }
+    let cancelled = false
+    void p.then((v) => { if (!cancelled) setCan(v) })
+    return () => { cancelled = true }
+  }, [])
+  return can
+}
+
 export default function BomSwapDialog({ open, component, parentCode, onConfirm, onCancel }: Props) {
   const trapRef = useFocusTrap<HTMLDivElement>(open, onCancel)
   const inputRef = useRef<HTMLInputElement>(null)

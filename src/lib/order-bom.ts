@@ -18,15 +18,35 @@ export interface BomLineInput extends OrderLineInput {
   bomEditable?: boolean
 }
 
+export interface NormalizeBomOptions {
+  /** Người dùng có quyền hoán đổi thành phần BOM Template (permissions.bomSwap.edit) */
+  allowSwap?: boolean
+  /**
+   * Dòng con BOM ĐÃ LƯU của chứng từ đang sửa — khóa `${bomGroupKey}|${itemCode}`.
+   * Dòng con đã có từ trước được giữ nguyên khi sửa (BOM bị xóa khỏi mirror /
+   * thành phần đã được người có quyền hoán đổi), không bị chặn lại.
+   */
+  existingChildren?: ReadonlySet<string>
+}
+
+/** Khóa dòng con BOM đã lưu — dùng cho NormalizeBomOptions.existingChildren */
+export const bomChildKey = (bomGroupKey: string | null | undefined, itemCode: string) => `${bomGroupKey ?? ''}|${itemCode}`
+
 /**
  * Chuẩn hóa + kiểm tra các nhóm BOM trong đơn.
  * Trả { error } khi vi phạm; ngược lại trả lines đã chuẩn hóa
  * (bomEditable ép theo loại BOM thật trong mirror).
+ * - Cha KHÔNG có công thức BOM → chặn dòng con mới (chống gắn hàng giá 0
+ *   vào mặt hàng thường); chỉ giữ dòng con đã lưu từ trước.
+ * - Hoán đổi thành phần Template → cần quyền bomSwap (trừ dòng đã lưu).
  */
 export async function normalizeBomLines<T extends BomLineInput>(
   dbId: string | null,
   lines: T[],
+  opts: NormalizeBomOptions = {},
 ): Promise<{ lines: T[]; error?: string }> {
+  const existing = opts.existingChildren ?? new Set<string>()
+  const isExisting = (child: T) => existing.has(bomChildKey(child.bomGroupKey, child.itemCode))
   const groups = new Map<string, { parent: T; children: T[] }>()
   for (const l of lines) {
     const gk = typeof l.bomGroupKey === 'string' ? l.bomGroupKey : ''
@@ -72,7 +92,18 @@ export async function normalizeBomLines<T extends BomLineInput>(
   for (const [gk, g] of groups) {
     if (!g.parent || g.children.length === 0) continue
     const def = defs.get(g.parent.itemCode)
-    if (!def) continue // công thức đã bị xóa khỏi mirror → giữ nguyên như client gửi
+    if (!def) {
+      // Mặt hàng cha không có công thức BOM trong mirror: chỉ chấp nhận dòng con
+      // đã có sẵn trên chứng từ (BOM bị xóa sau khi lập) — không cho gắn mới
+      const added = g.children.find((c) => !isExisting(c))
+      if (added) {
+        return {
+          lines: [],
+          error: `Mặt hàng ${g.parent.itemCode} không phải BOM (không có công thức) — không thể gắn thành phần ${added.itemCode}`,
+        }
+      }
+      continue
+    }
 
     const compMap = new Map(def.components.map((c) => [c.childItemCode, c]))
     for (const child of g.children) {
@@ -81,6 +112,13 @@ export async function normalizeBomLines<T extends BomLineInput>(
         // Thành phần đã được người dùng hoán đổi sang mặt hàng khác
         if (child.itemCode === g.parent.itemCode) {
           return { lines: [], error: `Không thể dùng chính mặt hàng ${g.parent.itemCode} làm thành phần BOM của nó` }
+        }
+        // Dòng thay thế đã lưu từ trước → giữ nguyên; thay thế MỚI cần quyền hoán đổi
+        if (!isExisting(child) && !opts.allowSwap) {
+          return {
+            lines: [],
+            error: `Bạn không có quyền hoán đổi thành phần BOM (${child.itemCode} không thuộc công thức của ${g.parent.itemCode})`,
+          }
         }
         if (!catalogEmpty && !knownItems.has(child.itemCode)) {
           return { lines: [], error: `Mặt hàng thay thế ${child.itemCode} không có trong danh mục mặt hàng đã đồng bộ` }

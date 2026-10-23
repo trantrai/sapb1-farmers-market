@@ -13,7 +13,7 @@ import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
-import BomSwapDialog from './bom-swap-dialog'
+import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
@@ -1613,6 +1613,8 @@ export default function OrderFormView({
 
   // ---------- BOM Template: hoán đổi thành phần con với mặt hàng khác ----------
   const [swapKey, setSwapKey] = useState<number | null>(null)
+  /** Quyền hoán đổi thành phần BOM (Ủy quyền → Hoán đổi thành phần BOM → Sửa) */
+  const canSwapBom = useCanSwapBom()
   const swapTarget = swapKey != null ? lines.find((x) => x.key === swapKey && x.isBomChild) ?? null : null
   const swapParentCode = swapTarget
     ? lines.find((x) => !x.isBomChild && x.bomGroupKey === swapTarget.bomGroupKey)?.item?.code
@@ -2285,7 +2287,7 @@ export default function OrderFormView({
                           qtyPerParent={l.bomQtyPerParent}
                           uom={l.uom || l.item?.uom}
                           parentCode={parentCodes.get(l.bomGroupKey as string)}
-                          onSwap={l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          onSwap={canSwapBom && l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
                           disabled={saving}
                         />
                       ) : (

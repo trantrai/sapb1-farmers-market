@@ -4,6 +4,8 @@
 //   mặt hàng, không phải chính mặt hàng cha
 // - Danh mục chưa đồng bộ → không đối chiếu được, cho qua
 // - Production/Assembly: vẫn chặn thành phần ngoài công thức
+// - Hoán đổi MỚI cần quyền bomSwap; dòng thay thế đã lưu thì giữ nguyên
+// - Cha không có công thức BOM → chặn gắn dòng con mới (chống hàng giá 0)
 // - Payload SAP: thành phần đã đổi đi với mã mới, U_BOMID = mã cha
 // ============================================================
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -21,9 +23,10 @@ vi.mock('@/lib/fm-bom', () => ({
   },
 }))
 
-import { normalizeBomLines } from '@/lib/order-bom'
+import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { buildSapLines } from '@/lib/sap-push-document'
 
+const SWAP = { allowSwap: true }
 const line = (itemCode: string, extra: Record<string, unknown> = {}) => ({ itemCode, itemName: itemCode, uom: 'kg', quantity: 2, unitPrice: 0, ...extra })
 
 beforeEach(() => {
@@ -37,7 +40,7 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
     const r = await normalizeBomLines('db1', [
       line('GIO', { quantity: 1, unitPrice: 500, bomGroupKey: 'g' }),
       line('LE', { isBomChild: true, bomGroupKey: 'g', bomEditable: true, quantity: 5 }),
-    ])
+    ], SWAP)
     expect(r.error).toBeUndefined()
     expect(r.lines[1]).toMatchObject({ itemCode: 'LE', quantity: 5, bomEditable: true })
   })
@@ -48,7 +51,7 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
     const r = await normalizeBomLines('db1', [
       line('GIO', { bomGroupKey: 'g' }),
       line('XYZ', { isBomChild: true, bomGroupKey: 'g', bomEditable: true }),
-    ])
+    ], SWAP)
     expect(r.error).toMatch(/XYZ không có trong danh mục/)
   })
 
@@ -58,7 +61,7 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
     const r = await normalizeBomLines('db1', [
       line('GIO', { bomGroupKey: 'g' }),
       line('XYZ', { isBomChild: true, bomGroupKey: 'g', bomEditable: true }),
-    ])
+    ], SWAP)
     expect(r.error).toBeUndefined()
   })
 
@@ -67,7 +70,7 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
     const r = await normalizeBomLines('db1', [
       line('GIO', { bomGroupKey: 'g' }),
       line('GIO', { isBomChild: true, bomGroupKey: 'g', bomEditable: true }),
-    ])
+    ], SWAP)
     expect(r.error).toMatch(/chính mặt hàng GIO/)
   })
 
@@ -80,6 +83,32 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
     expect(r.error).toMatch(/LE không thuộc công thức BOM của PROD/)
   })
 
+  it('không có quyền bomSwap → chặn hoán đổi mới', async () => {
+    findMany.mockResolvedValue([{ itemCode: 'LE' }])
+    const r = await normalizeBomLines('db1', [
+      line('GIO', { bomGroupKey: 'g' }),
+      line('LE', { isBomChild: true, bomGroupKey: 'g', bomEditable: true }),
+    ])
+    expect(r.error).toMatch(/không có quyền hoán đổi/)
+  })
+
+  it('không có quyền nhưng dòng thay thế đã lưu từ trước → giữ nguyên khi sửa', async () => {
+    findMany.mockResolvedValue([{ itemCode: 'LE' }])
+    const r = await normalizeBomLines('db1', [
+      line('GIO', { bomGroupKey: 'g' }),
+      line('LE', { isBomChild: true, bomGroupKey: 'g', bomEditable: true }),
+    ], { existingChildren: new Set([bomChildKey('g', 'LE')]) })
+    expect(r.error).toBeUndefined()
+  })
+
+  it('thành phần đúng công thức không cần quyền hoán đổi', async () => {
+    const r = await normalizeBomLines('db1', [
+      line('GIO', { bomGroupKey: 'g' }),
+      line('TAO', { isBomChild: true, bomGroupKey: 'g', bomEditable: true, quantity: 9 }),
+    ])
+    expect(r.error).toBeUndefined()
+  })
+
   it('payload SAP: thành phần đã đổi đi với mã mới, SL người dùng, U_BOMID = mã cha', () => {
     const out = buildSapLines([
       { itemCode: 'GIO', quantity: 1, unitPrice: 500, isBomChild: false, bomGroupKey: 'g' },
@@ -87,5 +116,32 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
     ]) as Record<string, unknown>[]
     expect(out[0]).toMatchObject({ ItemCode: 'GIO', TreeType: 'iNotATree' })
     expect(out[1]).toMatchObject({ ItemCode: 'LE', Quantity: 5, UnitPrice: 0, U_BOMID: 'GIO' })
+  })
+})
+
+describe('normalizeBomLines — cha không có công thức BOM (chống gắn hàng giá 0)', () => {
+  it('mặt hàng thường + dòng con mới → chặn', async () => {
+    const r = await normalizeBomLines('db1', [
+      line('THUONG', { quantity: 1, unitPrice: 1000, bomGroupKey: 'x' }),
+      line('DAT-TIEN', { isBomChild: true, bomGroupKey: 'x', bomEditable: true }),
+    ], SWAP)
+    expect(r.error).toMatch(/THUONG không phải BOM/)
+  })
+
+  it('BOM bị xóa khỏi mirror sau khi lập chứng từ → dòng con đã lưu vẫn sửa được', async () => {
+    const r = await normalizeBomLines('db1', [
+      line('THUONG', { quantity: 1, bomGroupKey: 'x' }),
+      line('TAO', { isBomChild: true, bomGroupKey: 'x', bomEditable: true }),
+    ], { existingChildren: new Set([bomChildKey('x', 'TAO')]) })
+    expect(r.error).toBeUndefined()
+  })
+
+  it('… nhưng không được gắn thêm dòng con mới vào nhóm đó', async () => {
+    const r = await normalizeBomLines('db1', [
+      line('THUONG', { quantity: 1, bomGroupKey: 'x' }),
+      line('TAO', { isBomChild: true, bomGroupKey: 'x', bomEditable: true }),
+      line('CAM', { isBomChild: true, bomGroupKey: 'x', bomEditable: true }),
+    ], { existingChildren: new Set([bomChildKey('x', 'TAO')]) })
+    expect(r.error).toMatch(/không thể gắn thành phần CAM/)
   })
 })

@@ -6,7 +6,7 @@ import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
-import { normalizeBomLines } from '@/lib/order-bom'
+import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { parseB2BHeader } from '../route'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -157,14 +157,21 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   // DB của đơn (để validate BOM đúng mirror) — đơn 'sap-*' chưa có local → dùng DB phiên
   const orderDbHint = id.startsWith('sap-')
     ? null
-    : await prisma.salesOrder.findUnique({ where: { id }, select: { sapDatabaseId: true } })
+    : await prisma.salesOrder.findUnique({
+        where: { id },
+        select: { sapDatabaseId: true, lines: { where: { isBomChild: true }, select: { bomGroupKey: true, itemCode: true } } },
+      })
   const bomDbId = orderDbHint?.sapDatabaseId ?? user.databaseId ?? null
   const { lines: validLines, error: linesError } = validateOrderLines(lines)
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
   // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
-  const { lines: bomLines, error: bomError } = await normalizeBomLines(bomDbId, validLines)
+  const { lines: bomLines, error: bomError } = await normalizeBomLines(bomDbId, validLines, {
+    allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    // Dòng con đã lưu của đơn: giữ nguyên khi sửa (BOM bị xóa khỏi mirror / đã hoán đổi trước đó)
+    existingChildren: new Set((orderDbHint?.lines ?? []).map((l) => bomChildKey(l.bomGroupKey, l.itemCode))),
+  })
   if (bomError) {
     return NextResponse.json({ error: bomError }, { status: 400 })
   }

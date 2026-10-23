@@ -323,7 +323,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: linesError }, { status: 400 })
     }
     // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
-    const { lines: bomLines, error: bomError } = await normalizeBomLines(orderDbId, validLines)
+    const { lines: bomLines, error: bomError } = await normalizeBomLines(orderDbId, validLines, {
+      allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    })
     if (bomError) {
       return NextResponse.json({ error: bomError }, { status: 400 })
     }
