@@ -338,7 +338,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
               ) : rows.length === 0 ? (
                 <tr><td colSpan={8}><div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Sao chép sang phiếu giao hàng”).
                   {canCreateDelivery && onGoNewDelivery && (
-                    <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoNewDelivery}>
+                    <button type="button" className="fm-btn fm-btn--primary fm-mt-3" onClick={onGoNewDelivery}>
                       <Plus size={16} /> Tạo phiếu giao hàng
                     </button>
                   )}
@@ -470,7 +470,7 @@ export default function DeliveriesListView({ onGoDetail, onGoOrderDetail, refres
           ) : rows.length === 0 ? (
             <div className="fm-empty"><Truck />Chưa có phiếu giao hàng nào. Tạo phiếu giao hàng từ chi tiết đơn hàng (nút “Sao chép sang phiếu giao hàng”).
               {canCreateDelivery && onGoNewDelivery && (
-                <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoNewDelivery}>
+                <button type="button" className="fm-btn fm-btn--primary fm-mt-3" onClick={onGoNewDelivery}>
                   <Plus size={16} /> Tạo phiếu giao hàng
                 </button>
               )}

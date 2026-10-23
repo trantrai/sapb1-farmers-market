@@ -167,7 +167,7 @@ export default function PaymentHistory({
       ) : error ? (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
           {error}{' '}
-          <button type="button" className="fm-btn fm-btn--secondary" onClick={load} style={{ marginLeft: 8 }}>
+          <button type="button" className="fm-btn fm-btn--secondary fm-ml-2" onClick={load}>
             Thử lại
           </button>
         </div>

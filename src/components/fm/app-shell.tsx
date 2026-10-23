@@ -397,8 +397,7 @@ export default function AppShell({ user, onLogout }: Props) {
             </div>
           </div>
           <button
-            className="fm-burger"
-            style={{ background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)', color: 'var(--fm-surface)', width: 44, height: 44 }}
+            className="fm-burger fm-burger--on-dark"
             aria-label="Đóng menu"
             onClick={() => setDrawerOpen(false)}
           >
@@ -810,7 +809,6 @@ export default function AppShell({ user, onLogout }: Props) {
           className="fm-drawer-backdrop"
           onClick={() => setDrawerOpen(false)}
           aria-label="Đóng menu"
-          style={{ border: 0, padding: 0, cursor: 'default' }}
         />
       )}
 
@@ -831,7 +829,7 @@ export default function AppShell({ user, onLogout }: Props) {
                   </button>
                 )}
               </div>
-              <button type="button" className="fm-icon-btn" style={{ flex: 'none', width: 32, height: 32, minWidth: 32, minHeight: 32 }} aria-label="Đóng thông báo" onClick={() => dismissToast(toast.id)}>
+              <button type="button" className="fm-icon-btn fm-icon-btn--sm" aria-label="Đóng thông báo" onClick={() => dismissToast(toast.id)}>
                 <CloseIcon size={14} />
               </button>
             </div>

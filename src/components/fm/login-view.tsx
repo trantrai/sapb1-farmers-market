@@ -118,8 +118,7 @@ export default function LoginView({ onLogin }: Props) {
               <Lock size={16} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--fm-text-3)' }} aria-hidden="true" />
               <button
                 type="button"
-                className="fm-icon-btn"
-                style={{ position: 'absolute', right: 6, top: 4 }}
+                className="fm-icon-btn fm-login__pw-toggle"
                 onClick={() => setShowPassword((v) => !v)}
                 aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 aria-pressed={showPassword}

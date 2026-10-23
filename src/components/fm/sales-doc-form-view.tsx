@@ -912,8 +912,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           {versionConflict && (
             <button
               type="button"
-              className="fm-btn fm-btn--secondary fm-btn--sm"
-              style={{ marginTop: 8 }}
+              className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2"
               onClick={() => void reloadLatest()}
               disabled={reloading}
             >

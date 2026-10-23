@@ -1948,8 +1948,7 @@ export default function OrderFormView({
           {versionConflict && (
             <button
               type="button"
-              className="fm-btn fm-btn--secondary fm-btn--sm"
-              style={{ marginTop: 8 }}
+              className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2"
               onClick={() => void reloadLatest()}
               disabled={reloading}
             >
@@ -2062,7 +2061,7 @@ export default function OrderFormView({
         {tplMsg && (
           <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role={tplMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{tplMsg.text}</div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setTplMsg(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setTplMsg(null)}>✕</button>
           </div>
         )}
 
@@ -2165,11 +2164,10 @@ export default function OrderFormView({
         {/* Gợi ý mặt hàng theo lịch sử mua hàng của khách */}
         {partner?.code && (suggestLoading || suggests.length > 0) && (
           <div style={{ marginBottom: 14, border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', background: 'var(--fm-cream)', padding: '10px 12px' }}>
-            <button
+            <button className="fm-collapse-toggle"
               type="button"
               onClick={() => setSuggestOpen((v) => !v)}
               disabled={saving}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12.5, color: 'var(--fm-text)', padding: 0, width: '100%', textAlign: 'left' }}
             >
               <Sparkles size={16} style={{ color: 'var(--fm-primary)' }} />
               Gợi ý theo lịch sử mua hàng
@@ -2380,8 +2378,7 @@ export default function OrderFormView({
                           return (
                             <button
                               type="button"
-                              className="fm-icon-btn"
-                              style={{ width: 26, height: 26, minWidth: 26, minHeight: 26 }}
+                              className="fm-icon-btn fm-icon-btn--xs"
                               title="Lịch sử giá đã bán cho khách hàng này"
                               aria-label={`Lịch sử giá ${it.code}`}
                               disabled={saving}
@@ -2557,7 +2554,7 @@ export default function OrderFormView({
         {importMsg && (
           <div className={`fm-alert ${importMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginTop: 10 }} role={importMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{importMsg.text}</div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportMsg(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setImportMsg(null)}>✕</button>
           </div>
         )}
         {importErrors && importErrors.length > 0 && (
@@ -2567,7 +2564,7 @@ export default function OrderFormView({
               {importErrors.slice(0, 5).join('; ')}
               {importErrors.length > 5 ? ` (+${importErrors.length - 5} dòng nữa)` : ''}
             </div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportErrors(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setImportErrors(null)}>✕</button>
           </div>
         )}
       </div>
@@ -2616,7 +2613,7 @@ export default function OrderFormView({
               disabled={saving}
               title="Lưu đơn hàng hiện tại thành mẫu để tạo nhanh lần sau"
             >
-              <BookmarkPlus size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+              <BookmarkPlus size={16} />
               Lưu thành mẫu
             </button>
           </div>
@@ -2675,12 +2672,12 @@ export default function OrderFormView({
             bản nháp, nút Lưu chính đã giữ trạng thái nháp) */}
         {!isEdit && (
           <button className="fm-btn fm-btn--secondary" onClick={() => save(true)} disabled={saving}>
-            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} />
             {saving ? 'Đang lưu nháp…' : 'Lưu nháp'}
           </button>
         )}
         <button className="fm-btn fm-btn--primary" onClick={() => save(isEdit && Boolean(editOrder?.isDraft))} disabled={saving}>
-          <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+          <Save size={16} />
           {saving ? 'Đang lưu…' : isEdit ? (editOrder?.isDraft ? 'Lưu bản nháp' : 'Lưu thay đổi') : 'Lưu đơn hàng bán'}
         </button>
       </div>
@@ -2728,7 +2725,7 @@ export default function OrderFormView({
                 Hủy
               </button>
               <button className="fm-btn fm-btn--primary" onClick={saveAsTemplate} disabled={tplSaving}>
-                <BookmarkPlus size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                <BookmarkPlus size={14} />
                 {tplSaving ? 'Đang lưu…' : 'Lưu mẫu'}
               </button>
             </div>

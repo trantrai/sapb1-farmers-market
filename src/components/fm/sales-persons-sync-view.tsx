@@ -135,7 +135,7 @@ export default function SalesPersonsSyncView() {
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -167,7 +167,7 @@ export default function SalesPersonsSyncView() {
             style={{ flex: 1, minWidth: 180 }}
           />
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => load(1, q)}>
-            <Search size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Tìm
+            <Search size={14} /> Tìm
           </button>
           <span className="fm-chip fm-chip--role">{total} nhân viên</span>
         </div>

@@ -231,9 +231,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
               {onGoDelivery && deliveryId && (
                 <button
                   type="button"
-                  className="fm-link"
+                  className="fm-link fm-link--strong"
                   onClick={() => onGoDelivery(deliveryId)}
-                  style={{ fontWeight: 700 }}
                 >
                   Xem phiếu #{docNum}
                 </button>
@@ -523,7 +522,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
       <div>
         <PageHeader breadcrumb={['Chức năng chính', 'Chi tiết đơn hàng']} title="Chi tiết đơn hàng" />
         <div className="fm-alert fm-alert--error">{error || 'Không tìm thấy đơn hàng'}</div>
-        <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
+        <button className="fm-btn fm-btn--secondary fm-mt-3" onClick={onBack}>
           <ArrowLeft size={16} /> Quay lại
         </button>
       </div>

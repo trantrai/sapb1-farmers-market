@@ -412,7 +412,7 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
       <div>
         <PageHeader breadcrumb={['Chức năng chính', 'Giao hàng', 'Chi tiết']} title="Chi tiết phiếu giao hàng" />
         <div className="fm-alert fm-alert--error" role="alert">{error || 'Không tìm thấy'}</div>
-        <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
+        <button className="fm-btn fm-btn--secondary fm-mt-3" onClick={onBack}>
           <ArrowLeft size={16} /> Quay lại
         </button>
       </div>

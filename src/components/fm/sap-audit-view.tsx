@@ -138,7 +138,7 @@ actions={<>
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{' '}{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -224,7 +224,7 @@ actions={<>
                         disabled={busyId === r.id}
                         onClick={(e) => { e.stopPropagation(); setConfirmRetry(r) }}
                       >
-                        <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
+                        <RotateCcw size={14} />
                         {busyId === r.id ? 'Đang gửi…' : 'Thử lại'}
                       </button>
                     </td>
@@ -289,7 +289,7 @@ actions={<>
                 disabled={busyId === confirmRetry.id}
                 onClick={() => doRetry(confirmRetry)}
               >
-                <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                <RotateCcw size={14} />
                 {busyId === confirmRetry.id ? 'Đang gửi…' : 'Thử lại ngay'}
               </button>
             </div>
@@ -317,7 +317,7 @@ actions={<>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="fm-btn fm-btn--ghost" onClick={() => setConfirmClear(false)}>Hủy</button>
               <button className="fm-btn fm-btn--danger" onClick={clearLog}>
-                <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                <Trash2 size={14} />
                 Xóa toàn bộ
               </button>
             </div>

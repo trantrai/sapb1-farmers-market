@@ -154,7 +154,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
     <div className="fm-empty">
       Không tải được biểu đồ.
       <div>
-        <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={retryCharts}>
+        <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2" onClick={retryCharts}>
           Thử lại
         </button>
       </div>
@@ -191,7 +191,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
       {loadFailed && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
           <div><b>Không tải được số liệu tổng quan.</b> Kiểm tra kết nối mạng rồi thử lại.</div>
-          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={retry}>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2" onClick={retry}>
             Thử lại
           </button>
         </div>
@@ -493,7 +493,7 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
         ) : stats.recent.length === 0 ? (
           <div className="fm-empty">
             Chưa có đơn hàng nào
-            <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoCreate}>
+            <button type="button" className="fm-btn fm-btn--primary fm-mt-3" onClick={onGoCreate}>
               <Plus size={16} /> Tạo đơn hàng bán
             </button>
           </div>

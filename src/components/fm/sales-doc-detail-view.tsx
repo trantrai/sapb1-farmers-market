@@ -257,7 +257,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
       <div>
         <PageHeader breadcrumb={['Chức năng chính', `Chi tiết ${docLabel}`]} title={`Chi tiết ${docLabel}`} />
         <div className="fm-alert fm-alert--error" role="alert">{error || 'Không tìm thấy'}</div>
-        <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
+        <button className="fm-btn fm-btn--secondary fm-mt-3" onClick={onBack}>
           <ArrowLeft size={16} /> Quay lại
         </button>
       </div>

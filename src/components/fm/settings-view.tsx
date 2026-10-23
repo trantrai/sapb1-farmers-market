@@ -263,7 +263,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       {msg && (
         <div id="db-form-msg" className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : msg.type === 'error' ? 'fm-alert--error' : 'fm-alert--info'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : msg.type === 'error' ? 'Lỗi' : 'Thông tin'}</b>{' '}{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -274,7 +274,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           <span style={{ marginLeft: 'auto' }}>
             {canEdit && (
               <button className="fm-btn fm-btn--primary fm-btn--sm" onClick={openNew} disabled={dbBusy !== null}>
-                <Plus size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Thêm cơ sở dữ liệu
+                <Plus size={14} /> Thêm cơ sở dữ liệu
               </button>
             )}
           </span>
@@ -305,19 +305,19 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                     {canEdit && (
                       <>
                         <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => testDb(d)} disabled={dbBusy !== null} title="Kiểm tra kết nối Service Layer">
-                          <PlugZap size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
+                          <PlugZap size={14} />
                           {dbBusy === d.id ? 'Đang kiểm tra…' : 'Kiểm tra'}
                         </button>
                         <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => openEdit(d)} disabled={dbBusy !== null} aria-label={`Sửa ${d.label}`}>
-                          <Pencil size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Sửa
+                          <Pencil size={14} /> Sửa
                         </button>
                         {!d.isDefault && (
                           <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => setDefault(d)} disabled={dbBusy !== null}>
-                            <Star size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt làm cơ sở dữ liệu mặc định
+                            <Star size={14} /> Đặt làm cơ sở dữ liệu mặc định
                           </button>
                         )}
                         <button className="fm-btn fm-btn--ghost fm-btn--sm fm-btn--danger" onClick={() => askDeleteDb(d)} disabled={dbBusy !== null} aria-label={`Xóa ${d.label}`}>
-                          <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Xóa
+                          <Trash2 size={14} /> Xóa
                         </button>
                       </>
                     )}
@@ -392,7 +392,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="fm-btn fm-btn--ghost" onClick={() => setForm(null)}>Hủy</button>
               <button className="fm-btn fm-btn--primary" onClick={saveDb} disabled={dbBusy !== null}>
-                <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                <Save size={16} />
                 {dbBusy === 'new' ? 'Đang lưu…' : form.id ? 'Cập nhật' : 'Thêm cơ sở dữ liệu'}
               </button>
             </div>
@@ -435,7 +435,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
-            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
           {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
@@ -523,7 +523,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
-            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
           </button>
           {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
@@ -561,7 +561,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
-              <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+              <Save size={16} />
               {busy ? 'Đang lưu…' : 'Lưu'}
             </button>
             {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}

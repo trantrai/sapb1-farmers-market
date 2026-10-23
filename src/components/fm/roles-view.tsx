@@ -164,7 +164,7 @@ actions={<>
       {msg && (
         <div className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{' '}{msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -221,8 +221,8 @@ actions={<>
                 </div>
               ))}
               {canGoUsers && (
-                <button className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 10, width: '100%' }} onClick={onGoUsers}>
-                  <UsersRound size={14} style={{ verticalAlign: -2, marginRight: 4 }} />
+                <button className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-3 fm-btn--block" onClick={onGoUsers}>
+                  <UsersRound size={14} />
                   Quản lý người dùng
                   <ArrowRight size={14} style={{ marginLeft: 'auto' }} />
                 </button>
@@ -278,7 +278,7 @@ actions={<>
 
               <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="fm-btn fm-btn--primary" onClick={askSave} disabled={!canEdit || saving || !dirty}>
-                  <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+                  <Save size={16} />
                   {saving ? 'Đang lưu…' : 'Lưu ủy quyền'}
                 </button>
                 {dirty && canEdit && (

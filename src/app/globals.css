@@ -500,6 +500,40 @@
   background: var(--fm-navy); animation: fm-pulse 2s infinite;
 }
 .fm-pageheader__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (min-width: 768px) {
+  /* Tiêu đề co lại; thiếu chỗ thì cả cụm nút xuống dưới tiêu đề thành 1 hàng ngang (không xếp dọc) */
+  .fm-pageheader { flex-wrap: wrap; row-gap: 12px; }
+  .fm-pageheader > div:first-child { flex: 1 1 320px; min-width: 0; }
+  .fm-pageheader__actions { flex: 0 0 auto; max-width: 100%; justify-content: flex-end; margin-left: auto; }
+}
+@media (min-width: 1100px) {
+  .fm-pageheader__actions { flex-wrap: nowrap; }
+}
+@media (max-width: 767px) {
+  /* Mobile: nút hành động chia đều 1 hàng (tối đa 2/hàng), không xếp chồng dọc */
+  .fm-pageheader__actions > .fm-btn { flex: 1 1 calc(50% - 4px); }
+}
+
+/* ---------- Tiện ích khoảng cách (thay inline style trên nút) — lưới 4/8px ---------- */
+.fm-ml-auto { margin-left: auto; }
+.fm-ml-2 { margin-left: 8px; }
+.fm-mt-1 { margin-top: 4px; }
+.fm-mt-2 { margin-top: 8px; }
+.fm-mt-3 { margin-top: 12px; }
+.fm-self-end { align-self: flex-end; }
+/* Link nhấn mạnh trong câu (vd "phiếu giao hàng #123") */
+.fm-link--strong { font-weight: 700; }
+/* Nút thu gọn/mở rộng dạng tiêu đề (vd "Gợi ý mặt hàng") */
+.fm-collapse-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 0;
+  background: none; border: none; cursor: pointer; text-align: left;
+  font-family: var(--fm-font); font-weight: 700; font-size: 12.5px; color: var(--fm-text);
+}
+.fm-collapse-toggle:disabled { cursor: not-allowed; opacity: .6; }
+/* Nút đóng menu trên nền sidebar tối */
+.fm-burger.fm-burger--on-dark { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); color: var(--fm-surface); width: 44px; height: 44px; }
+/* Nút hiện/ẩn mật khẩu nằm trong ô nhập */
+.fm-login__pw-toggle { position: absolute; right: 6px; top: 4px; }
 
 .fm-page { padding: 16px 24px 24px; }
 
@@ -511,7 +545,9 @@
   font-family: var(--fm-font); font-size: 12.5px; font-weight: 600;
   padding: 8px 18px; transition: background var(--fm-dur-fast);
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  white-space: nowrap; vertical-align: middle; /* nhãn nút không gãy dòng — nút luôn nằm cùng hàng */
 }
+.fm-btn--block { display: flex; width: 100%; }
 .fm-btn:disabled { opacity: .6; cursor: not-allowed; }
 .fm-btn svg { flex-shrink: 0; }
 
@@ -808,6 +844,8 @@
   border-radius: var(--fm-r-md); color: var(--fm-text-2);
   transition: background var(--fm-dur-fast), color var(--fm-dur-fast);
 }
+.fm-icon-btn--xs { width: 26px; height: 26px; min-width: 26px; min-height: 26px; }
+.fm-icon-btn--sm { flex: none; width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 .fm-icon-btn:hover { background: var(--fm-navy-soft); color: var(--fm-navy); }
 .fm-icon-btn:disabled { opacity: .45; cursor: not-allowed; }
 .fm-icon-btn--danger { color: var(--fm-coral-deep); background: var(--fm-coral-soft); }
@@ -995,7 +1033,9 @@
 
 
 .fm-empty { text-align: left; padding: 40px 16px; color: var(--fm-text-3); font-size: 12.5px; }
-.fm-empty svg { width: 40px; height: 40px; margin: 0 0 10px; display: block; opacity: .5; }
+/* Chỉ icon minh họa (con trực tiếp) — không áp lên icon trong nút "Tạo …" của empty state */
+.fm-empty > svg { width: 40px; height: 40px; margin: 0 0 10px; display: block; opacity: .5; }
+.fm-empty > .fm-btn { margin-top: 12px; }
 
 @media (max-width: 640px) {
   .fm-page { padding: 12px; overflow-x: clip; } /* chặn tuyệt đối control ló khỏi card nếu trình duyệt nào còn phình nội dung */
@@ -1486,7 +1526,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 
 /* (c) Cuộn dọc panel/modal không trượt sang nền trang */
 .fm-autocomplete__panel { overscroll-behavior: contain; }
-.fm-drawer-backdrop { touch-action: none; }
+.fm-drawer-backdrop { touch-action: none; border: 0; padding: 0; cursor: default; }
 
 /* (d) iOS dvh — không bị cắt đáy bởi thanh địa chỉ ảo */
 @supports (min-height: 100dvh) {

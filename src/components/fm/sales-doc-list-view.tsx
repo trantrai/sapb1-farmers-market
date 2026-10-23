@@ -305,12 +305,15 @@ export default function SalesDocListView({ config, user, onGoDetail, onGoNew, re
         actions={<>
           <button className="fm-btn fm-btn--secondary" onClick={() => load()}><RefreshCw size={14} /> Tải lại</button>
           <button className="fm-btn fm-btn--secondary" onClick={exportExcel} disabled={exporting}><Download size={14} /> {exporting ? 'Đang xuất…' : 'Xuất Excel'}</button>
+          {canCreate && (
+            <button className="fm-btn fm-btn--primary" onClick={onGoNew}><Plus size={16} /> Tạo {docLabel}</button>
+          )}
         </>}
       />
       {alert && (
         <div className={`fm-alert ${alert.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={alert.type === 'error' ? 'alert' : 'status'}>
           <div><b>{alert.type === 'success' ? 'Thành công' : 'Lỗi'}</b>{' '}{alert.msg}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setAlert(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setAlert(null)}>✕</button>
         </div>
       )}
 
@@ -334,13 +337,6 @@ export default function SalesDocListView({ config, user, onGoDetail, onGoNew, re
           ))}
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 }}>
-          {canCreate && (
-            <button className="fm-btn fm-btn--primary" onClick={onGoNew}>
-              <Plus size={16} style={{ verticalAlign: -2, marginRight: 4 }} /> Tạo {docLabel}
-            </button>
-          )}
-        </div>
 
         <div className="fm-filterbar">
           <div style={{ position: 'relative' }} data-search>
@@ -363,7 +359,7 @@ export default function SalesDocListView({ config, user, onGoDetail, onGoNew, re
           <input type="date" className="fm-datepicker" title="Từ ngày" aria-label="Lọc từ ngày" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
           <input type="date" className="fm-datepicker" title="Đến ngày" aria-label="Lọc đến ngày" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={resetFilter}>
-            <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Đặt lại
+            <RotateCcw size={14} /> Đặt lại
           </button>
           <div className="fm-filterbar__spacer" />
           <span className="fm-chip fm-chip--role"><Filter size={14} style={{ verticalAlign: -1, marginRight: 3 }} />{total} kết quả</span>
@@ -386,7 +382,7 @@ export default function SalesDocListView({ config, user, onGoDetail, onGoNew, re
             <Inbox />
             Không có {docLabel} phù hợp bộ lọc
             {canCreate && (
-              <button type="button" className="fm-btn fm-btn--primary" style={{ marginTop: 10 }} onClick={onGoNew}>
+              <button type="button" className="fm-btn fm-btn--primary fm-mt-3" onClick={onGoNew}>
                 <Plus size={16} /> Tạo {docLabel}
               </button>
             )}
