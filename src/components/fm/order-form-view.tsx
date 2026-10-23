@@ -15,6 +15,8 @@ import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
+import PrecheckDialog from './precheck-dialog'
+import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
@@ -30,6 +32,8 @@ interface DraftLine {
   vatPct: number
   /** 'special' = giá đặc biệt theo khách hàng (OSPP); 'pricelist' = Price List 1 */
   priceSource?: string
+  /** Giá tham chiếu đã giải (OSPP / Price List 1) — cảnh báo khi giá nhập tay thấp hơn */
+  refPrice?: number
   /** Mã nhóm thuế SAP (SalesVATGroup, vd S1/S2/S8) — tự điền khi chọn mặt hàng, đi kèm khi đẩy đơn sang SAP B1 */
   taxCode?: string
   /** true = người dùng đã tự sửa VAT% tay (ghi đè thuế suất từ mã thuế) */
@@ -1610,6 +1614,7 @@ export default function OrderFormView({
       item: v,
       unitPrice: v?.price ?? 0,
       priceSource: v ? 'pricelist' : undefined,
+      refPrice: v?.price && v.price > 0 ? v.price : undefined,
       taxCode: v?.taxCode || undefined,
       uom: v?.uom || undefined,
       warehouseCode: wh,
@@ -1815,7 +1820,7 @@ export default function OrderFormView({
       if (json?.ok && typeof json.price === 'number' && json.price > 0) {
         setLines((ls) =>
           ls.map((l) =>
-            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source } : l,
+            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source, refPrice: json.price } : l,
           ),
         )
       }
@@ -1824,7 +1829,6 @@ export default function OrderFormView({
     }
   }
 
-  /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
   // Phím tắt nhập liệu: Alt+N/Alt+K, Ctrl+Enter lưu, Ctrl+Shift+Enter lưu nháp, Enter giữa các dòng, ?
   const shortcuts = useFormShortcuts({
     onSave: () => void save(isEdit && Boolean(editOrder?.isDraft)),
@@ -1832,7 +1836,33 @@ export default function OrderFormView({
     disabled: saving,
   })
 
-  const save = async (asDraft = false) => {
+  /** Kiểm tra trước khi lưu: danh sách lỗi + cảnh báo đang hiển thị (null = đóng) */
+  const [precheck, setPrecheck] = useState<PrecheckIssue[] | null>(null)
+
+  /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
+  const save = async (asDraft = false, opts?: { skipPrecheck?: boolean }) => {
+    // Lưu chính thức: gom mọi lỗi/cảnh báo 1 lần trước khi gửi (nháp thì bỏ qua)
+    if (!asDraft && !opts?.skipPrecheck) {
+      const issues = precheckOrder({
+        hasPartner: Boolean(partner),
+        docDate,
+        docDueDate,
+        today: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        lines: lines.filter((l) => l.item).map((l) => ({
+          key: l.key,
+          itemCode: l.item!.code,
+          itemName: l.item!.name,
+          quantity: l.quantity,
+          unitPrice: l.isBomChild ? 0 : l.unitPrice,
+          refPrice: l.refPrice,
+          priceSource: l.priceSource,
+          isBomChild: l.isBomChild,
+          warehouseCode: l.warehouseCode || headerWh || null,
+          atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
+        })),
+      })
+      if (issues.length > 0) { setPrecheck(issues); return }
+    }
     setError('')
     setVersionConflict(false)
     setPartnerErr('')
@@ -2320,7 +2350,7 @@ export default function OrderFormView({
                 })()
                 return (
                   <Fragment key={l.key}>
-                  <tr className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                  <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
                     <td data-label="Dòng">
                       <div className="fm-bom-parent-no">
                         <LineExpandButton
@@ -2587,6 +2617,13 @@ export default function OrderFormView({
           </table>
         </div>
 
+        {precheck && (
+          <PrecheckDialog
+            issues={precheck}
+            onClose={() => setPrecheck(null)}
+            onProceed={() => { setPrecheck(null); void save(isEdit && Boolean(editOrder?.isDraft), { skipPrecheck: true }) }}
+          />
+        )}
         <LineQuickAdd
           onAdd={quickAddLine}
           onAddMany={(entries) => {

@@ -1405,6 +1405,21 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-recent__actions .fm-btn { flex: 1; min-height: 40px; }
 }
 
+/* ---------- Kiểm tra trước khi lưu ---------- */
+.fm-modal.fm-precheck { max-width: 560px; text-align: left; }
+.fm-precheck .fm-modal__title { display: flex; align-items: center; gap: 8px; }
+.fm-precheck__group { margin: 12px 0 6px; padding: 6px 10px; border-radius: var(--fm-r-md); font-size: 13px; font-weight: 700; }
+.fm-precheck__group.is-error { background: var(--fm-coral-soft); color: var(--fm-coral-deep); }
+.fm-precheck__group.is-warning { background: var(--fm-gold-faint); color: var(--fm-gold-ink); }
+.fm-precheck__list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; }
+.fm-precheck__item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 4px; font-size: 13px; border-bottom: 1px solid var(--fm-line); }
+.fm-precheck__item:last-child { border-bottom: 0; }
+.fm-precheck__item svg { flex: none; margin-top: 2px; }
+.fm-precheck__item.is-error svg { color: var(--fm-coral); }
+.fm-precheck__item.is-warning svg { color: var(--fm-gold-ink); }
+.fm-precheck__item .fm-link { text-align: left; }
+.fm-line-table tr.is-flash td { background: var(--fm-gold-soft); transition: background .3s; }
+
 /* ---------- 15.4c Dòng hàng gọn: chi tiết mở theo dòng + ô thêm dòng nhanh ---------- */
 .fm-line-table { width: 100%; table-layout: auto; }
 .fm-line-table .fm-col-no { width: 64px; }
