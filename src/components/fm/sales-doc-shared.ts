@@ -48,6 +48,8 @@ export interface SalesDocLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -138,6 +140,8 @@ export interface EditDocLine {
   sapLineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -198,6 +202,8 @@ export interface EditDocSourceLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -292,6 +298,7 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
     itemCode: l.itemCode,
     itemName: l.itemName,
+    barcode: l.barcode ?? null,
     uom: l.uom,
     warehouseCode: l.warehouseCode,
     quantity: l.quantity,

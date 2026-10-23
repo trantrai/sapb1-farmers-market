@@ -5,7 +5,7 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
-import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
 import { parseB2BHeader } from '../route'
 
@@ -380,6 +380,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             lineNum: i + 1,
             itemCode: l.itemCode,
             itemName: l.itemName,
+            barcode: cleanBarcode(l.barcode),
             uom: l.uom || 'kg',
             taxCode: l.taxCode?.trim() || null,
             warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,

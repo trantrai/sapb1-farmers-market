@@ -121,7 +121,7 @@ export function LineQuickAdd({ onAdd, disabled, hint }: {
           key={resetKey}
           label="Thêm mặt hàng"
           hideLabel
-          placeholder="Thêm dòng: gõ mã hoặc tên mặt hàng (tối thiểu 2 ký tự)…"
+          placeholder="Thêm dòng: gõ mã, tên mặt hàng hoặc quét barcode…"
           fetchUrl="/api/items"
           minChars={2}
           minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
@@ -149,7 +149,7 @@ export function LineQuickAdd({ onAdd, disabled, hint }: {
           onChange={(e) => setQty(Number(e.target.value) || 0)}
         />
       </label>
-      <span className="fm-line-add__hint">{hint ?? 'Chọn mặt hàng (↑↓ + Enter) để thêm dòng'}</span>
+      <span className="fm-line-add__hint">{hint ?? 'Chọn mặt hàng (↑↓ + Enter) hoặc quét barcode để thêm dòng'}</span>
     </div>
   )
 }

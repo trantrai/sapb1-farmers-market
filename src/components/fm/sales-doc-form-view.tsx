@@ -246,7 +246,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     }
     const prefilled: DraftLine[] = (o.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -305,7 +305,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     setAttachments(parseAttachmentsState(typeof p2.attachmentsJson === 'string' ? p2.attachmentsJson : null))
     const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -709,6 +709,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         lines: valid.map((l) => ({
           itemCode: l.item!.code,
           itemName: l.item!.name,
+          barcode: l.item!.barcode || undefined,
           uom: l.uom?.trim() || l.item!.uom?.trim() || 'kg',
           taxCode: l.taxCode || l.item!.taxCode || undefined,
           warehouseCode: l.warehouseCode || headerWh || undefined,
@@ -1220,6 +1221,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
               <tr>
                 <th className="fm-col-no">#</th>
                 <th style={{ minWidth: 240 }}>Hàng hóa</th>
+                <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
                 {showAccountCol && (
                   <th style={{ width: 120 }} title="Mã tài khoản kế toán (SAP: DocumentLines.AccountCode) — bắt buộc với hóa đơn dịch vụ">Tài khoản *</th>
                 )}
@@ -1237,7 +1239,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                 const parentCodes = new Map(
                   lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
                 )
-                const colCount = 7 + (showAccountCol ? 1 : 0)
+                const colCount = 8 + (showAccountCol ? 1 : 0)
                 let stt = 0
                 return vis.map((l) => {
                 const isChild = Boolean(l.isBomChild)
@@ -1286,7 +1288,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                       <Autocomplete
                         label="Hàng hóa"
                         hideLabel
-                        placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
+                        placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
                         fetchUrl="/api/items"
                         disabled={saving}
                         minChars={2}
@@ -1302,6 +1304,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         </div>
                       )}
                     </td>
+                    <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                     {showAccountCol && (
                       <td data-label="Tài khoản">
                         {l.item ? (

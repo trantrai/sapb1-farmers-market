@@ -57,6 +57,8 @@ export interface EditOrderLine {
   sapLineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -122,6 +124,8 @@ export interface EditOrderSourceLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -206,6 +210,7 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
     itemCode: l.itemCode,
     itemName: l.itemName,
+    barcode: l.barcode ?? null,
     uom: l.uom,
     warehouseCode: l.warehouseCode,
     quantity: l.quantity,
@@ -1205,7 +1210,7 @@ export default function OrderFormView({
     setB2b(b2bFromSaved((o.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), o))
     const prefilled: DraftLine[] = (o.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -1257,7 +1262,7 @@ export default function OrderFormView({
     setB2b(b2bFromSaved((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), p as unknown as Parameters<typeof b2bFromSaved>[1]))
     const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -1297,7 +1302,7 @@ export default function OrderFormView({
   // Đổi view (lỡ bấm sidebar...) unmount form → dữ liệu đang nhập không mất.
   // Key riêng theo user + chế độ (tạo mới / sửa đơn nào); xóa sau khi lưu thành công.
   interface OrderDraftLine {
-    item: { code: string; name: string; uom?: string; taxCode?: string } | null
+    item: { code: string; name: string; uom?: string; taxCode?: string; barcode?: string } | null
     quantity: number
     unitPrice: number
     discPct: number
@@ -1785,6 +1790,7 @@ export default function OrderFormView({
           ...(isEdit ? { dbId: l.dbId, sapLineNum: l.sapLineNum } : {}),
           itemCode: l.item!.code,
           itemName: l.item!.name,
+          barcode: l.item!.barcode || undefined,
           uom: l.uom?.trim() || l.item!.uom?.trim() || 'kg',
           taxCode: l.taxCode || l.item!.taxCode || undefined,
           warehouseCode: l.warehouseCode || headerWh || undefined,
@@ -2189,7 +2195,8 @@ export default function OrderFormView({
             <thead>
               <tr>
                 <th className="fm-col-no">#</th>
-                <th style={{ minWidth: 260 }}>Hàng hóa</th>
+                <th style={{ minWidth: 240 }}>Hàng hóa</th>
+                <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
                 <th className="fm-col-qty fm-num">Số lượng</th>
                 <th className="fm-col-price fm-num" style={{ width: 170 }}>Đơn giá (₫)</th>
                 <th className="fm-col-disc fm-num" title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
@@ -2265,7 +2272,7 @@ export default function OrderFormView({
                       <Autocomplete
                         label="Hàng hóa"
                         hideLabel
-                        placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
+                        placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
                         fetchUrl="/api/items"
                         disabled={saving}
                         minChars={2}
@@ -2294,6 +2301,7 @@ export default function OrderFormView({
                         </div>
                       )}
                     </td>
+                    <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                     <td data-label="Số lượng" className="fm-num">
                       <input
                         type="number"
@@ -2390,7 +2398,7 @@ export default function OrderFormView({
                     </td>
                   </tr>
                   {expanded && (
-                    <LineDetailRow id={detailId} colSpan={7}>
+                    <LineDetailRow id={detailId} colSpan={8}>
                         <LineDetailField label="Đơn vị tính" title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">
                           {l.item ? (
                             <input

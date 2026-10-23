@@ -21,7 +21,7 @@ import { parsePageParam, type ModuleKey } from '@/lib/fm-shared'
 import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { calcOrderLines, orderTotals, validateOrderLines, type OrderLineInput } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode, type OrderLineInput } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
 import { nextDocNum, type SalesDocType } from '@/lib/doc-num'
 import { pushDocumentToSap, patchDocumentToSap, bomLineFields } from '@/lib/sap-push-document'
@@ -481,6 +481,7 @@ function lineCreateData(l: any, i: number, withBatchNumber = false): Record<stri
     lineNum: i + 1,
     itemCode: l.itemCode,
     itemName: l.itemName,
+    barcode: cleanBarcode(l.barcode),
     uom: l.uom || 'kg',
     warehouseCode: (l.warehouseCode || '').trim() || null,
     taxCode: (l.taxCode?.trim() || null) as string | null,
@@ -1448,6 +1449,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
     const inputLines: SalesDocLineInput[] = src.lines.map((l: any) => ({
       itemCode: l.itemCode,
       itemName: l.itemName,
+      barcode: l.barcode ?? null,
       uom: l.uom ?? '',
       warehouseCode: l.warehouseCode ?? undefined,
       taxCode: l.taxCode ?? undefined,
@@ -1506,6 +1508,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
             lines: rawLines.map((l) => ({
               itemCode: l.itemCode,
               itemName: l.itemName,
+              barcode: l.barcode ?? null,
               uom: l.uom ?? '',
               warehouseCode: l.warehouseCode ?? null,
               taxCode: l.taxCode ?? null,

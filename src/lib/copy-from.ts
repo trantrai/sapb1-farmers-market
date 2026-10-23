@@ -58,6 +58,7 @@ export const COPY_FROM_SOURCES: Record<CopyFromTarget, CopyFromSourceOpt[]> = {
 export interface PrefillLine {
   itemCode: string
   itemName: string
+  barcode?: string | null
   uom?: string
   warehouseCode?: string | null
   taxCode?: string | null

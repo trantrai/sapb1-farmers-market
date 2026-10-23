@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     const inputLines = qdoc.lines.map((l) => ({
       itemCode: l.itemCode,
       itemName: l.itemName,
+      barcode: l.barcode ?? null,
       uom: l.uom,
       warehouseCode: l.warehouseCode ?? undefined,
       taxCode: l.taxCode ?? undefined,
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
             lines: rawLines.map((l) => ({
               itemCode: l.itemCode,
               itemName: l.itemName,
+              barcode: l.barcode ?? null,
               uom: l.uom ?? '',
               warehouseCode: l.warehouseCode ?? null,
               taxCode: l.taxCode ?? null,
@@ -181,6 +183,7 @@ export async function POST(req: NextRequest) {
                 lineNum: i + 1,
                 itemCode: l.itemCode,
                 itemName: l.itemName,
+                barcode: l.barcode ?? null,
                 uom: l.uom || 'kg',
                 taxCode: l.taxCode?.trim() || null,
                 warehouseCode: (l.warehouseCode || qdoc.warehouseCode || '').trim() || null,

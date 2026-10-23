@@ -128,7 +128,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
     setLines(
       (p.lines ?? []).map((l) => ({
         key: nextKey(),
-        item: { code: l.itemCode, name: l.itemName },
+        item: { code: l.itemCode, name: l.itemName, barcode: l.barcode || undefined },
         quantity: l.quantity,
         unitPrice: l.unitPrice ?? 0,
         taxCode: l.taxCode ?? undefined,
@@ -238,10 +238,10 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
         setPickAndPackNotes(d.pickAndPackNotes ?? '')
         setB2b(b2bFromSaved(docDateStr, d))
         setLines(
-          (d.lines ?? []).map((l: { id: string; itemCode: string; itemName: string; quantity: number; unitPrice: number; taxCode?: string | null; discPct?: number; warehouseCode?: string | null; uom?: string | null; batchNumber?: string | null }) => ({
+          (d.lines ?? []).map((l: { id: string; itemCode: string; itemName: string; barcode?: string | null; quantity: number; unitPrice: number; taxCode?: string | null; discPct?: number; warehouseCode?: string | null; uom?: string | null; batchNumber?: string | null }) => ({
             key: nextKey(),
             dbId: l.id,
-            item: { code: l.itemCode, name: l.itemName },
+            item: { code: l.itemCode, name: l.itemName, barcode: l.barcode || undefined },
             quantity: l.quantity,
             unitPrice: l.unitPrice ?? 0,
             taxCode: l.taxCode ?? undefined,
@@ -389,6 +389,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
             lines: lines.map((l) => ({
               itemCode: l.item!.code,
               itemName: l.item!.name,
+              barcode: l.item!.barcode || undefined,
               uom: l.uom?.trim() || l.item!.uom || '',
               quantity: l.quantity,
               unitPrice: l.unitPrice,
@@ -630,6 +631,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
             <tr>
               <th className="fm-col-no">#</th>
               <th style={{ minWidth: 240 }}>Mặt hàng</th>
+              <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
               <th className="fm-col-qty fm-num">Số lượng</th>
               <th className="fm-col-price fm-num">Đơn giá (₫)</th>
               <th className="fm-col-disc fm-num">CK (%)</th>
@@ -659,7 +661,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                     <Autocomplete
                       label={`Mặt hàng dòng ${i + 1}`}
                       hideLabel
-                      placeholder="Tìm mã / tên mặt hàng…"
+                      placeholder="Tìm mã, tên mặt hàng hoặc quét barcode…"
                       fetchUrl="/api/items"
                       value={l.item}
                       onChange={(v) => selectItem(l.key, v)}
@@ -672,6 +674,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                     </div>
                   )}
                 </td>
+                <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                 <td data-label="Số lượng" className="fm-num">
                   <input
                     type="number"
@@ -730,7 +733,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                 )}
               </tr>
               {expanded && (
-                <LineDetailRow id={detailId} colSpan={canEditLines ? 7 : 6}>
+                <LineDetailRow id={detailId} colSpan={canEditLines ? 8 : 7}>
                   <LineDetailField label="Kho" htmlFor={`${detailId}-wh`} title="Kho xuất của dòng (WarehouseCode) — mặc định theo kho header">
                     <select
                       id={`${detailId}-wh`}

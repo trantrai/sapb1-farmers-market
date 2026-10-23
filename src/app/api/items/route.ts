@@ -62,6 +62,11 @@ async function handleGet(req: NextRequest) {
       orderBy: { itemCode: 'asc' },
       take: 200,
     })
+    // Khớp chính xác mã vạch / mã hàng (quét barcode) lên đầu danh sách
+    const ql = q.toLowerCase()
+    const rank = (it: { itemCode: string; barcode: string | null }) =>
+      (it.barcode ?? '').toLowerCase() === ql ? 0 : it.itemCode.toLowerCase() === ql ? 1 : 2
+    items.sort((a, b) => rank(a) - rank(b))
     // Bổ sung thuế suất theo mã thuế từ mirror VatGroup (ưu tiên nhóm BÁN)
     const vgRows = await prisma.vatGroup.findMany({ where: dbScope })
     const rateMap = new Map<string, number>()
@@ -100,6 +105,8 @@ async function handleGet(req: NextRequest) {
     const vatMap = await vatRateMap(s)
     const data = rows
       .filter((it) => norm(it.ItemCode).includes(nq) || norm(it.ItemName ?? '').includes(nq) || norm(it.BarCode ?? '').includes(nq))
+      // Khớp chính xác mã vạch / mã hàng (quét barcode) lên đầu danh sách
+      .sort((a, b) => Number(norm(b.BarCode ?? '') === nq || norm(b.ItemCode) === nq) - Number(norm(a.BarCode ?? '') === nq || norm(a.ItemCode) === nq))
       .slice(0, 30)
       .map((it) => mapItem(it, vatMap))
     return NextResponse.json({ data, total: data.length, source: 'sap' })

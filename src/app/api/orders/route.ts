@@ -7,7 +7,7 @@ import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
-import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
 
 // ============================================================
@@ -297,7 +297,7 @@ export async function POST(req: NextRequest) {
       warehouseCode?: string
       /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
       headerDiscPct?: number
-      lines: Array<{ itemCode: string; itemName: string; uom: string; quantity: number; unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string; isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null }>
+      lines: Array<{ itemCode: string; itemName: string; barcode?: string | null; uom: string; quantity: number; unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string; isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null }>
     }
 
     if (!cardCode || !cardName) {
@@ -387,6 +387,7 @@ export async function POST(req: NextRequest) {
               lineNum: i + 1,
               itemCode: l.itemCode,
               itemName: l.itemName,
+              barcode: cleanBarcode(l.barcode),
               uom: l.uom || 'kg',
               taxCode: l.taxCode?.trim() || null,
               warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,

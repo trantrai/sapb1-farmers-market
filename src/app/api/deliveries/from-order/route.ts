@@ -333,6 +333,7 @@ export async function POST(req: NextRequest) {
             lines: picked.map((x) => ({
               itemCode: x.line.itemCode,
               itemName: x.line.itemName,
+              barcode: x.line.barcode ?? null,
               uom: x.line.uom || '',
               warehouseCode: x.line.warehouseCode ?? null,
               taxCode: x.line.taxCode ?? null,
@@ -383,6 +384,7 @@ export async function POST(req: NextRequest) {
             lineNum: i + 1,
             itemCode: x.line.itemCode,
             itemName: x.line.itemName,
+            barcode: x.line.barcode ?? null,
             quantity: x.qty,
             uom: x.line.uom || '',
             unitPrice: x.line.unitPrice,

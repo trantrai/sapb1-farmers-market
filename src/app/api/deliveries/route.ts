@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
+import { cleanBarcode } from '@/lib/order-calc'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
@@ -257,7 +258,7 @@ export async function POST(req: NextRequest) {
     pickAndPackNotes?: string
     /** CK đầu chứng từ % (SAP DiscountPercent) */
     headerDiscPct?: number
-    lines?: Array<{ itemCode: string; itemName: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string }>
+    lines?: Array<{ itemCode: string; itemName: string; barcode?: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string }>
   }
   try {
     body = await req.json()
@@ -310,6 +311,7 @@ export async function POST(req: NextRequest) {
     .map((l) => ({
       itemCode: String(l?.itemCode ?? '').trim(),
       itemName: String(l?.itemName ?? l?.itemCode ?? '').trim(),
+      barcode: cleanBarcode(l?.barcode),
       quantity: Number(l?.quantity),
       uom: String(l?.uom ?? ''),
       unitPrice: Number(l?.unitPrice ?? 0),
@@ -375,6 +377,7 @@ export async function POST(req: NextRequest) {
               lineNum: i + 1,
               itemCode: l.itemCode.trim(),
               itemName: (l.itemName || l.itemCode).trim(),
+              barcode: l.barcode,
               quantity: l.quantity,
               uom: l.uom || '',
               unitPrice: l.unitPrice ?? 0,

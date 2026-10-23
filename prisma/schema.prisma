@@ -213,6 +213,7 @@ model DeliveryLine {
   lineNum    Int
   itemCode   String
   itemName   String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   quantity   Float
   uom        String   @default("")
   unitPrice  Float    @default(0)
@@ -238,6 +239,7 @@ model SalesOrderLine {
   lineNum    Int
   itemCode   String
   itemName   String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom        String     @default("kg")
   warehouseCode String? // Kho xuất của dòng (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng
   taxCode    String?    // Mã nhóm thuế SAP (SalesVATGroup) → VatGroup khi đẩy đơn
@@ -478,6 +480,7 @@ model QuotationLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String    @default("kg")
   warehouseCode   String?   // Kho xuất của dòng
   taxCode         String?   // Mã nhóm thuế SAP (SalesVATGroup)
@@ -569,6 +572,7 @@ model ArInvoiceLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String    @default("kg")
   warehouseCode   String?
   taxCode         String?
@@ -654,6 +658,7 @@ model ArCreditMemoLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String       @default("kg")
   warehouseCode   String?
   taxCode         String?
@@ -735,6 +740,7 @@ model SalesReturnLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String      @default("kg")
   warehouseCode   String?
   taxCode         String?
@@ -826,6 +832,7 @@ model ArDownPaymentLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String        @default("kg")
   warehouseCode   String?
   taxCode         String?

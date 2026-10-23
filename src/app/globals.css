@@ -1276,6 +1276,8 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 .fm-line-table .fm-col-disc { width: 84px; }
 .fm-line-table .fm-col-total { width: 140px; }
 .fm-line-table .fm-col-del { width: 44px; }
+.fm-line-table .fm-col-barcode { width: 128px; }
+.fm-line-table td.fm-line-barcode { font-size: 12px; color: var(--fm-text-2); font-variant-numeric: tabular-nums; letter-spacing: .2px; word-break: break-all; }
 .fm-line-table td.fm-num, .fm-line-table th.fm-num { text-align: right; font-variant-numeric: tabular-nums; }
 .fm-line-table .fm-line-total { font-weight: 700; color: var(--fm-navy); white-space: nowrap; }
 /* Tóm tắt chi tiết dưới tên mặt hàng (ĐVT · Kho · Thuế) — để không phải mở mới thấy */
