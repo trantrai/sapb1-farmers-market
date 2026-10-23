@@ -7,7 +7,7 @@ import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
 import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
-import { parseB2BHeader } from '../route'
+import { parseB2BHeader, checkOrderSourceLines } from '../route'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -175,6 +175,12 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (bomError) {
     return NextResponse.json({ error: bomError }, { status: 400 })
   }
+  // Copy-from báo giá: chỉ giữ sourceLineId hợp lệ (dòng báo giá thật, cùng KH, cùng mã hàng)
+  const { ids: srcIds, error: srcError } = await checkOrderSourceLines(bomLines, cardCode)
+  if (srcError) {
+    return NextResponse.json({ error: srcError }, { status: 400 })
+  }
+  bomLines.forEach((l, i) => { (l as { sourceLineId?: string | null }).sourceLineId = srcIds[i] })
 
   const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
   const calcLines = calcOrderLines(bomLines, headerPct)
@@ -388,6 +394,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             itemCode: l.itemCode,
             itemName: l.itemName,
             barcode: cleanBarcode(l.barcode),
+            sourceLineId: (l as { sourceLineId?: string | null }).sourceLineId ?? null,
             uom: l.uom || 'kg',
             taxCode: l.taxCode?.trim() || null,
             warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,

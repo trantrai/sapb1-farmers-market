@@ -108,6 +108,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           uom: l.uom,
           taxCode: l.taxCode,
           warehouseCode: l.warehouseCode,
+          // Copy-from báo giá → BaseType 23/BaseEntry/BaseLine
+          sourceLineId: l.sourceLineId,
         })),
       })
     } finally {

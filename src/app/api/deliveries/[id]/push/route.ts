@@ -66,6 +66,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       comments: delivery.remarks,
       warehouseCode: delivery.warehouseCode ?? null,
       localId: delivery.id,
+      // Lập từ đơn hàng CHỈ có trên SAP → base dựng từ DocEntry này (dòng nguồn id `sap-<LineNum>`)
+      sapSourceDocEntry: delivery.sapSourceDocEntry ?? null,
       // B2B / SAP B1 (Đợt 2+3): các trường header đã lưu trên DB — tầng push
       // (buildPayload → sapDocHeaderExtras) chỉ gửi khi có giá trị
       ...headerExtrasFromRecord(delivery),

@@ -264,9 +264,7 @@ export interface SourceLineSpec {
   label: string
   /**
    * Model dòng có field sapLineNum không. DeliveryLine KHÔNG có sapLineNum
-   * → dùng lineNum local làm BaseLine. Lưu ý: SAP thường giữ nguyên thứ tự
-   * dòng khi copy, nhưng nếu dòng nguồn bị sắp xếp lại trên SAP thì BaseLine
-   * có thể lệch — chấp nhận theo thiết kế, cần rà soát nếu SAP báo lỗi dòng.
+   * → suy BaseLine từ lineNum local (xem localLineToSapLineNum).
    */
   hasSapLineNum: boolean
 }
@@ -323,6 +321,16 @@ const ENTITY_LABEL: Record<SapDocEntitySet, string> = {
 export type ResolveBaseResult = { ok: true; base: SapLineBase } | { ok: false; error: string }
 
 /**
+ * Quy đổi lineNum local (đếm từ 1) → LineNum trên SAP (đếm từ 0).
+ * Chính xác vì mọi chứng từ được POST lên SAP theo đúng thứ tự lineNum
+ * (đủ cả dòng con BOM), và dòng chỉ bị đánh số lại khi PATCH — lúc đó
+ * sapLineNum đã được lưu lại từ response nên không đi qua hàm này.
+ */
+export function localLineToSapLineNum(lineNum: number): number {
+  return Math.max(0, Number(lineNum) - 1)
+}
+
+/**
  * Dựng base từ bản ghi dòng nguồn ĐÃ tải (bước 2 của tra cứu).
  * KHÔNG ném exception — trả { ok:false } để caller CHẶN đẩy.
  */
@@ -346,10 +354,13 @@ async function baseFromSourceLine(
         `(chưa có DocEntry). Hãy đẩy ${spec.label} nguồn lên SAP trước, rồi đẩy lại.`,
     }
   }
-  // BaseLine = LineNum của dòng nguồn TRÊN SAP. DeliveryLine không có field
-  // sapLineNum → dùng lineNum local (xem ghi chú ở SourceLineSpec).
+  // BaseLine = LineNum của dòng nguồn TRÊN SAP (đếm từ 0). Có sapLineNum (SAP
+  // trả về khi đẩy/sửa) → dùng luôn; thiếu (DeliveryLine, chứng từ đẩy trước
+  // khi có cột) → suy từ lineNum local (đếm từ 1).
   const baseLine =
-    spec.hasSapLineNum && typeof line.sapLineNum === 'number' ? line.sapLineNum : line.lineNum
+    spec.hasSapLineNum && typeof line.sapLineNum === 'number'
+      ? line.sapLineNum
+      : localLineToSapLineNum(line.lineNum)
   return { ok: true, base: { baseType: spec.baseType, baseEntry: header.sapDocEntry, baseLine } }
 }
 

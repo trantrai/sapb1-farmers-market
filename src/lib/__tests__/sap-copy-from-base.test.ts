@@ -110,11 +110,18 @@ describe('resolveCopyFromBases', () => {
     expect(r).toEqual({ ok: true, bases: [{ baseType: 17, baseEntry: 101, baseLine: 2 }] })
   })
 
-  it('invoice ← giao hàng: DeliveryLine không có sapLineNum → BaseLine = lineNum local', async () => {
+  it('invoice ← giao hàng: DeliveryLine không có sapLineNum → BaseLine = lineNum − 1 (SAP đếm từ 0)', async () => {
     fu().deliveryLine.mockResolvedValue({ id: 'dl1', deliveryId: 'd1', lineNum: 1 })
     fu().delivery.mockResolvedValue({ sapDocEntry: 77, docNum: 9 })
     const r = await resolveCopyFromBases('Invoices', [{ sourceLineId: 'dl1' }])
-    expect(r).toEqual({ ok: true, bases: [{ baseType: 15, baseEntry: 77, baseLine: 1 }] })
+    expect(r).toEqual({ ok: true, bases: [{ baseType: 15, baseEntry: 77, baseLine: 0 }] })
+  })
+
+  it('return ← giao hàng dòng 3 → BaseLine 2', async () => {
+    fu().deliveryLine.mockResolvedValue({ id: 'dl3', deliveryId: 'd1', lineNum: 3 })
+    fu().delivery.mockResolvedValue({ sapDocEntry: 78, docNum: 10 })
+    const r = await resolveCopyFromBases('Returns', [{ sourceLineId: 'dl3' }])
+    expect(r).toEqual({ ok: true, bases: [{ baseType: 15, baseEntry: 78, baseLine: 2 }] })
   })
 
   it('nguồn chưa synced (thiếu sapDocEntry) → ok:false + lỗi rõ ràng, không lặng lẽ bỏ qua', async () => {
@@ -160,11 +167,24 @@ describe('resolveCopyFromBases', () => {
     expect(r).toEqual({ ok: true, bases: [{ baseType: 23, baseEntry: 505, baseLine: 4 }] })
   })
 
-  it('sapLineNum null trên nguồn đã synced → fallback lineNum local', async () => {
+  it('sapLineNum null trên nguồn đã synced → fallback lineNum − 1', async () => {
     fu().quotationLine.mockResolvedValue({ id: 'ql2', quotationId: 'q2', lineNum: 2, sapLineNum: null })
     fu().quotation.mockResolvedValue({ sapDocEntry: 606, docNum: 4 })
     const r = await resolveCopyFromBases('DownPayments', [{ sourceLineId: 'ql2' }])
-    expect(r).toEqual({ ok: true, bases: [{ baseType: 23, baseEntry: 606, baseLine: 2 }] })
+    expect(r).toEqual({ ok: true, bases: [{ baseType: 23, baseEntry: 606, baseLine: 1 }] })
+  })
+
+  // Ma trận copy-from đủ 7 loại chứng từ (Delivery: xem describe resolveSourceLineBase + copy-from-fixes)
+  it.each([
+    ['Invoices', 'quotationLine', 'quotation', 23],
+    ['CreditNotes', 'arInvoiceLine', 'arInvoice', 13],
+    ['DownPayments', 'salesOrderLine', 'salesOrder', 17],
+  ] as const)('%s ← %s: BaseType %i', async (entity, lineDelegate, headerDelegate, baseType) => {
+    const fk = { quotation: 'quotationId', arInvoice: 'invoiceId', salesOrder: 'orderId' }[headerDelegate]
+    fu()[lineDelegate].mockResolvedValue({ id: 'x1', [fk]: 'h1', lineNum: 4, sapLineNum: 3 })
+    fu()[headerDelegate].mockResolvedValue({ sapDocEntry: 808, docNum: 1 })
+    const r = await resolveCopyFromBases(entity, [{ sourceLineId: 'x1' }])
+    expect(r).toEqual({ ok: true, bases: [{ baseType, baseEntry: 808, baseLine: 3 }] })
   })
 
   it('orders ← báo giá đã synced: BaseType 23, BaseLine = sapLineNum', async () => {

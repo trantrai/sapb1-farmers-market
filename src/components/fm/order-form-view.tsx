@@ -20,6 +20,8 @@ import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 interface DraftLine {
   key: number
   item: ACOption | null
+  /** Copy-from: id dòng báo giá nguồn (tương đương BaseLine SAP) — đẩy SAP gắn BaseType 23 */
+  sourceLineId?: string | null
   quantity: number
   unitPrice: number
   discPct: number
@@ -58,6 +60,8 @@ export interface EditOrderLine {
   sapLineNum?: number
   itemCode: string
   itemName: string
+  /** Copy-from: id dòng báo giá nguồn */
+  sourceLineId?: string | null
   /** Mã vạch (BarCode) đã lưu trên dòng */
   barcode?: string | null
   uom?: string
@@ -125,6 +129,8 @@ export interface EditOrderSourceLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Copy-from: id dòng báo giá nguồn */
+  sourceLineId?: string | null
   /** Mã vạch (BarCode) đã lưu trên dòng */
   barcode?: string | null
   uom?: string
@@ -223,6 +229,7 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
     bomGroupKey: l.bomGroupKey ?? null,
     bomEditable: l.bomEditable ?? true,
     bomQtyPerParent: l.bomQtyPerParent ?? null,
+    sourceLineId: l.sourceLineId ?? null,
   })),
 })
 
@@ -1227,6 +1234,8 @@ export default function OrderFormView({
       bomGroupKey: l.bomGroupKey ?? undefined,
       bomEditable: l.bomEditable ?? true,
       bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+      // Chỉ giữ liên kết nguồn khi SỬA đơn; "Nhân bản" (id rỗng) tạo đơn mới độc lập
+      sourceLineId: o.id ? (l.sourceLineId ?? null) : null,
     }))
     // Suy loại BOM của dòng cha từ dòng con (production/assembly → con khóa SL)
     for (const pl of prefilled) {
@@ -1276,6 +1285,7 @@ export default function OrderFormView({
       bomGroupKey: l.bomGroupKey ?? undefined,
       bomEditable: l.bomEditable ?? true,
       bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+      sourceLineId: (l as { sourceLineId?: string | null }).sourceLineId ?? null,
     }))
     // Suy loại BOM của dòng cha từ dòng con (giống applyEditData)
     for (const pl of prefilled) {
@@ -1317,6 +1327,7 @@ export default function OrderFormView({
     bomGroupKey?: string
     bomEditable?: boolean
     bomQtyPerParent?: number
+    sourceLineId?: string | null
   }
   interface OrderDraft {
     v: 1
@@ -1386,6 +1397,7 @@ export default function OrderFormView({
         bomGroupKey: l.bomGroupKey,
         bomEditable: l.bomEditable ?? true,
         bomQtyPerParent: l.bomQtyPerParent,
+        sourceLineId: l.sourceLineId ?? null,
       }))
       setLines(restored)
       setDraftRestored(true)
@@ -1423,6 +1435,7 @@ export default function OrderFormView({
             bomGroupKey: l.bomGroupKey,
             bomEditable: l.bomEditable,
             bomQtyPerParent: l.bomQtyPerParent,
+            sourceLineId: l.sourceLineId ?? null,
           })),
         }
         localStorage.setItem(draftKey, JSON.stringify(d))
@@ -1825,6 +1838,8 @@ export default function OrderFormView({
           bomGroupKey: l.bomGroupKey ?? null,
           bomEditable: l.bomEditable ?? true,
           bomQtyPerParent: l.bomQtyPerParent ?? null,
+          // Copy-from báo giá: giữ liên kết dòng nguồn để đẩy SAP gắn BaseType/BaseEntry/BaseLine
+          sourceLineId: l.sourceLineId ?? null,
         })),
       }
       const baseUrl = isEdit ? `/api/orders/${editOrder!.id}` : '/api/orders'
