@@ -31,7 +31,7 @@ vi.mock('@/lib/sap-service-layer', async (orig) => ({
 
 import { pushDeliveryToSap } from '@/lib/sap-push-delivery'
 import { localLineToSapLineNum } from '@/lib/sap-push-document'
-import { checkOrderSourceLines } from '@/app/api/orders/route'
+import { checkOrderSourceLines } from '@/lib/order-source-lines'
 
 beforeEach(() => {
   m.sapPost.mockReset().mockResolvedValue({ ok: true, status: 201, data: { DocEntry: 900, DocNum: 9 } })

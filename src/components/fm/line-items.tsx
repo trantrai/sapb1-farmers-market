@@ -11,8 +11,10 @@
 // ============================================================
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, ClipboardPaste, Plus } from 'lucide-react'
 import Autocomplete, { type ACOption } from './autocomplete'
+import PasteLinesDialog, { type PasteEntry } from './paste-lines-dialog'
+import { looksLikeLineList } from '@/lib/paste-lines'
 
 /** Trạng thái mở rộng chi tiết theo key dòng */
 export function useExpandedLines() {
@@ -98,12 +100,16 @@ export function LineDetailField({ label, htmlFor, title, children }: {
  * Ô thêm dòng nhanh dưới bảng: chọn mặt hàng (Enter / click) → gọi onAdd(item, qty)
  * → xóa ô tìm và đặt con trỏ lại để nhập dòng tiếp theo.
  */
-export function LineQuickAdd({ onAdd, disabled, hint }: {
+export function LineQuickAdd({ onAdd, onAddMany, disabled, hint }: {
   onAdd: (item: ACOption, quantity: number) => void
+  /** Có → bật "Dán danh sách" (nút + bắt Ctrl+V nội dung nhiều dòng) */
+  onAddMany?: (entries: PasteEntry[]) => void
   disabled?: boolean
   hint?: string
 }) {
   const [qty, setQty] = useState(1)
+  /** null = đóng; chuỗi = mở hộp thoại dán với nội dung ban đầu */
+  const [pasteText, setPasteText] = useState<string | null>(null)
   // Đổi key → Autocomplete mount lại với ô tìm trống sau mỗi lần thêm
   const [resetKey, setResetKey] = useState(0)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -114,7 +120,16 @@ export function LineQuickAdd({ onAdd, disabled, hint }: {
   }, [resetKey])
 
   return (
-    <div className="fm-line-add" ref={boxRef}>
+    <div
+      className="fm-line-add"
+      ref={boxRef}
+      onPaste={(e) => {
+        // Dán nhiều dòng (Excel/Zalo/email) vào ô thêm dòng → mở hộp thoại xem trước
+        if (!onAddMany || disabled) return
+        const text = e.clipboardData.getData('text/plain')
+        if (looksLikeLineList(text)) { e.preventDefault(); setPasteText(text) }
+      }}
+    >
       <span className="fm-line-add__icon" aria-hidden><Plus size={16} /></span>
       <div className="fm-line-add__item">
         <Autocomplete
@@ -149,7 +164,25 @@ export function LineQuickAdd({ onAdd, disabled, hint }: {
           onChange={(e) => setQty(Number(e.target.value) || 0)}
         />
       </label>
-      <span className="fm-line-add__hint">{hint ?? 'Chọn mặt hàng (↑↓ + Enter) hoặc quét barcode để thêm dòng'}</span>
+      {onAddMany && (
+        <button
+          type="button"
+          className="fm-btn fm-btn--secondary fm-btn--sm"
+          onClick={() => setPasteText('')}
+          disabled={disabled}
+          title="Dán danh sách mã/barcode/tên + số lượng từ Excel, Zalo, email (hoặc Ctrl+V nhiều dòng vào ô tìm)"
+        >
+          <ClipboardPaste size={14} aria-hidden /> Dán danh sách
+        </button>
+      )}
+      <span className="fm-line-add__hint">{hint ?? (onAddMany ? 'Chọn mặt hàng (↑↓ + Enter), quét barcode hoặc Ctrl+V nhiều dòng' : 'Chọn mặt hàng (↑↓ + Enter) hoặc quét barcode để thêm dòng')}</span>
+      {pasteText !== null && onAddMany && (
+        <PasteLinesDialog
+          initialText={pasteText}
+          onCancel={() => setPasteText(null)}
+          onConfirm={(entries) => { setPasteText(null); onAddMany(entries) }}
+        />
+      )}
     </div>
   )
 }

@@ -270,6 +270,19 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
       ? { ...l, item: v, unitPrice: v?.price ?? l.unitPrice, taxCode: v?.taxCode || l.taxCode, uom: v?.uom || l.uom }
       : l)))
   }
+  /**
+   * Thêm nhiều mặt hàng 1 lượt (dán danh sách / đặt lại đơn cũ): mỗi dòng đi qua
+   * selectItem như khi chọn tay → giá, thuế, ĐVT, kho.
+   */
+  const addItemsBatch = (entries: { item: ACOption; quantity: number }[]) => {
+    const fresh = entries.map((e) => ({
+      key: nextKey(), item: null, quantity: e.quantity, unitPrice: 0, taxCode: undefined, discPct: 0,
+      warehouseCode: headerWh || undefined,
+    }))
+    setLines((ls) => [...ls.filter((x) => x.item), ...fresh])
+    fresh.forEach((nl, i) => selectItem(nl.key, entries[i].item))
+  }
+
   /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
   const quickAddLine = (v: ACOption, quantity: number) => {
     const empty = lines.find((l) => !l.item)
@@ -789,7 +802,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
           </tbody>
         </table>
         </div>
-        {canEditLines && <LineQuickAdd onAdd={quickAddLine} disabled={saving} />}
+        {canEditLines && <LineQuickAdd onAdd={quickAddLine} onAddMany={addItemsBatch} disabled={saving} />}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
           <table style={{ minWidth: 280 }}>
             <tbody>

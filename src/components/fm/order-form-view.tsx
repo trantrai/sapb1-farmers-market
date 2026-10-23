@@ -1652,15 +1652,27 @@ export default function OrderFormView({
    * Mỗi dòng đi qua selectItem như khi chọn tay → giá đặc biệt/bảng giá, thuế, ATP,
    * bung BOM theo công thức hiện hành.
    */
-  const applyRecentOrder = (order: RecentOrder, mode: 'replace' | 'append') => {
-    const usable = order.lines.filter((l) => l.available && l.quantity > 0)
-    const fresh = usable.map((l) => ({
-      key: nextKey(), item: null, quantity: l.quantity, unitPrice: 0, discPct: 0, vatPct: 8,
-      warehouseCode: l.warehouseCode || headerWh || undefined,
+  /**
+   * Thêm nhiều mặt hàng 1 lượt (dán danh sách / đặt lại đơn cũ): mỗi dòng đi qua
+   * selectItem như khi chọn tay → giá, thuế, ĐVT, kho, ATP, bung BOM.
+   */
+  const addItemsBatch = (
+    entries: { item: ACOption; quantity: number; warehouseCode?: string | null }[],
+    mode: 'replace' | 'append' = 'append',
+  ) => {
+    const fresh = entries.map((e) => ({
+      key: nextKey(), item: null, quantity: e.quantity, unitPrice: 0, discPct: 0, vatPct: 8,
+      warehouseCode: e.warehouseCode || headerWh || undefined,
     }))
+    // Bỏ dòng trống đang nhập dở khi nối thêm
     setLines((ls) => [...(mode === 'replace' ? [] : ls.filter((x) => x.item || x.isBomChild)), ...fresh])
     if (mode === 'replace') setAtp({})
-    fresh.forEach((nl, i) => selectItem(nl.key, recentLineToOption(usable[i]), nl.warehouseCode))
+    fresh.forEach((nl, i) => selectItem(nl.key, entries[i].item, nl.warehouseCode))
+  }
+
+  const applyRecentOrder = (order: RecentOrder, mode: 'replace' | 'append') => {
+    const usable = order.lines.filter((l) => l.available && l.quantity > 0)
+    addItemsBatch(usable.map((l) => ({ item: recentLineToOption(l), quantity: l.quantity, warehouseCode: l.warehouseCode })), mode)
     const skipped = order.lines.length - usable.length
     setTplMsg({
       type: 'success',
@@ -2567,7 +2579,14 @@ export default function OrderFormView({
           </table>
         </div>
 
-        <LineQuickAdd onAdd={quickAddLine} disabled={saving} />
+        <LineQuickAdd
+          onAdd={quickAddLine}
+          onAddMany={(entries) => {
+            addItemsBatch(entries)
+            setTplMsg({ type: 'success', text: `Đã thêm ${entries.length} dòng từ danh sách dán. Giá đã tính theo bảng giá hiện tại.` })
+          }}
+          disabled={saving}
+        />
         {swapTarget && (
           <BomSwapDialog
             key={swapTarget.key}

@@ -608,6 +608,19 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     setSwapKey(null)
   }
 
+  /**
+   * Thêm nhiều mặt hàng 1 lượt (dán danh sách / đặt lại đơn cũ): mỗi dòng đi qua
+   * selectItem như khi chọn tay → giá, thuế, ĐVT, kho, bung BOM.
+   */
+  const addItemsBatch = (entries: { item: ACOption; quantity: number }[]) => {
+    const fresh = entries.map((e) => ({
+      key: nextKey(), item: null, quantity: e.quantity, unitPrice: 0, discPct: 0, vatPct: 8,
+      warehouseCode: headerWh || undefined,
+    }))
+    setLines((ls) => [...ls.filter((x) => x.item || x.isBomChild), ...fresh])
+    fresh.forEach((nl, i) => selectItem(nl.key, entries[i].item))
+  }
+
   /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
   const quickAddLine = (v: ACOption, quantity: number) => {
     const empty = lines.find((l) => !l.item && !l.isBomChild)
@@ -1475,7 +1488,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
             </tbody>
           </table>
         </div>
-        <LineQuickAdd onAdd={quickAddLine} disabled={saving} />
+        <LineQuickAdd onAdd={quickAddLine} onAddMany={addItemsBatch} disabled={saving} />
         {swapTarget && (
           <BomSwapDialog
             key={swapTarget.key}

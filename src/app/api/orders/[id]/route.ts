@@ -7,7 +7,8 @@ import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
 import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
-import { parseB2BHeader, checkOrderSourceLines } from '../route'
+import { parseB2BHeader } from '../route'
+import { checkOrderSourceLines } from '@/lib/order-source-lines'
 
 type Ctx = { params: Promise<{ id: string }> }
 
