@@ -220,6 +220,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       docDueDate,
       comments: remarks ?? null,
       headerDiscPct: headerPct,
+      shipToCode: b2b.shipToCode,
+      billToCode: b2b.billToCode,
+      contactPersonCode: b2b.contactPersonCode,
       lines: calcLines.map((l, idx) => {
         const sub = l as { sapLineNum?: number }
         return {
@@ -309,6 +312,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         docDueDate,
         comments: remarks ?? null,
         headerDiscPct: headerPct,
+        shipToCode: b2b.shipToCode,
+        billToCode: b2b.billToCode,
+        contactPersonCode: b2b.contactPersonCode,
         lines: calcLines.map((l) => ({
           lineNum: resolveLineNum(l as { dbId?: string; sapLineNum?: number }),
           itemCode: l.itemCode,

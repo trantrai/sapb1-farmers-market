@@ -79,6 +79,8 @@ export interface SapDocHeaderExtras {
   shipToCode?: string | null
   /** Địa chỉ ghi hóa đơn (SAP: Documents.BillToCode) */
   billToCode?: string | null
+  /** Người liên hệ (SAP: Documents.ContactPersonCode = ContactEmployees.InternalCode) */
+  contactPersonCode?: number | null
   /** Số PO / tham chiếu của KH (SAP: Documents.NumAtCard) */
   numAtCard?: string | null
   /** Ngày tính thuế (SAP: Documents.TaxDate) — YYYY-MM-DD hoặc Date */
@@ -154,8 +156,12 @@ export interface SapPushResult {
   blocked?: boolean
 }
 
-/** Đầu vào cho PATCH — sửa chứng từ đang Open */
-export interface SapPatchInput {
+/**
+ * Đầu vào cho PATCH — sửa chứng từ đang Open.
+ * Địa chỉ giao/ghi hóa đơn + người liên hệ (ShipToCode/BillToCode/
+ * ContactPersonCode) gửi kèm khi có giá trị để thay đổi trên form lên SAP.
+ */
+export interface SapPatchInput extends Pick<SapDocHeaderExtras, 'shipToCode' | 'billToCode' | 'contactPersonCode'> {
   docEntry: number
   cardCode?: string
   docDate?: string
@@ -402,6 +408,7 @@ export function sapDocHeaderExtras(input: SapDocHeaderExtras): Record<string, un
     ...(typeof input.paymentGroupCode === 'number' ? { PaymentGroupCode: input.paymentGroupCode } : {}),
     ...(input.shipToCode?.trim() ? { ShipToCode: input.shipToCode.trim() } : {}),
     ...(input.billToCode?.trim() ? { BillToCode: input.billToCode.trim() } : {}),
+    ...(typeof input.contactPersonCode === 'number' ? { ContactPersonCode: input.contactPersonCode } : {}),
     ...(input.numAtCard?.trim() ? { NumAtCard: input.numAtCard.trim().slice(0, 100) } : {}),
     ...(taxDate ? { TaxDate: taxDate } : {}),
     // DocCurrency + DocRate: CHỈ gửi khi tiền tệ khác VND — tiền VND để SAP
@@ -414,6 +421,39 @@ export function sapDocHeaderExtras(input: SapDocHeaderExtras): Record<string, un
       : {}),
     ...(input.projectCode?.trim() ? { ProjectCode: input.projectCode.trim() } : {}),
     ...(reqDate ? { ReqDate: reqDate } : {}),
+  }
+}
+
+/**
+ * Lấy các trường header mở rộng từ bản ghi chứng từ local (Prisma) để truyền
+ * vào push/PATCH — dùng chung cho mọi luồng (tạo/finalize/đẩy lại/sửa) để
+ * không luồng nào bỏ sót trường nào.
+ */
+export function headerExtrasFromRecord(r: {
+  salesPersonCode?: number | null
+  paymentGroupCode?: number | null
+  shipToCode?: string | null
+  billToCode?: string | null
+  contactPersonCode?: number | null
+  numAtCard?: string | null
+  taxDate?: Date | string | null
+  docCurrency?: string | null
+  docRate?: number | null
+  projectCode?: string | null
+  reqDate?: Date | string | null
+}): SapDocHeaderExtras {
+  return {
+    salesPersonCode: r.salesPersonCode ?? null,
+    paymentGroupCode: r.paymentGroupCode ?? null,
+    shipToCode: r.shipToCode ?? null,
+    billToCode: r.billToCode ?? null,
+    contactPersonCode: r.contactPersonCode ?? null,
+    numAtCard: r.numAtCard ?? null,
+    taxDate: r.taxDate ?? null,
+    docCurrency: r.docCurrency ?? null,
+    docRate: r.docRate ?? null,
+    projectCode: r.projectCode ?? null,
+    reqDate: r.reqDate ?? null,
   }
 }
 
@@ -465,7 +505,7 @@ export function buildSapDocPayload(
     // CK đầu chứng từ: LUÔN gửi (kể cả 0) — sửa chứng từ về 0 phải xóa được CK cũ trên SAP
     DiscountPercent: Math.min(100, Math.max(0, Number(input.headerDiscPct) || 0)),
     // Header mở rộng Đợt 2+3 (SalesPersonCode, PaymentGroupCode, ShipToCode,
-    // BillToCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
+    // BillToCode, ContactPersonCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
     // — chỉ gửi khi có giá trị
     ...sapDocHeaderExtras(input),
     // Hóa đơn dịch vụ / hóa đơn dự trữ (Phase 2)
@@ -608,6 +648,11 @@ export async function patchDocumentToSap(settings: SapConfig, input: SapPatchDoc
     ...(input.comments?.trim() ? { Comments: input.comments.trim().slice(0, 254) } : {}),
     // CK đầu chứng từ: LUÔN gửi (kể cả 0) — sửa về 0 phải xóa được CK cũ trên SAP
     DiscountPercent: Math.min(100, Math.max(0, Number(input.headerDiscPct) || 0)),
+    ...sapDocHeaderExtras({
+      shipToCode: input.shipToCode,
+      billToCode: input.billToCode,
+      contactPersonCode: input.contactPersonCode,
+    }),
     DocumentLines: buildSapLines(
       input.lines,
       input.lines.map((l) => (typeof l.lineNum === 'number' ? l.lineNum : null)),

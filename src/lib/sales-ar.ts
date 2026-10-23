@@ -445,6 +445,7 @@ export interface B2bHeaderFields {
   paymentGroupCode: number | null
   shipToCode: string | null
   billToCode: string | null
+  contactPersonCode: number | null
   numAtCard: string | null
   taxDate: Date | null
   docCurrency: string
@@ -461,6 +462,7 @@ function parseB2bHeader(body: Record<string, unknown>, fallbackDate: Date): B2bH
     paymentGroupCode: intOrNull(body.paymentGroupCode),
     shipToCode: strOrNull(body.shipToCode, 50),
     billToCode: strOrNull(body.billToCode, 50),
+    contactPersonCode: intOrNull(body.contactPersonCode),
     numAtCard: strOrNull(body.numAtCard, 100),
     taxDate: dateOrNull(body.taxDate) ?? fallbackDate,
     docCurrency: (strOrNull(body.docCurrency, 3) ?? 'VND').toUpperCase(),
@@ -519,6 +521,7 @@ type HeaderBody = {
   paymentGroupCode?: unknown
   shipToCode?: unknown
   billToCode?: unknown
+  contactPersonCode?: unknown
   numAtCard?: unknown
   taxDate?: unknown
   docCurrency?: unknown
@@ -701,6 +704,7 @@ async function pushSalesDocAfterCreate(
     paymentGroupCode: created.paymentGroupCode ?? null,
     shipToCode: created.shipToCode ?? null,
     billToCode: created.billToCode ?? null,
+    contactPersonCode: created.contactPersonCode ?? null,
     numAtCard: created.numAtCard ?? null,
     taxDate: created.taxDate ?? null,
     docCurrency: created.docCurrency ?? null,
@@ -1141,6 +1145,10 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
         docDueDate,
         comments: remarks ?? null,
         headerDiscPct: headerPct,
+        // Địa chỉ giao/ghi hóa đơn + người liên hệ đã lưu → cập nhật lên SAP
+        shipToCode: updated.shipToCode ?? null,
+        billToCode: updated.billToCode ?? null,
+        contactPersonCode: updated.contactPersonCode ?? null,
         lines: newLines.map((l: any) => ({
           // Dòng đã tồn tại trên SAP kèm LineNum cũ; dòng mới → null = thêm mới;
           // dòng bị bỏ khỏi danh sách sẽ bị XÓA (B1S-ReplaceCollectionsOnPatch)
@@ -1476,6 +1484,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
             paymentGroupCode: src.paymentGroupCode ?? null,
             shipToCode: src.shipToCode ?? null,
             billToCode: src.billToCode ?? null,
+            contactPersonCode: src.contactPersonCode ?? null,
             numAtCard: src.numAtCard ?? null,
             docCurrency: src.docCurrency ?? 'VND',
             docRate: src.docRate ?? 1,
@@ -1523,6 +1532,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
         paymentGroupCode: src.paymentGroupCode,
         shipToCode: src.shipToCode,
         billToCode: src.billToCode,
+        contactPersonCode: src.contactPersonCode,
         numAtCard: src.numAtCard,
         taxDate: src.taxDate ? new Date(src.taxDate).toISOString().slice(0, 10) : undefined,
         docCurrency: src.docCurrency,

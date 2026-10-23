@@ -46,7 +46,15 @@ async function loadCustomers(s: {
   return { rows: [], error: live.error ?? 'Lỗi Service Layer' }
 }
 
-const toUi = (p: B1Partner, extra?: { addressesJson?: string | null; groupNum?: number | null }) => {
+type MirrorExtra = {
+  addressesJson?: string | null
+  groupNum?: number | null
+  contactsJson?: string | null
+  shipToDefault?: string | null
+  billToDefault?: string | null
+}
+
+const toUi = (p: B1Partner, extra?: MirrorExtra) => {
   const ce = Array.isArray(p.ContactEmployees) ? p.ContactEmployees : []
   const c = ce.find((x) => (x.Name ?? '').trim() !== '') ?? ce[0]
   const contactPerson = c ? ((c.Name ?? '').trim() || [c.FirstName, c.LastName].filter(Boolean).join(' ').trim() || '') : ''
@@ -63,6 +71,10 @@ const toUi = (p: B1Partner, extra?: { addressesJson?: string | null; groupNum?: 
     // Đợt 2 — gộp địa chỉ + ĐKTT từ mirror local (đồng bộ qua /api/bpartners/sync)
     addressesJson: extra?.addressesJson ?? null,
     groupNum: extra?.groupNum ?? null,
+    // Người liên hệ + địa chỉ mặc định (mirror local) — form chứng từ tự điền khi chọn KH
+    contactsJson: extra?.contactsJson ?? null,
+    shipToDefault: extra?.shipToDefault ?? null,
+    billToDefault: extra?.billToDefault ?? null,
   }
 }
 
@@ -86,12 +98,12 @@ export async function GET(req: NextRequest) {
     }
     // Đợt 2 — gộp addressesJson/groupNum từ mirror local (đồng bộ qua /api/bpartners/sync)
     // để form chứng từ có dropdown địa chỉ giao/ghi hóa đơn ngay cả khi query live từ SAP.
-    let mirror: Record<string, { addressesJson?: string | null; groupNum?: number | null }> = {}
+    const mirror: Record<string, MirrorExtra> = {}
     try {
       const codes = rows.map((p) => p.CardCode)
       const mrows = await prisma.businessPartner.findMany({
         where: { cardCode: { in: codes }, ...(dbId ? { sapDatabaseId: dbId } : {}) },
-        select: { cardCode: true, addressesJson: true, groupNum: true },
+        select: { cardCode: true, addressesJson: true, groupNum: true, contactsJson: true, shipToDefault: true, billToDefault: true },
       })
       for (const m of mrows) mirror[m.cardCode] = m
     } catch { /* mirror lỗi → vẫn trả dữ liệu SAP live */ }

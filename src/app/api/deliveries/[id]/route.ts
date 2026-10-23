@@ -140,7 +140,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     remarks?: string | null
     warehouseCode?: string | null
     /** B2B / SAP B1 (Đợt 2+3) — parse chi tiết bằng parseB2BHeader (whitelist) */
-    salesPersonCode?: unknown; paymentGroupCode?: unknown; shipToCode?: unknown; billToCode?: unknown
+    salesPersonCode?: unknown; paymentGroupCode?: unknown; shipToCode?: unknown; billToCode?: unknown; contactPersonCode?: unknown
     numAtCard?: unknown; taxDate?: unknown; docCurrency?: unknown; docRate?: unknown
     projectCode?: unknown; attachmentsJson?: unknown; reqDate?: unknown
     /** Ghi chú soạn/đóng gói (SAP PickAndPackNotes) */
@@ -185,7 +185,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   const headerPatch: {
     docDate?: Date; remarks?: string | null; warehouseCode?: string | null
     salesPersonCode?: number | null; paymentGroupCode?: number | null
-    shipToCode?: string | null; billToCode?: string | null; numAtCard?: string | null
+    shipToCode?: string | null; billToCode?: string | null; contactPersonCode?: number | null; numAtCard?: string | null
     taxDate?: Date | null; docCurrency?: string; docRate?: number | null
     projectCode?: string | null; attachmentsJson?: string | null; reqDate?: Date | null
     pickAndPackNotes?: string | null; headerDiscPct?: number

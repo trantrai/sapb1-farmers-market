@@ -24,10 +24,9 @@ import {
   b2bFromSaved,
   buildB2BPayload,
   defaultB2BForm,
-  parseB2BAddresses,
-  type B2BAddress,
   type B2BFormState,
 } from './order-form-view'
+import { useBpB2BInfo } from './b2b-party-fields'
 
 interface FormLine {
   key: number
@@ -100,8 +99,6 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
   /** ĐKTT: GET /api/payment-terms → [{code, name}]; 404/lỗi → ô nhập số (fallback) */
   const [paymentTerms, setPaymentTerms] = useState<{ code: number; name: string }[]>([])
   const [ptListFailed, setPtListFailed] = useState(false)
-  /** Địa chỉ của KH đã chọn (từ BusinessPartner.addressesJson) — rỗng → ẩn 2 dropdown địa chỉ */
-  const [b2bAddresses, setB2bAddresses] = useState<B2BAddress[]>([])
   /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: DiscountPercent) — trừ vào tổng phiếu */
   const [headerDiscPct, setHeaderDiscPct] = useState(0)
   /** Ghi chú soạn/đóng gói (SAP PickAndPackNotes) */
@@ -209,34 +206,11 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
     return () => { cancelled = true }
   }, [])
 
-  // ---- B2B: địa chỉ giao/ghi hóa đơn của KH đã chọn (BusinessPartner.addressesJson) ----
-  // Rỗng → ẩn 2 dropdown địa chỉ. Đồng bộ lại shipTo/billTo nếu mã đã chọn
-  // không còn trong danh sách (tránh lưu mã địa chỉ không thuộc KH này).
-  useEffect(() => {
-    const code = partner?.code
-    if (!code) { setB2bAddresses([]); return }
-    let cancelled = false
-    api(`/api/bpartners/sync?q=${encodeURIComponent(code)}&pageSize=5`)
-      .then(async (r) => {
-        if (cancelled) return
-        let addrs: B2BAddress[] = []
-        if (r.ok) {
-          const j = await r.json().catch(() => null)
-          const rows: Array<{ cardCode?: string; addressesJson?: string | null }> = Array.isArray(j?.data) ? j.data : []
-          const rec = rows.find((d) => String(d.cardCode ?? '').toLowerCase() === code.toLowerCase()) ?? rows[0]
-          addrs = parseB2BAddresses(rec?.addressesJson ?? null)
-        }
-        setB2bAddresses(addrs)
-        const codes = new Set(addrs.map((a) => a.code))
-        setB2b((b) => ({
-          ...b,
-          shipToCode: b.shipToCode && codes.has(b.shipToCode) ? b.shipToCode : '',
-          billToCode: b.billToCode && codes.has(b.billToCode) ? b.billToCode : '',
-        }))
-      })
-      .catch(() => { if (!cancelled) setB2bAddresses([]) })
-    return () => { cancelled = true }
-  }, [partner?.code])
+  // ---- Địa chỉ giao/ghi hóa đơn + người liên hệ của KH đã chọn ----
+  // Chọn KH → tự điền mặc định của KH; người dùng vẫn đổi được trên form.
+  const party = useBpB2BInfo(partner?.code, (update) =>
+    setB2b((b) => ({ ...b, ...update({ shipToCode: b.shipToCode, billToCode: b.billToCode, contactPersonCode: b.contactPersonCode }) })),
+  )
 
   // Tải phiếu khi ở chế độ sửa
   useEffect(() => {
@@ -522,6 +496,8 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                 fetchUrl="/api/partners"
                 value={partner}
                 onChange={(v) => {
+                  // người dùng chọn KH khác → điền địa chỉ/người liên hệ mặc định của KH mới
+                  if (v?.code !== partner?.code) party.requestDefaults()
                   setPartner(v)
                   // Giá tự giải theo Price List 1 khi chọn khách hàng mới (mirror order-form)
                   if (v?.price) {
@@ -617,7 +593,9 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
         spListFailed={spListFailed}
         paymentTerms={paymentTerms}
         ptListFailed={ptListFailed}
-        addresses={b2bAddresses}
+        partyInfo={party.info}
+        partyLoading={party.loading}
+        hasPartner={!!partner}
       />
 
       <div className="fm-card" style={{ marginBottom: 12 }}>

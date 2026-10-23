@@ -3,6 +3,7 @@ import { parsePageParam } from '@/lib/fm-shared'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { pushOrderToSap, type SapPushResult } from '@/lib/sap-push-order'
+import { headerExtrasFromRecord } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
@@ -19,6 +20,7 @@ interface B2BHeaderData {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: Date | null
   docCurrency?: string
@@ -34,7 +36,7 @@ interface B2BHeaderData {
 export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeaderData; error?: string } {
   const data: B2BHeaderData = {}
 
-  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode', label: string): string | undefined => {
+  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode' | 'contactPersonCode', label: string): string | undefined => {
     if (!(key in body)) return undefined
     const v = body[key]
     if (v === null || v === undefined || v === '') { data[key] = null; return undefined }
@@ -64,6 +66,8 @@ export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeader
   err = optInt('salesPersonCode', 'Mã nhân viên bán hàng')
   if (err) return { data, error: err }
   err = optInt('paymentGroupCode', 'Mã điều khoản thanh toán')
+  if (err) return { data, error: err }
+  err = optInt('contactPersonCode', 'Mã người liên hệ')
   if (err) return { data, error: err }
   err = optStr('shipToCode', 50)
   if (err) return { data, error: err }
@@ -417,6 +421,7 @@ export async function POST(req: NextRequest) {
       try {
         push = await pushOrderToSap({
           cardCode,
+          ...headerExtrasFromRecord(created),
           docDate: created.docDate.toISOString(),
           docDueDate: created.docDueDate.toISOString(),
           comments: created.remarks,

@@ -91,7 +91,7 @@ function buildPayload(input: SapDeliveryInput, withUdf = false, bases?: (SapLine
     // Ghi chú soạn/đóng gói (Đợt 2+3)
     ...(input.pickAndPackNotes?.trim() ? { PickAndPackNotes: input.pickAndPackNotes.trim().slice(0, 254) } : {}),
     // Header mở rộng Đợt 2+3 (SalesPersonCode, PaymentGroupCode, ShipToCode,
-    // BillToCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
+    // BillToCode, ContactPersonCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
     // — chỉ gửi khi có giá trị
     ...sapDocHeaderExtras(input),
     ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),

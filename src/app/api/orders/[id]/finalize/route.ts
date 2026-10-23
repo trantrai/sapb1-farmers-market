@@ -3,6 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings } from '@/lib/sap-service-layer'
 import { pushOrderToSap } from '@/lib/sap-push-order'
+import { headerExtrasFromRecord } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -91,6 +92,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     try {
       push = await pushOrderToSap({
         cardCode: finalized.cardCode,
+        ...headerExtrasFromRecord(finalized),
         docDate: finalized.docDate.toISOString(),
         docDueDate: finalized.docDueDate.toISOString(),
         comments: finalized.remarks,

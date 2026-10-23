@@ -11,7 +11,7 @@
 // nguồn → API ?prefill=1 trả dữ liệu điền sẵn (không tạo chứng từ ngay).
 // ============================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, ArrowLeft, Wallet, Copy, Building2 } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
@@ -19,6 +19,10 @@ import { formatVND } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import CopyFromPicker from './copy-from-picker'
+import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import type { B2BPartySelection } from '@/lib/bp-b2b'
+
+const EMPTY_PARTY: B2BPartySelection = { shipToCode: '', billToCode: '', contactPersonCode: '' }
 import type { CopyFromTarget, PrefillDoc } from '@/lib/copy-from'
 import {
   clampPct,
@@ -59,8 +63,6 @@ const nextKey = () => ++keyCounter
 /** Đợt 2 — Đính kèm chứng từ: [{name, url}] lưu vào cột attachmentsJson */
 export interface AttachmentItem { name: string; url: string }
 
-/** Địa chỉ đối tác từ API đối tác (shape [{code,name,detail,type:'B'|'S'}]) */
-export interface PartnerAddress { code: string; name: string; detail: string; type: 'B' | 'S' }
 
 /** Parse attachmentsJson (string JSON) → danh sách hiển thị trên form */
 function parseAttachmentsState(raw: string | null | undefined): AttachmentItem[] {
@@ -75,24 +77,6 @@ function parseAttachmentsState(raw: string | null | undefined): AttachmentItem[]
   } catch {
     return []
   }
-}
-
-/** Parse addressesJson của đối tác → [{code,name,detail,type}] */
-function parseAddressesState(raw: unknown): PartnerAddress[] {
-  let arr: unknown = raw
-  if (typeof raw === 'string') {
-    try { arr = JSON.parse(raw) } catch { return [] }
-  }
-  if (!Array.isArray(arr)) return []
-  const out: PartnerAddress[] = []
-  for (const a of arr as Record<string, unknown>[]) {
-    const t = a?.type
-    if (t !== 'B' && t !== 'S') continue
-    const code = String(a?.code ?? '')
-    if (!code) continue
-    out.push({ code, name: String(a?.name ?? ''), detail: String(a?.detail ?? ''), type: t })
-  }
-  return out
 }
 
 interface Props {
@@ -150,12 +134,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   const [docRate, setDocRate] = useState(1)
   /** Mã dự án (SAP ProjectCode) */
   const [projectCode, setProjectCode] = useState('')
-  /** Địa chỉ KH: giao hàng (S) / ghi hóa đơn (B) — ẩn khi KH không có địa chỉ */
-  const [addresses, setAddresses] = useState<PartnerAddress[]>([])
-  const [shipToCode, setShipToCode] = useState('')
-  const [billToCode, setBillToCode] = useState('')
-  /** Khôi phục địa chỉ khi nạp dữ liệu sửa/copy (applyEditData/applyCopyFrom đặt trước khi effect địa chỉ chạy) */
-  const pendingAddrRef = useRef<{ ship: string; bill: string } | null>(null)
+  /** Địa chỉ giao hàng / ghi hóa đơn + người liên hệ (SAP ShipToCode / BillToCode / ContactPersonCode) */
+  const [partySel, setPartySel] = useState<B2BPartySelection>(EMPTY_PARTY)
   /** Đính kèm [{name,url}] (lưu vào attachmentsJson) */
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
 
@@ -227,10 +207,12 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     setDocCurrency(o.docCurrency || 'VND')
     setDocRate(o.docRate && o.docRate > 0 ? o.docRate : 1)
     setProjectCode(o.projectCode ?? '')
-    // Địa chỉ giao/ghi hóa đơn: đặt khôi phục trước khi effect địa chỉ chạy
-    pendingAddrRef.current = { ship: o.shipToCode ?? '', bill: o.billToCode ?? '' }
-    setShipToCode(o.shipToCode ?? '')
-    setBillToCode(o.billToCode ?? '')
+    // Địa chỉ giao/ghi hóa đơn + người liên hệ đã lưu (giữ nguyên nếu còn thuộc KH)
+    setPartySel({
+      shipToCode: o.shipToCode ?? '',
+      billToCode: o.billToCode ?? '',
+      contactPersonCode: o.contactPersonCode != null ? String(o.contactPersonCode) : '',
+    })
     setAttachments(parseAttachmentsState(o.attachmentsJson))
     // Khấu trừ đặt cọc đã gắn (chế độ sửa hóa đơn): đánh dấu sẵn, merge thêm
     // số dư còn lại khi danh sách đặt cọc của KH tải xong
@@ -295,12 +277,11 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     const pRate = Number(p2.docRate)
     setDocRate(Number.isFinite(pRate) && pRate > 0 ? pRate : 1)
     setProjectCode(typeof p2.projectCode === 'string' ? p2.projectCode : '')
-    pendingAddrRef.current = {
-      ship: typeof p2.shipToCode === 'string' ? p2.shipToCode : '',
-      bill: typeof p2.billToCode === 'string' ? p2.billToCode : '',
-    }
-    setShipToCode(typeof p2.shipToCode === 'string' ? p2.shipToCode : '')
-    setBillToCode(typeof p2.billToCode === 'string' ? p2.billToCode : '')
+    setPartySel({
+      shipToCode: typeof p2.shipToCode === 'string' ? p2.shipToCode : '',
+      billToCode: typeof p2.billToCode === 'string' ? p2.billToCode : '',
+      contactPersonCode: typeof p2.contactPersonCode === 'number' ? String(p2.contactPersonCode) : '',
+    })
     setAttachments(parseAttachmentsState(typeof p2.attachmentsJson === 'string' ? p2.attachmentsJson : null))
     const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
       key: nextKey(),
@@ -434,45 +415,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     return () => { cancelled = true }
   }, [])
 
-  // ---- Đợt 2 — Địa chỉ KH: addressesJson từ API đối tác, shape
-  // [{code,name,detail,type:'B'|'S'}]. Không có → ẩn 2 dropdown. ----
-  useEffect(() => {
-    const code = partner?.code
-    if (!code) {
-      setAddresses([])
-      setShipToCode('')
-      setBillToCode('')
-      pendingAddrRef.current = null
-      return
-    }
-    let cancelled = false
-    const restore = pendingAddrRef.current
-    pendingAddrRef.current = null
-    api(`/api/partners?q=${encodeURIComponent(code)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (cancelled) return
-        const rows = ((j?.data ?? []) as Record<string, unknown>[])
-        const row = rows.find((d) => String(d.cardCode ?? '') === code)
-        setAddresses(parseAddressesState(row?.addressesJson))
-        if (restore) {
-          setShipToCode(restore.ship)
-          setBillToCode(restore.bill)
-        } else {
-          setShipToCode('')
-          setBillToCode('')
-        }
-      })
-      .catch(() => {
-        if (cancelled) return
-        setAddresses([])
-        if (restore) {
-          setShipToCode(restore.ship)
-          setBillToCode(restore.bill)
-        }
-      })
-    return () => { cancelled = true }
-  }, [partner?.code])
+  // ---- Địa chỉ giao/ghi hóa đơn + người liên hệ của KH đã chọn ----
+  // Chọn KH → tự điền mặc định của KH; người dùng vẫn đổi được trên form.
+  const party = useBpB2BInfo(partner?.code, setPartySel)
 
   // ---- Phase 2 — Khấu trừ đặt cọc: tải đặt cọc còn dư của khách hàng ----
   // Chỉ khi form Hóa đơn (enableDownPaymentDraws) và đã chọn KH. Lọc
@@ -655,8 +600,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         docCurrency: (docCurrency.trim() || 'VND').toUpperCase(),
         docRate: docRate > 0 ? docRate : 1,
         projectCode: projectCode.trim() || undefined,
-        shipToCode: shipToCode || undefined,
-        billToCode: billToCode || undefined,
+        shipToCode: partySel.shipToCode || undefined,
+        billToCode: partySel.billToCode || undefined,
+        contactPersonCode: partySel.contactPersonCode ? Number(partySel.contactPersonCode) : null,
         attachments: attachments.length > 0
           ? attachments.map((a) => ({ name: a.name.trim(), url: a.url.trim() })).filter((a) => a.name || a.url)
           : undefined,
@@ -766,8 +712,6 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   // Đợt 2 — Phiếu trả hàng bán: mỗi dòng thêm cột "Số lô" (SAP BatchNumbers)
   const showBatchCol = config.showBatchNumberCol === true
   /** Địa chỉ giao hàng (type 'S') và ghi hóa đơn (type 'B') — ẩn khi không có */
-  const shipAddrOpts = useMemo(() => addresses.filter((a) => a.type === 'S'), [addresses])
-  const billAddrOpts = useMemo(() => addresses.filter((a) => a.type === 'B'), [addresses])
   const title = isEdit ? `Cập nhật ${dl}` : `Tạo ${dl} mới`
   const crumb = isEdit ? `Sửa ${dl}` : `Tạo ${dl} mới`
 
@@ -892,10 +836,10 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
               disabled={saving}
               error={partnerErr || undefined}
               onChange={(v) => {
+                // người dùng chọn KH khác → điền địa chỉ/người liên hệ mặc định của KH mới
+                if (v?.code !== partner?.code) party.requestDefaults()
                 setPartner(v)
                 setPartnerErr('')
-                // đổi KH tay → bỏ khôi phục địa chỉ đang chờ (nếu có)
-                pendingAddrRef.current = null
                 // đổi khách hàng → tính lại giá cho các dòng chưa có đơn giá tay
                 if (v) for (const line of lines) if (line.item && line.unitPrice === 0) void resolvePrice(line.key, line.item.code, v.code)
               }}
@@ -1105,45 +1049,16 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
               onChange={(e) => setProjectCode(e.target.value)}
             />
           </div>
-          {/* Địa chỉ giao hàng / ghi hóa đơn — chỉ hiện khi KH có địa chỉ */}
-          {shipAddrOpts.length > 0 && (
-            <div>
-              <label className="fm-label" htmlFor="fm-ship" title="Địa chỉ giao hàng (SAP: ShipToCode)">Địa chỉ giao hàng</label>
-              <select
-                id="fm-ship"
-                className="fm-select"
-                value={shipToCode}
-                disabled={saving}
-                onChange={(e) => setShipToCode(e.target.value)}
-              >
-                <option value="">— Mặc định —</option>
-                {shipAddrOpts.map((a) => (
-                  <option key={a.code} value={a.code} title={a.detail || undefined}>
-                    {a.name ? `${a.code} — ${a.name}` : a.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {billAddrOpts.length > 0 && (
-            <div>
-              <label className="fm-label" htmlFor="fm-bill" title="Địa chỉ ghi hóa đơn (SAP: BillToCode)">Địa chỉ ghi hóa đơn</label>
-              <select
-                id="fm-bill"
-                className="fm-select"
-                value={billToCode}
-                disabled={saving}
-                onChange={(e) => setBillToCode(e.target.value)}
-              >
-                <option value="">— Mặc định —</option>
-                {billAddrOpts.map((a) => (
-                  <option key={a.code} value={a.code} title={a.detail || undefined}>
-                    {a.name ? `${a.code} — ${a.name}` : a.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Người liên hệ + địa chỉ giao hàng / ghi hóa đơn — mặc định theo KH, cho phép đổi */}
+          <B2BPartyFields
+            value={partySel}
+            onChange={(patch) => setPartySel((cur) => ({ ...cur, ...patch }))}
+            info={party.info}
+            loading={party.loading}
+            disabled={saving}
+            hasPartner={!!partner}
+            idPrefix="fm-party"
+          />
         </div>
         {/* Đính kèm [{name,url}] */}
         <div style={{ marginTop: 12 }}>

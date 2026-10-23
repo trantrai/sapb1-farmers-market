@@ -181,8 +181,8 @@
 }
 
 /* Token đã loại bỏ ở đợt Swiss (2026-10-18) — đừng dùng lại trong CSS mới:
-   --fm-accent*, --fm-yellow* (→ --fm-gold*), --fm-red*/--fm-danger-bg (→ --fm-coral*),
-   --fm-green*/--fm-success* (→ --fm-navy*), --fm-amber*/--fm-warn* (→ --fm-gold-ink/--fm-gold-faint),
+   --fm-accent*, --fm-yellow* (→ --fm-gold*), --fm-red* / --fm-danger-bg (→ --fm-coral*),
+   --fm-green* / --fm-success* (→ --fm-navy*), --fm-amber* / --fm-warn* (→ --fm-gold-ink/--fm-gold-faint),
    --fm-info-soft (→ --fm-navy-soft), --fm-hover-bg/--fm-chip-closed-bg (→ --fm-line-soft),
    --fm-zebra (xoá), --fm-bom-parent-bg (→ --fm-gold-faint), --fm-bom-child-bg (→ --fm-navy-soft),
    --fm-slate-*, --fm-warning-bg, --fm-shadow/--fm-shadow-pop (xoá, dùng hairline) */

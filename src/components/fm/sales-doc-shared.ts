@@ -115,6 +115,7 @@ export interface SalesDoc {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -171,6 +172,7 @@ export interface EditDocData {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -226,6 +228,7 @@ export interface EditDocSource {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -262,6 +265,7 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
   paymentGroupCode: o.paymentGroupCode ?? null,
   shipToCode: o.shipToCode ?? null,
   billToCode: o.billToCode ?? null,
+  contactPersonCode: o.contactPersonCode ?? null,
   numAtCard: o.numAtCard ?? null,
   taxDate: o.taxDate ?? null,
   docCurrency: o.docCurrency ?? null,
