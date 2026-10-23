@@ -6,7 +6,7 @@ import {
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
   FileText, Receipt, FileMinus2, Undo2, HandCoins, BarChart3, FileClock,
-  UserCheck, CalendarClock, ArrowLeftRight, ArrowRight,
+  UserCheck, CalendarClock, ArrowLeftRight, ArrowRight, Database,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -69,28 +69,27 @@ interface MenuItem {
   short: string
   icon: React.ReactNode
   group: 'main' | 'sync' | 'admin'
-  badge?: string
 }
 
 const MENU: MenuItem[] = [
   { key: 'dashboard', module: 'orders', label: 'Tổng quan hệ thống', short: 'Tổng quan', icon: <LayoutDashboard size={16} />, group: 'main' },
-  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng bán', short: 'Đơn hàng bán', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
+  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng bán', short: 'Đơn hàng bán', icon: <ClipboardList size={16} />, group: 'main' },
   { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng bán mới', short: 'Tạo đơn bán', icon: <PlusCircle size={16} />, group: 'main' },
-  { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main', badge: 'DL' },
-  { key: 'quotations', module: 'quotations', label: 'Báo giá bán hàng', short: 'Báo giá', icon: <FileText size={16} />, group: 'main', badge: 'QT' },
-  { key: 'invoices', module: 'invoices', label: 'Hóa đơn bán hàng', short: 'Hóa đơn', icon: <Receipt size={16} />, group: 'main', badge: 'IV' },
-  { key: 'creditMemos', module: 'creditMemos', label: 'Phiếu ghi có phải thu', short: 'Ghi có', icon: <FileMinus2 size={16} />, group: 'main', badge: 'CM' },
-  { key: 'returns', module: 'returns', label: 'Phiếu trả hàng bán', short: 'Trả hàng', icon: <Undo2 size={16} />, group: 'main', badge: 'RT' },
-  { key: 'downPayments', module: 'downPayments', label: 'Hóa đơn đặt cọc phải thu', short: 'Đặt cọc', icon: <HandCoins size={16} />, group: 'main', badge: 'DP' },
-  { key: 'salesReport', module: 'salesReport', label: 'Báo cáo bán hàng', short: 'BC bán hàng', icon: <BarChart3 size={16} />, group: 'main', badge: 'BC' },
-  { key: 'arAgingReport', module: 'arAgingReport', label: 'Công nợ phải thu', short: 'Công nợ', icon: <FileClock size={16} />, group: 'main', badge: 'CN' },
+  { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main' },
+  { key: 'quotations', module: 'quotations', label: 'Báo giá bán hàng', short: 'Báo giá', icon: <FileText size={16} />, group: 'main' },
+  { key: 'invoices', module: 'invoices', label: 'Hóa đơn bán hàng', short: 'Hóa đơn', icon: <Receipt size={16} />, group: 'main' },
+  { key: 'creditMemos', module: 'creditMemos', label: 'Phiếu ghi có phải thu', short: 'Ghi có', icon: <FileMinus2 size={16} />, group: 'main' },
+  { key: 'returns', module: 'returns', label: 'Phiếu trả hàng bán', short: 'Trả hàng', icon: <Undo2 size={16} />, group: 'main' },
+  { key: 'downPayments', module: 'downPayments', label: 'Hóa đơn đặt cọc phải thu', short: 'Đặt cọc', icon: <HandCoins size={16} />, group: 'main' },
+  { key: 'salesReport', module: 'salesReport', label: 'Báo cáo bán hàng', short: 'BC bán hàng', icon: <BarChart3 size={16} />, group: 'main' },
+  { key: 'arAgingReport', module: 'arAgingReport', label: 'Công nợ phải thu', short: 'Công nợ', icon: <FileClock size={16} />, group: 'main' },
   { key: 'excelTemplates', module: 'excelTemplates', label: 'Mẫu Excel', short: 'Mẫu Excel', icon: <FileSpreadsheet size={16} />, group: 'main' },
-  { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
-  { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
-  { key: 'partners', module: 'settings', label: 'Đồng bộ Đối tác kinh doanh', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
-  { key: 'salesPersons', module: 'settings', label: 'Đồng bộ Nhân viên bán hàng', short: 'NVBH', icon: <UserCheck size={16} />, group: 'sync', badge: 'NVBH' },
-  { key: 'paymentTerms', module: 'settings', label: 'Đồng bộ Điều khoản thanh toán', short: 'ĐKTT', icon: <CalendarClock size={16} />, group: 'sync', badge: 'ĐKTT' },
-  { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync', badge: 'BOM' },
+  { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync' },
+  { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync' },
+  { key: 'partners', module: 'settings', label: 'Đồng bộ Đối tác kinh doanh', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync' },
+  { key: 'salesPersons', module: 'settings', label: 'Đồng bộ Nhân viên bán hàng', short: 'NVBH', icon: <UserCheck size={16} />, group: 'sync' },
+  { key: 'paymentTerms', module: 'settings', label: 'Đồng bộ Điều khoản thanh toán', short: 'ĐKTT', icon: <CalendarClock size={16} />, group: 'sync' },
+  { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync' },
   { key: 'users', module: 'users', label: 'Quản lý người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
   { key: 'roles', module: 'roles', label: 'Quản lý ủy quyền', short: 'Ủy quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
   { key: 'settings', module: 'settings', label: 'Cài đặt SAP B1', short: 'Cài đặt', icon: <Settings size={16} />, group: 'admin' },
@@ -378,7 +377,6 @@ export default function AppShell({ user, onLogout }: Props) {
     >
       {m.icon}
       <span className="fm-menu-item__label">{m.label}</span>
-      {m.badge && <span className="fm-badge-count">{m.badge}</span>}
       {m.key === 'orders' && overdueCount > 0 && (
         <span className="fm-badge-dot" title={`${overdueCount} đơn quá hạn giao`}>{overdueCount > 99 ? '99+' : overdueCount}</span>
       )}
@@ -502,17 +500,32 @@ export default function AppShell({ user, onLogout }: Props) {
               <kbd className="fm-search__kbd">Ctrl K</kbd>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div className="fm-header__right">
             <button className="fm-header__bell" aria-label="Thông báo" title="Chưa có thông báo mới" onClick={() => showToast('Chưa có thông báo mới', 'success')}>
               <Bell size={18} />
             </button>
+            {/* CSDL SAP B1 đang làm việc — đặt ngay trước người dùng, kèm trạng thái kết nối */}
+            <div
+              className={`fm-header__db is-${sapStatus}`}
+              title={`Cơ sở dữ liệu SAP B1 đang làm việc: ${user.databaseLabel ?? 'Mặc định'} — ${sapStatus === 'ok' ? 'đang kết nối' : sapStatus === 'none' ? 'chưa cấu hình Service Layer' : 'lỗi kết nối'}`}
+            >
+              <Database size={16} aria-hidden className="fm-header__db-icon" />
+              <span className="fm-header__db-text">
+                <small>Cơ sở dữ liệu</small>
+                <b>{user.databaseLabel ?? 'Mặc định'}</b>
+              </span>
+              <span className="fm-header__db-dot" aria-hidden />
+              <span className="fm-sr-only">
+                {sapStatus === 'ok' ? 'Đang kết nối' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi kết nối'}
+              </span>
+            </div>
             <div className="fm-header__user">
               <span className="fm-header__avatar">
                 {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
               </span>
               <span className="fm-header__info">
                 <b>{user.fullName}</b>
-                <small>{user.roleLabel}{user.databaseLabel ? ` · DB: ${user.databaseLabel}` : ''}</small>
+                <small>{user.roleLabel}</small>
               </span>
             </div>
           </div>
