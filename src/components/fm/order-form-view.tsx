@@ -14,6 +14,7 @@ import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
+import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
@@ -1598,12 +1599,12 @@ export default function OrderFormView({
   const expandedLines = useExpandedLines()
 
   /** Chọn mặt hàng cho dòng (dùng chung ô tìm trong dòng và ô thêm dòng nhanh) */
-  const selectItem = (key: number, v: ACOption | null) => {
+  const selectItem = (key: number, v: ACOption | null, whOverride?: string) => {
     const cur = lines.find((x) => x.key === key)
     // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
     // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
     const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
-    const wh = cur?.warehouseCode || headerWh || undefined
+    const wh = whOverride || cur?.warehouseCode || headerWh || undefined
     updateLine(key, {
       item: v,
       unitPrice: v?.price ?? 0,
@@ -1644,6 +1645,29 @@ export default function OrderFormView({
     })
     void checkAtp(key, v.code, wh)
     setSwapKey(null)
+  }
+
+  /**
+   * "Đặt lại đơn gần nhất": thêm nhiều mặt hàng 1 lượt (thay toàn bộ dòng hoặc nối thêm).
+   * Mỗi dòng đi qua selectItem như khi chọn tay → giá đặc biệt/bảng giá, thuế, ATP,
+   * bung BOM theo công thức hiện hành.
+   */
+  const applyRecentOrder = (order: RecentOrder, mode: 'replace' | 'append') => {
+    const usable = order.lines.filter((l) => l.available && l.quantity > 0)
+    const fresh = usable.map((l) => ({
+      key: nextKey(), item: null, quantity: l.quantity, unitPrice: 0, discPct: 0, vatPct: 8,
+      warehouseCode: l.warehouseCode || headerWh || undefined,
+    }))
+    setLines((ls) => [...(mode === 'replace' ? [] : ls.filter((x) => x.item || x.isBomChild)), ...fresh])
+    if (mode === 'replace') setAtp({})
+    fresh.forEach((nl, i) => selectItem(nl.key, recentLineToOption(usable[i]), nl.warehouseCode))
+    const skipped = order.lines.length - usable.length
+    setTplMsg({
+      type: 'success',
+      text: `${mode === 'replace' ? 'Đã dùng lại' : 'Đã thêm'} ${usable.length} dòng từ đơn #${order.docNum ?? ''}`
+        + (skipped ? ` — bỏ qua ${skipped} mặt hàng không còn trong danh mục bán.` : '.')
+        + ' Giá đã tính lại theo bảng giá hiện tại.',
+    })
   }
 
   /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
@@ -2177,6 +2201,9 @@ export default function OrderFormView({
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ShoppingBasket size={18} /> Bước 2 — Hàng hóa
         </h2>
+
+        {/* Đặt lại đơn gần nhất của khách (chỉ khi TẠO đơn mới) */}
+        {!isEdit && <RecentOrdersPanel cardCode={partner?.code} disabled={saving} onUse={applyRecentOrder} />}
 
         {/* Gợi ý mặt hàng theo lịch sử mua hàng của khách */}
         {partner?.code && (suggestLoading || suggests.length > 0) && (
