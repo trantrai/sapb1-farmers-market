@@ -1268,6 +1268,70 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-stack-table--form tbody td .fm-line-meta { margin-top: 1px; }
 }
 
+/* ---------- 15.4c Dòng hàng gọn: chi tiết mở theo dòng + ô thêm dòng nhanh ---------- */
+.fm-line-table { width: 100%; table-layout: auto; }
+.fm-line-table .fm-col-no { width: 64px; }
+.fm-line-table .fm-col-qty { width: 104px; }
+.fm-line-table .fm-col-price { width: 136px; }
+.fm-line-table .fm-col-disc { width: 84px; }
+.fm-line-table .fm-col-total { width: 140px; }
+.fm-line-table .fm-col-del { width: 44px; }
+.fm-line-table td.fm-num, .fm-line-table th.fm-num { text-align: right; font-variant-numeric: tabular-nums; }
+.fm-line-table .fm-line-total { font-weight: 700; color: var(--fm-navy); white-space: nowrap; }
+/* Tóm tắt chi tiết dưới tên mặt hàng (ĐVT · Kho · Thuế) — để không phải mở mới thấy */
+.fm-line-summary { margin-top: 3px; font-size: 11px; color: var(--fm-text-2); font-variant-numeric: tabular-nums; }
+.fm-line-item-text b { color: var(--fm-navy); }
+.fm-line-item-text__name { font-size: 12px; color: var(--fm-text-2); }
+
+.fm-line-expand {
+  display: inline-flex; align-items: center; gap: 2px; min-height: 28px; padding: 2px 6px 2px 2px;
+  border: 1px solid transparent; border-radius: var(--fm-r-sm); background: none;
+  color: var(--fm-navy); font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; position: relative;
+}
+.fm-line-expand:hover { background: var(--fm-navy-soft); }
+.fm-line-expand:focus-visible { outline: 2px solid var(--fm-navy); outline-offset: 1px; }
+.fm-line-expand[aria-expanded="true"] { border-color: var(--fm-line); background: var(--fm-surface); }
+.fm-line-expand.has-issue::after {
+  content: ''; position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--fm-coral);
+}
+
+/* Hàng chi tiết: lưới trường ít dùng, nền nhạt, nối liền với dòng chính */
+.fm-table tr.fm-line-detail td { background: var(--fm-cream); border-top: none; padding: 8px 12px 12px 64px; }
+.fm-table tr.fm-line-detail:hover td { background: var(--fm-cream); }
+.fm-line-detail__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; }
+.fm-line-detail__field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fm-line-detail__label { font-size: 11px; font-weight: 700; color: var(--fm-text-3); text-transform: uppercase; letter-spacing: .4px; }
+.fm-line-detail__field .fm-line-input, .fm-line-detail__field .fm-line-select { border-color: var(--fm-line); background: var(--fm-surface); text-align: left; min-height: 32px; }
+.fm-line-detail__field .fm-line-meta { align-self: flex-start; }
+
+/* Ô thêm dòng nhanh (dưới bảng) */
+.fm-line-add {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 8px; padding: 8px 12px; border: 1px dashed var(--fm-line-2); border-radius: var(--fm-r-lg);
+  background: var(--fm-surface);
+}
+.fm-line-add:focus-within { border-style: solid; border-color: var(--fm-navy); box-shadow: 0 0 0 2px var(--fm-navy-soft); }
+.fm-line-add__icon { color: var(--fm-navy); display: inline-flex; }
+.fm-line-add__item { flex: 1 1 320px; min-width: 0; }
+.fm-line-add__item .fm-field { margin-bottom: 0; }
+.fm-line-add__qty { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--fm-text-3); }
+.fm-line-add__qty .fm-line-input { width: 80px; border-color: var(--fm-line); }
+.fm-line-add__hint { font-size: 11px; color: var(--fm-text-3); }
+
+@media (max-width: 640px) {
+  .fm-table tr.fm-line-detail td { padding: 4px 0 0 !important; background: none; }
+  /* card chi tiết dính liền card dòng chính */
+  .fm-stack-table tbody tr.fm-line-detail { margin-top: -10px; border-top: none; border-radius: 0 0 var(--fm-r-lg) var(--fm-r-lg); background: var(--fm-cream); }
+  .fm-line-detail__grid { grid-template-columns: 1fr 1fr; }
+  /* card dòng: nhãn + giá trị căn trái, ô nhập luôn có viền để dễ chạm */
+  .fm-stack-table.fm-line-table tbody td.fm-num { text-align: left; }
+  .fm-stack-table.fm-line-table tbody .fm-line-input { border-color: var(--fm-line); background: var(--fm-surface); text-align: left; min-height: 40px; }
+  .fm-line-expand { min-height: 40px; min-width: 40px; }
+  .fm-line-add__hint { display: none; }
+  .fm-line-add__qty .fm-line-input { min-height: 40px; }
+}
+
 /* ---------- 15.5 Modal bottom-sheet (mobile) ---------- */
 @media (max-width: 640px) {
   .fm-backdrop { padding: 0; align-items: flex-end; }

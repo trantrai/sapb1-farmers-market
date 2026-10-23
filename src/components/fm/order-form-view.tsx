@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy, Paperclip } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
@@ -13,6 +13,7 @@ import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
+import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
 interface DraftLine {
@@ -1574,6 +1575,48 @@ export default function OrderFormView({
     setFieldErr((fe) => ({ ...fe, [parentKey]: '' }))
   }
 
+  /** Dòng đang mở chi tiết (ĐVT, kho, ATP, thuế) */
+  const expandedLines = useExpandedLines()
+
+  /** Chọn mặt hàng cho dòng (dùng chung ô tìm trong dòng và ô thêm dòng nhanh) */
+  const selectItem = (key: number, v: ACOption | null) => {
+    const cur = lines.find((x) => x.key === key)
+    // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
+    // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
+    const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
+    const wh = cur?.warehouseCode || headerWh || undefined
+    updateLine(key, {
+      item: v,
+      unitPrice: v?.price ?? 0,
+      priceSource: v ? 'pricelist' : undefined,
+      taxCode: v?.taxCode || undefined,
+      uom: v?.uom || undefined,
+      warehouseCode: wh,
+      ...(vat !== null ? { vatPct: vat, vatOverridden: false } : {}),
+    })
+    if (v) {
+      void resolvePrice(key, v.code, partner?.code ?? null)
+      void checkAtp(key, v.code, wh) // ATP check tự động sau khi chọn mặt hàng
+      // Mặt hàng BOM → tự bung thành phần con (Template/Production)
+      void expandBom(key, v.code)
+    } else {
+      // Xóa mặt hàng → gỡ luôn nhóm con BOM cũ
+      void expandBom(key, '')
+    }
+  }
+
+  /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
+  const quickAddLine = (v: ACOption, quantity: number) => {
+    const empty = lines.find((x) => !x.item && !x.isBomChild)
+    const key = empty?.key ?? nextKey()
+    setLines((ls) =>
+      empty
+        ? ls.map((x) => (x.key === key ? { ...x, quantity } : x))
+        : [...ls, { key, item: null, quantity, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }],
+    )
+    selectItem(key, v)
+  }
+
   /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
   const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const toggleBomGroup = (gk: string) =>
@@ -1584,8 +1627,6 @@ export default function OrderFormView({
       return next
     })
 
-  const addLine = () =>
-    setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
   const removeLine = (key: number) => {
     setAtp((m) => {
       const nv = { ...m }
@@ -2144,21 +2185,16 @@ export default function OrderFormView({
         )}
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
-          <table className="fm-table fm-stack-table fm-stack-table--form">
+          <table className="fm-table fm-stack-table fm-stack-table--form fm-line-table">
             <thead>
               <tr>
-                <th style={{ width: 34 }}>#</th>
-                <th style={{ minWidth: 230 }}>Hàng hóa (ItemCode)</th>
-                <th style={{ width: 96 }}>Số lượng</th>
-                <th style={{ width: 78 }}>Đơn vị tính</th>
-                <th style={{ width: 86 }} title="Kho hàng xuất bán (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng">Kho</th>
-                <th style={{ width: 128 }} title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt. Tự kiểm tra sau khi chọn mặt hàng">Tồn kho (ATP)</th>
-                <th style={{ width: 132 }}>Đơn giá (₫)</th>
-                <th style={{ width: 92 }} title="Chiết khấu áp dụng riêng cho dòng này">Chiết khấu (%)</th>
-                <th style={{ width: 88 }} title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">Mã thuế</th>
-                <th style={{ width: 92 }} title="Thuế suất VAT áp dụng riêng cho dòng này — tự điền theo mã thuế">Thuế (%)</th>
-                <th className="fm-num" style={{ minWidth: 128 }}>Sau chiết khấu (₫)</th>
-                <th style={{ width: 44 }}></th>
+                <th className="fm-col-no">#</th>
+                <th style={{ minWidth: 260 }}>Hàng hóa</th>
+                <th className="fm-col-qty fm-num">Số lượng</th>
+                <th className="fm-col-price fm-num" style={{ width: 170 }}>Đơn giá (₫)</th>
+                <th className="fm-col-disc fm-num" title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
+                <th className="fm-col-total fm-num">Thành tiền (₫)</th>
+                <th className="fm-col-del"><span className="fm-sr-only">Xóa dòng</span></th>
               </tr>
             </thead>
             <tbody>
@@ -2184,22 +2220,38 @@ export default function OrderFormView({
                 if (!isChild) stt += 1
                 /** Dòng cha BOM Template có thành phần hiển thị → nút thu gọn/mở rộng */
                 const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
+                const detailId = `fm-line-detail-${l.key}`
+                const expanded = expandedLines.isOpen(l.key)
+                const atpLow = (() => {
+                  const a = atp[l.key]
+                  if (!l.item || a?.status !== 'ok') return false
+                  const row = pickAtpRow(a, l, headerWh)
+                  return !row || row.available - l.quantity < 0
+                })()
                 return (
-                  <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                  <Fragment key={l.key}>
+                  <tr className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
                     <td data-label="Dòng">
-                      {isChild ? '' : showToggle ? (
-                        <div className="fm-bom-parent-no">
-                          {stt}
+                      <div className="fm-bom-parent-no">
+                        <LineExpandButton
+                          expanded={expanded}
+                          onToggle={() => expandedLines.toggle(l.key)}
+                          lineNo={stt}
+                          controls={detailId}
+                          hideNo={isChild}
+                          hasIssue={Boolean(l.vatOverridden) || atpLow}
+                        />
+                        {showToggle && (
                           <BomToggle
                             collapsed={bomCollapsed.has(l.bomGroupKey as string)}
                             count={childCounts.get(l.bomGroupKey as string) ?? 0}
                             parentLabel={l.item?.code ?? ''}
                             onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
                           />
-                        </div>
-                      ) : stt}
+                        )}
+                      </div>
                     </td>
-                    <td data-label="Hàng hóa (ItemCode)" data-full>
+                    <td data-label="Hàng hóa" data-full>
                       {isChild ? (
                         <BomChildCell
                           code={l.item?.code}
@@ -2219,36 +2271,30 @@ export default function OrderFormView({
                         minChars={2}
                         minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
                         value={l.item}
-                        onChange={(v) => {
-                          // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
-                          // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
-                          const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
-                          const wh = l.warehouseCode || headerWh || undefined
-                          updateLine(l.key, {
-                            item: v,
-                            unitPrice: v?.price ?? 0,
-                            priceSource: v ? 'pricelist' : undefined,
-                            taxCode: v?.taxCode || undefined,
-                            uom: v?.uom || undefined,
-                            warehouseCode: wh,
-                            ...(vat !== null ? { vatPct: vat, vatOverridden: false } : {}),
-                          })
-                          if (v) {
-                            void resolvePrice(l.key, v.code, partner?.code ?? null)
-                            void checkAtp(l.key, v.code, wh) // ATP check tự động sau khi chọn mặt hàng
-                            // Mặt hàng BOM → tự bung thành phần con (Template/Production)
-                            void expandBom(l.key, v.code)
-                          } else {
-                            // Xóa mặt hàng → gỡ luôn nhóm con BOM cũ
-                            void expandBom(l.key, '')
-                          }
-                        }}
+                        onChange={(v) => selectItem(l.key, v)}
                         error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                       />
                       </>
                     )}
+                      {l.item && !expanded && (
+                        <div className="fm-line-summary">
+                          {[l.uom || l.item.uom, (l.warehouseCode || headerWh) && `Kho ${l.warehouseCode || headerWh}`, l.taxCode && `${l.taxCode} · ${l.vatPct ?? '?'}%`].filter(Boolean).join(' · ')}
+                          {(() => {
+                            const a = atp[l.key]
+                            if (a?.status !== 'ok') return null
+                            const row = pickAtpRow(a, l, headerWh)
+                            if (!row) return null
+                            const enough = row.available - l.quantity >= 0
+                            return (
+                              <span className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`} style={{ marginLeft: 6 }} title={atpTooltip(a, row)}>
+                                {enough ? 'ATP ' : 'Thiếu '}{formatNum(enough ? row.available : -(row.available - l.quantity))}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      )}
                     </td>
-                    <td data-label="Số lượng">
+                    <td data-label="Số lượng" className="fm-num">
                       <input
                         type="number"
                         min={0}
@@ -2270,75 +2316,7 @@ export default function OrderFormView({
                         </span>
                       )}
                     </td>
-                    <td data-label="Đơn vị tính">
-                      {l.item ? (
-                        <input
-                          className="fm-line-input"
-                          style={{ maxWidth: 80 }}
-                          value={l.uom || l.item.uom || ''}
-                          onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
-                          disabled={saving}
-                          title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
-                          aria-label={`Đơn vị tính dòng ${l.key}`}
-                        />
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td data-label="Kho">
-                      <select
-                        className="fm-line-select"
-                        value={l.warehouseCode ?? headerWh ?? ''}
-                        title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
-                        disabled={saving || warehouses.length === 0}
-                        onChange={(e) => {
-                          updateLine(l.key, { warehouseCode: e.target.value || undefined })
-                          if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
-                        }}
-                      >
-                        <option value="">—</option>
-                        {warehouses.map((w) => (
-                          <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td data-label="Tồn kho (ATP)">
-                      {!l.item ? (
-                        '—'
-                      ) : (
-                        <div className="fm-atp-cell">
-                          {atp[l.key]?.status === 'loading' && <span className="fm-line-meta">Đang kiểm tra…</span>}
-                          {atp[l.key]?.status === 'error' && (
-                            <span className="fm-line-meta fm-atp--warn" title={atp[l.key]?.error}>Không kiểm tra được</span>
-                          )}
-                          {atp[l.key]?.status === 'ok' && (() => {
-                            const row = pickAtpRow(atp[l.key], l, headerWh)
-                            if (!row) return <span className="fm-line-meta fm-atp--warn" title="SAP không có dữ liệu tồn cho kho này">Không có tồn</span>
-                            const enough = row.available - l.quantity >= 0
-                            return (
-                              <span
-                                className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`}
-                                title={atpTooltip(atp[l.key], row)}
-                              >
-                                {enough ? 'ATP ' : 'Thiếu '}
-                                {formatNum(enough ? row.available : -(row.available - l.quantity))}
-                              </span>
-                            )
-                          })()}
-                          <button
-                            type="button"
-                            className="fm-atp-recheck"
-                            title="Kiểm tra lại tồn kho khả dụng (ATP)"
-                            aria-label={`Kiểm tra lại tồn kho cho ${l.item?.name ?? 'mặt hàng'}`}
-                            disabled={saving}
-                            onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
-                          >
-                            <RefreshCw size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                    <td data-label="Đơn giá (₫)">
+                    <td data-label="Đơn giá (₫)" className="fm-num">
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Thành phần BOM: giá bán luôn = 0đ">0</span>
                       ) : (
@@ -2385,7 +2363,7 @@ export default function OrderFormView({
                       </div>
                       )}
                     </td>
-                    <td data-label="Chiết khấu (%)">
+                    <td data-label="CK (%)" className="fm-num">
                       <input
                         type="number"
                         min={0}
@@ -2400,33 +2378,7 @@ export default function OrderFormView({
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
                       />
                     </td>
-                    <td data-label="Mã thuế">
-                      {l.item && l.taxCode ? (
-                        <span className="fm-line-meta" title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>
-                          {l.taxCode}
-                          <small style={{ color: 'var(--fm-text-3)' }}> · {l.vatPct ?? '?'}%</small>
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td data-label="Thuế (%)">
-                      <input
-                        type="number"
-                        aria-label={`VAT % dòng ${l.key}`}
-                        className="fm-line-input fm-line-input--pct"
-                        value={l.vatPct || ''}
-                        disabled={saving}
-                        title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
-                        onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
-                      />
-                      {l.vatOverridden && (
-                        <div style={{ fontSize: 11, color: 'var(--fm-gold-ink)', lineHeight: 1.3, marginTop: 2 }}>
-                          Đã ghi đè thuế suất từ mã thuế
-                        </div>
-                      )}
-                    </td>
-                    <td className="fm-num" data-label="Sau chiết khấu (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
+                    <td className="fm-num fm-line-total" data-label="Thành tiền (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
                     <td data-label="Xóa dòng">
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
@@ -2437,6 +2389,105 @@ export default function OrderFormView({
                       )}
                     </td>
                   </tr>
+                  {expanded && (
+                    <LineDetailRow id={detailId} colSpan={7}>
+                        <LineDetailField label="Đơn vị tính" title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">
+                          {l.item ? (
+                            <input
+                              className="fm-line-input"
+                              style={{ maxWidth: 80 }}
+                              value={l.uom || l.item.uom || ''}
+                              onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
+                              disabled={saving}
+                              title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
+                              aria-label={`Đơn vị tính dòng ${l.key}`}
+                            />
+                          ) : (
+                            '—'
+                          )}
+                        </LineDetailField>
+                        <LineDetailField label="Kho" title="Kho xuất của dòng (WarehouseCode) — mặc định theo header">
+                          <select
+                            className="fm-line-select"
+                            value={l.warehouseCode ?? headerWh ?? ''}
+                            title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
+                            disabled={saving || warehouses.length === 0}
+                            onChange={(e) => {
+                              updateLine(l.key, { warehouseCode: e.target.value || undefined })
+                              if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
+                            }}
+                          >
+                            <option value="">—</option>
+                            {warehouses.map((w) => (
+                              <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
+                            ))}
+                          </select>
+                        </LineDetailField>
+                        <LineDetailField label="Tồn kho (ATP)" title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt">
+                          {!l.item ? (
+                            '—'
+                          ) : (
+                            <div className="fm-atp-cell">
+                              {atp[l.key]?.status === 'loading' && <span className="fm-line-meta">Đang kiểm tra…</span>}
+                              {atp[l.key]?.status === 'error' && (
+                                <span className="fm-line-meta fm-atp--warn" title={atp[l.key]?.error}>Không kiểm tra được</span>
+                              )}
+                              {atp[l.key]?.status === 'ok' && (() => {
+                                const row = pickAtpRow(atp[l.key], l, headerWh)
+                                if (!row) return <span className="fm-line-meta fm-atp--warn" title="SAP không có dữ liệu tồn cho kho này">Không có tồn</span>
+                                const enough = row.available - l.quantity >= 0
+                                return (
+                                  <span
+                                    className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`}
+                                    title={atpTooltip(atp[l.key], row)}
+                                  >
+                                    {enough ? 'ATP ' : 'Thiếu '}
+                                    {formatNum(enough ? row.available : -(row.available - l.quantity))}
+                                  </span>
+                                )
+                              })()}
+                              <button
+                                type="button"
+                                className="fm-atp-recheck"
+                                title="Kiểm tra lại tồn kho khả dụng (ATP)"
+                                aria-label={`Kiểm tra lại tồn kho cho ${l.item?.name ?? 'mặt hàng'}`}
+                                disabled={saving}
+                                onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
+                              >
+                                <RefreshCw size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </LineDetailField>
+                        <LineDetailField label="Mã thuế" title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">
+                          {l.item && l.taxCode ? (
+                            <span className="fm-line-meta" title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>
+                              {l.taxCode}
+                              <small style={{ color: 'var(--fm-text-3)' }}> · {l.vatPct ?? '?'}%</small>
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </LineDetailField>
+                        <LineDetailField label="Thuế (%)" title="Thuế suất VAT của dòng — tự điền theo mã thuế, có thể sửa tay">
+                          <input
+                            type="number"
+                            aria-label={`VAT % dòng ${l.key}`}
+                            className="fm-line-input fm-line-input--pct"
+                            value={l.vatPct || ''}
+                            disabled={saving}
+                            title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
+                            onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
+                          />
+                          {l.vatOverridden && (
+                            <div style={{ fontSize: 11, color: 'var(--fm-gold-ink)', lineHeight: 1.3, marginTop: 2 }}>
+                              Đã ghi đè thuế suất từ mã thuế
+                            </div>
+                          )}
+                        </LineDetailField>
+                    </LineDetailRow>
+                  )}
+                  </Fragment>
                 )
                 })
               })()}
@@ -2444,10 +2495,8 @@ export default function OrderFormView({
           </table>
         </div>
 
+        <LineQuickAdd onAdd={quickAddLine} disabled={saving} />
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="fm-btn fm-btn--dashed fm-btn--sm" onClick={addLine} disabled={saving}>
-            <Plus size={14} /> Thêm dòng hàng
-          </button>
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()} disabled={saving || importProgress !== null}>
             <Upload size={14} /> {importProgress ? 'Đang nhập…' : 'Nhập từ Excel'}
           </button>
