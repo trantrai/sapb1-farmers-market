@@ -1043,8 +1043,9 @@ export default function OrderFormView({
         key: nextKey(),
         item,
         quantity: p.quantity,
-        // Ưu tiên đơn giá trên Excel; thiếu → giá Price List 1 từ master data
+        // Ưu tiên đơn giá trên Excel (giữ cố định như giá nhập tay); thiếu → giá Price List 1 từ master data
         unitPrice: p.unitPrice ?? item.price ?? 0,
+        ...(p.unitPrice !== null ? { priceSource: 'manual' } : {}),
         discPct: p.discPct ?? 0,
         // Template không có VAT% → lấy thuế suất theo mã thuế của mặt hàng
         vatPct: item.vatRate ?? 8,
@@ -1063,7 +1064,8 @@ export default function OrderFormView({
     // Tự động resolve giá đặc biệt/VAT/tồn kho cho từng dòng đã nhập
     newLines.forEach((l) => {
       if (l.item) {
-        void resolvePrice(l.key, l.item.code, partner?.code ?? null)
+        // Giá có trên Excel → chỉ lấy giá danh mục làm giá tham chiếu (cảnh báo bán dưới giá), không đè
+        void resolvePrice(l.key, l.item.code, partner?.code ?? null, l.priceSource === 'manual')
         void checkAtp(l.key, l.item.code, l.warehouseCode)
         // M2: bung dòng con BOM cho mặt hàng nhập từ Excel
         void expandBom(l.key, l.item.code)
@@ -1743,7 +1745,8 @@ export default function OrderFormView({
 
   // Giải đơn giá theo quy tắc: GIÁ ĐẶC BIỆT theo Mặt hàng + Khách hàng (OSPP) →
   // tìm thấy thì dùng; không tìm thấy → giá từ Price List 1 (source 'special' | 'pricelist')
-  const resolvePrice = async (key: number, itemCode: string, cardCode: string | null) => {
+  /** keepPrice: giữ đơn giá đang có (giá nhập tay/Excel), chỉ cập nhật giá tham chiếu refPrice */
+  const resolvePrice = async (key: number, itemCode: string, cardCode: string | null, keepPrice = false) => {
     try {
       const qs = new URLSearchParams({ itemCode })
       if (cardCode) qs.set('cardCode', cardCode)
@@ -1752,7 +1755,11 @@ export default function OrderFormView({
       if (json?.ok && typeof json.price === 'number' && json.price > 0) {
         setLines((ls) =>
           ls.map((l) =>
-            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source, refPrice: json.price } : l,
+            l.key !== key || l.item?.code !== itemCode
+              ? l
+              : keepPrice
+                ? { ...l, refPrice: json.price }
+                : { ...l, unitPrice: json.price, priceSource: json.source, refPrice: json.price },
           ),
         )
       }
