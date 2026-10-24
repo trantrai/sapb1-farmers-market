@@ -17,7 +17,7 @@
 5. **Tái dùng skill:** frontend → `/frontend-design`, backend → `/backend-api`, B1 → `/sap-b1-service-layer`, rà soát → `/security`.
 6. **Subagent cho việc khám phá:** giao Explore/subagent khi cần quét rộng; chỉ mang kết luận về context chính.
 7. Dừng và hỏi khi: thiếu CompanyDB/entity đích, hành động ghi/xóa dữ liệu thật, mâu thuẫn yêu cầu.
-8. **Nén ngữ cảnh khi còn ~20%:** auto-compact bật ở ngưỡng 80% (`.claude/settings.json` → `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`). Trước mốc đó, chủ động chốt việc đang dở (commit/ghi chú trạng thái) để bản tóm tắt giữ đủ: task đang làm, file đã sửa, việc còn lại.
+8. **Nén ngữ cảnh khi dùng tới ~20%:** auto-compact ở ngưỡng 20% cửa sổ ngữ cảnh (`.claude/settings.json` → `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=20`). Trước mốc đó, chủ động chốt việc đang dở (commit/ghi chú trạng thái) để bản tóm tắt giữ đủ: task đang làm, file đã sửa, việc còn lại.
 
 ## Bảo mật — BẤT BIẾN
 - **Không bao giờ** ghi password, API key, cookie `B1SESSION`, token vào code, commit, log, CLAUDE.md hay file này.
