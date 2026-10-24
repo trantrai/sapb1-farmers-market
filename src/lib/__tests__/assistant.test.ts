@@ -17,7 +17,7 @@ vi.mock('@/lib/db', () => ({
   },
 }))
 
-import { createLlmCall, normalizeBaseUrl, parseReply, stripThinking, type LlmCall, type LlmReply } from '@/lib/assistant/llm'
+import { createLlmCall, listModels, normalizeBaseUrl, parseReply, stripThinking, type LlmCall, type LlmReply } from '@/lib/assistant/llm'
 import { runAssistant, type ToolRegistry } from '@/lib/assistant/agent'
 import { allowedTools, createToolRegistry } from '@/lib/assistant/tools'
 import { takeRateLimit } from '@/lib/assistant/config'
@@ -74,6 +74,16 @@ describe('llm client', () => {
 
     const bad = createLlmCall({ baseUrl: 'http://llm/v1', model: 'm' }, (async () => new Response('secret stack', { status: 500 })) as unknown as typeof fetch)
     await expect(bad([{ role: 'user', content: 'x' }], [])).rejects.toThrow('HTTP 500')
+  })
+})
+
+describe('listModels', () => {
+  it('lấy id model từ GET /models (chuẩn OpenAI), sắp xếp', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'qwen2.5:7b' }, { id: 'llama3.1:8b' }, { foo: 1 }] })))
+    expect(await listModels({ baseUrl: 'http://localhost:11434/v1' }, fetchImpl as unknown as typeof fetch)).toEqual(['llama3.1:8b', 'qwen2.5:7b'])
+    expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toBe('http://localhost:11434/v1/models')
+    const down = (async () => { throw new TypeError('fetch failed') }) as unknown as typeof fetch
+    await expect(listModels({ baseUrl: 'http://x/v1' }, down)).rejects.toThrow('Không kết nối được')
   })
 })
 

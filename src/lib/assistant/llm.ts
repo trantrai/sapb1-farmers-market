@@ -85,6 +85,30 @@ export function parseReply(json: unknown): LlmReply {
   return { content, toolCalls, finishReason: choice.finish_reason ?? '', usage: j.usage }
 }
 
+/** Danh sách model máy chủ đang phục vụ (GET {baseUrl}/models — Ollama, vLLM, LM Studio đều hỗ trợ) */
+export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), cfg.timeoutMs ?? 10_000)
+  try {
+    const res = await fetchImpl(`${cfg.baseUrl}/models`, {
+      headers: cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {},
+      signal: ctrl.signal,
+    })
+    if (!res.ok) throw new LlmError(`Máy chủ LLM nội bộ trả lỗi HTTP ${res.status}`, res.status)
+    const j = (await res.json()) as { data?: { id?: unknown }[] }
+    return (Array.isArray(j?.data) ? j.data : [])
+      .map((m) => (typeof m?.id === 'string' ? m.id : ''))
+      .filter(Boolean)
+      .sort()
+  } catch (e) {
+    if (e instanceof LlmError) throw e
+    if ((e as Error)?.name === 'AbortError') throw new LlmError('Máy chủ LLM nội bộ phản hồi quá lâu (timeout)')
+    throw new LlmError('Không kết nối được máy chủ LLM nội bộ')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export function createLlmCall(cfg: LlmConfig, fetchImpl: typeof fetch = fetch): LlmCall {
   return async (messages, tools) => {
     const ctrl = new AbortController()
