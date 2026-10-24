@@ -6,6 +6,7 @@ import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempot
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrderDetail, type SapOrderLineRow } from '@/lib/sap-orders'
 import { bomFieldsOf, pickWithBomChildren } from '@/lib/delivery-bom'
+import { attachSapBomGroups } from '@/lib/sap-doc-bom'
 
 // POST /api/deliveries/from-order — tạo Delivery từ Sale Order
 export async function POST(req: NextRequest) {
@@ -75,6 +76,24 @@ export async function POST(req: NextRequest) {
       )
     }
     const sapOrder = cur.order
+    // BOM: dựng nhóm cha/con theo U_BOMID (Template do app đẩy) hoặc TreeType
+    // (SAP tự bung). Con của BOM bán hàng/Production/Assembly → khóa (SAP tự bung
+    // lại theo dòng cha khi đẩy); con Template sửa được.
+    const grouped = attachSapBomGroups(sapOrder.lines)
+    const salesTreeGroups = new Set(
+      grouped.filter((l) => !l.isBomChild && l.bomGroupKey && l.treeType === 'iSalesTree').map((l) => l.bomGroupKey as string),
+    )
+    const sapLines = grouped.map((l) =>
+      l.isBomChild && salesTreeGroups.has(l.bomGroupKey ?? '') ? { ...l, bomEditable: false } : l,
+    )
+    type SapBomLine = (typeof sapLines)[number]
+    // Loại BOM của nhóm (cho form): theo TreeType cha, con khóa → production, còn lại template
+    const groupType = new Map<string, 'template' | 'production' | 'assembly'>()
+    for (const l of sapLines) {
+      if (!l.bomGroupKey) continue
+      if (!l.isBomChild && l.bomType) groupType.set(l.bomGroupKey, l.bomType)
+      else if (l.isBomChild && !groupType.has(l.bomGroupKey)) groupType.set(l.bomGroupKey, l.bomEditable ? 'template' : 'production')
+    }
     if (sapOrder.status === 'Closed') {
       return NextResponse.json({ error: 'Đơn SAP đã đóng (Closed) — không thể tạo phiếu giao hàng' }, { status: 400 })
     }
@@ -101,9 +120,9 @@ export async function POST(req: NextRequest) {
         return round3(sapOpen - delivered)
       }
 
-      let picked: Array<{ line: SapOrderLineRow; qty: number }>
+      let picked: Array<{ line: SapBomLine; qty: number; bomQtyPerParent?: number | null }>
       if (Array.isArray(body.lines)) {
-        const byId = new Map(sapOrder.lines.map((l) => [l.id, l]))
+        const byId = new Map(sapLines.map((l) => [l.id, l]))
         picked = []
         for (const reqLine of body.lines) {
           if (!reqLine || typeof reqLine !== 'object') continue
@@ -111,7 +130,7 @@ export async function POST(req: NextRequest) {
           const qty = Number(reqLine.quantity)
           if (!lineId || !Number.isFinite(qty) || qty <= 0) continue
           const line = byId.get(lineId)
-          if (!line) {
+          if (!line || line.isBomChild) {
             return { body: { error: `Dòng đơn hàng không hợp lệ: ${lineId}` }, status: 400 }
           }
           const openQty = openQtyOf(line)
@@ -127,13 +146,20 @@ export async function POST(req: NextRequest) {
           return { body: { error: 'Chưa chọn dòng nào để giao (SL giao phải > 0)' }, status: 400 }
         }
       } else {
-        picked = sapOrder.lines
+        picked = sapLines
+          .filter((l) => !l.isBomChild)
           .map((l) => ({ line: l, qty: openQtyOf(l) }))
           .filter((x) => x.qty > 0)
         if (picked.length === 0) {
           return { body: { error: 'Đơn SAP không còn dòng nào mở (OpenQty = 0) để giao' }, status: 400 }
         }
       }
+      // BOM: gắn kèm dòng con ngay sau cha (SL con = SL giao cha × tỉ lệ trên đơn nguồn)
+      picked = pickWithBomChildren(sapLines, picked)
+      const bomOf = (x: (typeof picked)[number]) => bomFieldsOf({ ...x.line, bomQtyPerParent: x.bomQtyPerParent ?? null })
+      // Dòng con: giá/CK = 0 (đồng bộ POST /api/deliveries)
+      const priceOf = (x: (typeof picked)[number]) => (x.line.isBomChild ? 0 : x.line.unitPrice)
+      const discOf = (x: (typeof picked)[number]) => (x.line.isBomChild ? 0 : Number(x.line.discPct ?? 0))
 
       // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo phiếu, chỉ trả dữ
       // liệu (dòng theo OpenQty còn mở) để form phiếu giao hàng điền vào ----
@@ -156,10 +182,14 @@ export async function POST(req: NextRequest) {
                 warehouseCode: x.line.warehouseCode || null,
                 taxCode: x.line.taxCode || null,
                 quantity: x.qty,
-                unitPrice: x.line.unitPrice,
-                discPct: x.line.discPct ?? 0,
+                unitPrice: priceOf(x),
+                discPct: discOf(x),
                 vatPct: x.line.vatPct ?? 0,
                 sourceLineId: x.line.id,
+                ...bomOf(x),
+                ...(!x.line.isBomChild && x.line.bomGroupKey && groupType.has(x.line.bomGroupKey)
+                  ? { bomType: groupType.get(x.line.bomGroupKey) }
+                  : {}),
               })),
               sourceType: 'order',
               sourceId: orderId,
@@ -174,8 +204,8 @@ export async function POST(req: NextRequest) {
       // lineTotal = sau CK dòng (làm tròn từng dòng, đồng bộ công thức POST /api/deliveries)
       const clampPct = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
       const lineTotals = picked.map((x) => {
-        const lt = Math.round(x.line.unitPrice * x.qty)
-        return lt - Math.round((lt * clampPct(Number(x.line.discPct ?? 0))) / 100)
+        const lt = Math.round(priceOf(x) * x.qty)
+        return lt - Math.round((lt * clampPct(discOf(x))) / 100)
       })
       const grandTotal = lineTotals.reduce((sum, t) => sum + t, 0)
 
@@ -202,11 +232,12 @@ export async function POST(req: NextRequest) {
                   itemName: x.line.itemName,
                   quantity: x.qty,
                   uom: x.line.uom || '',
-                  unitPrice: x.line.unitPrice,
+                  unitPrice: priceOf(x),
                   lineTotal: lineTotals[i],
                   taxCode: x.line.taxCode ?? null,
-                  discPct: clampPct(Number(x.line.discPct ?? 0)),
+                  discPct: clampPct(discOf(x)),
                   sourceOrderLineId: x.line.id,
+                  ...bomOf(x),
                 })),
               },
             },

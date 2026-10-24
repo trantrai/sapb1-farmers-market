@@ -6,7 +6,6 @@ import { acquirePushLock, releasePushLock } from '@/lib/order-push-lock'
 import { pushDeliveryToSap } from '@/lib/sap-push-delivery'
 import { headerExtrasFromRecord } from '@/lib/sap-push-document'
 import { clearSapDeliveriesCache } from '@/lib/sap-deliveries'
-import { isSapDeliveryLine } from '@/lib/delivery-bom'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -74,8 +73,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       ...headerExtrasFromRecord(delivery),
       headerDiscPct: delivery.headerDiscPct ?? 0,
       pickAndPackNotes: delivery.pickAndPackNotes ?? null,
-      // BOM: chỉ gửi dòng cha + hàng thường — SAP tự bung thành phần theo công thức
-      lines: delivery.lines.filter(isSapDeliveryLine).map((l) => ({
+      // BOM: tầng push chỉ POST dòng cha + hàng thường (SAP tự bung); con BOM
+      // Template được áp ở bước 2, con BOM khác bị bỏ
+      lines: delivery.lines.map((l) => ({
         itemCode: l.itemCode,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
@@ -88,6 +88,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         // Copy-from: local id dòng nguồn → tầng push tra BaseType/BaseEntry/BaseLine
         sourceOrderLineId: l.sourceOrderLineId ?? null,
         sourceQuotationLineId: l.sourceQuotationLineId ?? null,
+        isBomChild: l.isBomChild,
+        bomGroupKey: l.bomGroupKey,
+        bomEditable: l.bomEditable,
       })),
     })
 

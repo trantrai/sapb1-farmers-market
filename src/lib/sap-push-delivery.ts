@@ -15,6 +15,7 @@ import {
   type SapLineBase,
   type SapDocHeaderExtras,
 } from './sap-push-document'
+import { freshTemplateGroups, isFreshTplChild, reconcileTemplateBoms, type SapDocLine } from './sap-bom-reconcile'
 
 export interface SapDeliveryLine {
   itemCode: string
@@ -44,6 +45,10 @@ export interface SapDeliveryLine {
    * DocumentLines.BatchNumbers = [{ BatchNumber }]; trống → bỏ qua.
    */
   batchNumber?: string | null
+  /** BOM (DeliveryLine.*): dòng con Template được gửi ở bước 2 (reconcileTemplateBoms) */
+  isBomChild?: boolean | null
+  bomGroupKey?: string | null
+  bomEditable?: boolean | null
 }
 
 /** Dòng đơn hàng lấy TRỰC TIẾP từ SAP (không có bản ghi local): id dạng `sap-<LineNum>` */
@@ -153,9 +158,26 @@ async function findByLocalId(
 /**
  * Đẩy delivery sang SAP B1. KHÔNG bao giờ ném exception.
  */
-export async function pushDeliveryToSap(input: SapDeliveryInput): Promise<SapDeliveryResult> {
-  const settings = await loadSapSettings(input.databaseId ?? null)
+export async function pushDeliveryToSap(rawInput: SapDeliveryInput): Promise<SapDeliveryResult> {
+  const settings = await loadSapSettings(rawInput.databaseId ?? null)
   if (!isSapConfigured(settings)) return { status: 'none' }
+
+  // BOM: bước 1 chỉ gửi dòng cha + hàng thường (SAP tự bung công thức).
+  // Nhóm Template → bước 2 sửa dòng SAP bung thành đúng dòng con người dùng
+  // nhập (giống đơn hàng). Con BOM khác (Production/Assembly/bán hàng) bỏ hẳn.
+  const fresh = freshTemplateGroups(rawInput.lines)
+  const recLines = rawInput.lines.filter((l) => !l.isBomChild || isFreshTplChild(l, fresh))
+  const postIdx = recLines.map((_, i) => i).filter((i) => !recLines[i].isBomChild)
+  const input: SapDeliveryInput = { ...rawInput, lines: postIdx.map((i) => recLines[i]) }
+  const reconcile = async (docEntry: number, docNum: number | undefined, udf: boolean, sapLines?: SapDocLine[]): Promise<SapDeliveryResult> => {
+    const rec = await reconcileTemplateBoms(settings, 'DeliveryNotes', docEntry, recLines, postIdx, sapLines)
+    if (rec.ok) return { status: 'synced', docEntry, docNum }
+    // Có marker localId → "Đẩy lại" nhận lại chứng từ này và áp tiếp bước 2.
+    // Không có marker → KHÔNG để pending (đẩy lại sẽ tạo trùng chứng từ).
+    return udf
+      ? { status: 'pending', error: rec.error }
+      : { status: 'synced', docEntry, docNum, error: `${rec.error} — chứng từ đã tạo trên SAP với định mức gốc, cần sửa trực tiếp trên SAP B1.` }
+  }
 
   let withUdf = false
   if (input.localId) {
@@ -167,6 +189,8 @@ export async function pushDeliveryToSap(input: SapDeliveryInput): Promise<SapDel
       }
     }
     if (existing.supported && existing.doc) {
+      // Đã có trên SAP (lần trước có thể mới xong bước 1) → áp tiếp bước 2
+      if (fresh.size > 0) return reconcile(existing.doc.DocEntry, existing.doc.DocNum, true)
       return { status: 'synced', docEntry: existing.doc.DocEntry, docNum: existing.doc.DocNum }
     }
     withUdf = existing.supported
@@ -208,13 +232,19 @@ export async function pushDeliveryToSap(input: SapDeliveryInput): Promise<SapDel
     bases.push(r.base)
   }
 
-  const res = await sapPost<{ DocEntry?: number; DocNum?: number }>(settings, '/DeliveryNotes', buildPayload(input, withUdf, bases))
+  const res = await sapPost<{ DocEntry?: number; DocNum?: number; DocumentLines?: SapDocLine[] }>(settings, '/DeliveryNotes', buildPayload(input, withUdf, bases))
   if (!res.ok) {
     return { status: 'pending', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }
   }
-  return {
-    status: 'synced',
-    docEntry: typeof res.data?.DocEntry === 'number' ? res.data.DocEntry : undefined,
-    docNum: typeof res.data?.DocNum === 'number' ? res.data.DocNum : undefined,
+  const docEntry = typeof res.data?.DocEntry === 'number' ? res.data.DocEntry : undefined
+  const docNum = typeof res.data?.DocNum === 'number' ? res.data.DocNum : undefined
+  if (fresh.size > 0) {
+    if (docEntry === undefined) {
+      return withUdf
+        ? { status: 'pending', error: 'SAP không trả về DocEntry — vui lòng đẩy lại' }
+        : { status: 'synced', docNum, error: 'SAP không trả về DocEntry — chưa áp được định mức BOM người dùng, cần sửa trực tiếp trên SAP B1.' }
+    }
+    return reconcile(docEntry, docNum, withUdf, Array.isArray(res.data?.DocumentLines) ? res.data.DocumentLines : undefined)
   }
+  return { status: 'synced', docEntry, docNum }
 }
