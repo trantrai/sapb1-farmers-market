@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
+import { cleanBarcode } from '@/lib/order-calc'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
@@ -17,6 +18,7 @@ interface B2BHeaderData {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: Date | null
   docCurrency?: string
@@ -32,7 +34,7 @@ interface B2BHeaderData {
 export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeaderData; error?: string } {
   const data: B2BHeaderData = {}
 
-  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode', label: string): string | undefined => {
+  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode' | 'contactPersonCode', label: string): string | undefined => {
     if (!(key in body)) return undefined
     const v = body[key]
     if (v === null || v === undefined || v === '') { data[key] = null; return undefined }
@@ -62,6 +64,8 @@ export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeader
   err = optInt('salesPersonCode', 'Mã nhân viên bán hàng')
   if (err) return { data, error: err }
   err = optInt('paymentGroupCode', 'Mã điều khoản thanh toán')
+  if (err) return { data, error: err }
+  err = optInt('contactPersonCode', 'Mã người liên hệ')
   if (err) return { data, error: err }
   err = optStr('shipToCode', 50)
   if (err) return { data, error: err }
@@ -247,14 +251,14 @@ export async function POST(req: NextRequest) {
     cardCode?: string; cardName?: string; docDate?: string; remarks?: string
     sourceOrderId?: string; warehouseCode?: string
     /** B2B / SAP B1 (Đợt 2+3) — parse chi tiết bằng parseB2BHeader (whitelist) */
-    salesPersonCode?: unknown; paymentGroupCode?: unknown; shipToCode?: unknown; billToCode?: unknown
+    salesPersonCode?: unknown; paymentGroupCode?: unknown; shipToCode?: unknown; billToCode?: unknown; contactPersonCode?: unknown
     numAtCard?: unknown; taxDate?: unknown; docCurrency?: unknown; docRate?: unknown
     projectCode?: unknown; attachmentsJson?: unknown; reqDate?: unknown
     /** Ghi chú soạn/đóng gói (SAP PickAndPackNotes) */
     pickAndPackNotes?: string
     /** CK đầu chứng từ % (SAP DiscountPercent) */
     headerDiscPct?: number
-    lines?: Array<{ itemCode: string; itemName: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string }>
+    lines?: Array<{ itemCode: string; itemName: string; barcode?: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string }>
   }
   try {
     body = await req.json()
@@ -307,6 +311,7 @@ export async function POST(req: NextRequest) {
     .map((l) => ({
       itemCode: String(l?.itemCode ?? '').trim(),
       itemName: String(l?.itemName ?? l?.itemCode ?? '').trim(),
+      barcode: cleanBarcode(l?.barcode),
       quantity: Number(l?.quantity),
       uom: String(l?.uom ?? ''),
       unitPrice: Number(l?.unitPrice ?? 0),
@@ -372,6 +377,7 @@ export async function POST(req: NextRequest) {
               lineNum: i + 1,
               itemCode: l.itemCode.trim(),
               itemName: (l.itemName || l.itemCode).trim(),
+              barcode: l.barcode,
               quantity: l.quantity,
               uom: l.uom || '',
               unitPrice: l.unitPrice ?? 0,

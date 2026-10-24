@@ -45,6 +45,8 @@ interface SapOrderLine {
   RemainingOpenQuantity?: number | string
   /** SL đã giao trên SAP (DocumentLine.DeliveredQuantity) */
   DeliveredQuantity?: number | string
+  /** UDF mã BOM cha của dòng thành phần BOM Template */
+  U_BOMID?: string | null
 }
 
 // ---------- Kiểu dữ liệu UI (khớp Order trong orders-list-view) ----------
@@ -100,6 +102,8 @@ export interface SapOrderLineRow {
   taxCode?: string
   /** SL còn mở theo SAP (RemainingOpenQuantity, hoặc Quantity - DeliveredQuantity) */
   sapOpenQty?: number
+  /** U_BOMID của dòng (mã BOM cha) — dòng thành phần BOM Template */
+  bomId?: string | null
 }
 
 /**
@@ -195,6 +199,7 @@ function mapLine(l: SapOrderLine, idx: number, ctx: MapLineCtx): SapOrderLineRow
     vatAmtFromSap,
     grandTotal: Math.round(afterDisc + vatAmt),
     sapOpenQty: Math.round(remOpen * 1000) / 1000,
+    bomId: typeof l.U_BOMID === 'string' && l.U_BOMID.trim() ? l.U_BOMID.trim() : null,
   }
 }
 
@@ -338,11 +343,25 @@ export async function fetchSapOrderDetail(
   c: SapConfig,
   docEntry: number,
 ): Promise<{ ok: boolean; order?: SapOrderRow; error?: string }> {
+  return fetchSapDocDetail(c, 'Orders', docEntry, 'đơn')
+}
+
+/**
+ * Chi tiết 1 chứng từ bán hàng bất kỳ (Orders, Quotations, Invoices, CreditNotes,
+ * Returns, DownPayments…) — cùng cấu trúc Document trên Service Layer nên dùng
+ * chung chuỗi dự phòng 3 bước như đơn hàng. Chỉ đọc.
+ */
+export async function fetchSapDocDetail(
+  c: SapConfig,
+  entitySet: string,
+  docEntry: number,
+  label = 'chứng từ',
+): Promise<{ ok: boolean; order?: SapOrderRow; error?: string }> {
   // Bảng mã nhóm thuế → thuế suất (OVTG, cache 5 phút) — cho VAT% chuẩn của dòng
   const vmap = await vatRateMap(c).catch(() => ({}) as Record<string, number>)
 
   // ---------- Bước 1: GET thuần (tương thích mọi phiên bản SL) ----------
-  const plain = await sapGet<SapOrderHeader & { DocumentLines?: unknown }>(c, `/Orders(${docEntry})`)
+  const plain = await sapGet<SapOrderHeader & { DocumentLines?: unknown }>(c, `/${entitySet}(${docEntry})`)
   let header: SapOrderHeader | undefined
   if (plain.ok && plain.data) {
     header = plain.data
@@ -360,8 +379,8 @@ export async function fetchSapOrderDetail(
   // ---------- Bước 2: endpoint tập con /Orders(N)/DocumentLines ----------
   const hdrRes: { ok: boolean; data?: SapOrderHeader; error?: string } = header
     ? { ok: true, data: header }
-    : await sapGet<SapOrderHeader>(c, `/Orders(${docEntry})`)
-  const child = await sapGetAll<SapOrderLine>(c, `/Orders(${docEntry})/DocumentLines`)
+    : await sapGet<SapOrderHeader>(c, `/${entitySet}(${docEntry})`)
+  const child = await sapGetAll<SapOrderLine>(c, `/${entitySet}(${docEntry})/DocumentLines`)
   if (hdrRes.ok && hdrRes.data && child.ok && child.data) {
     const hdr = mapHeader(hdrRes.data)
     const lines = child.data.map((l, i) => mapLine(l, i, { vmap, headerPct: hdr.headerDiscPct }))
@@ -376,7 +395,7 @@ export async function fetchSapOrderDetail(
       : 'Tập con DocumentLines trả rỗng'
 
   // ---------- Bước 3: $expand (chốt cuối cho SL cũ chỉ trả dòng qua expand) ----------
-  const res = await sapGet<SapOrderHeader & { DocumentLines?: unknown }>(c, `/Orders(${docEntry})`, {
+  const res = await sapGet<SapOrderHeader & { DocumentLines?: unknown }>(c, `/${entitySet}(${docEntry})`, {
     $expand: 'DocumentLines',
   })
   if (res.ok && res.data) {
@@ -393,7 +412,7 @@ export async function fetchSapOrderDetail(
   const parts = [`GET trực tiếp: ${plainError}`]
   if (childError) parts.push(`Tập con: ${childError}`)
   parts.push(`$expand: ${expandError}`)
-  return { ok: false, error: `Không lấy được chi tiết đơn từ SAP B1 — ${parts.join(' · ')}` }
+  return { ok: false, error: `Không lấy được chi tiết ${label} từ SAP B1 — ${parts.join(' · ')}` }
 }
 
 /** Có dòng hàng → tính lại tổng theo dòng cho khớp bảng chi tiết.

@@ -3,11 +3,13 @@ import { parsePageParam } from '@/lib/fm-shared'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { pushOrderToSap, type SapPushResult } from '@/lib/sap-push-order'
+import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrderRow } from '@/lib/sap-orders'
-import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
+import { checkOrderSourceLines } from '@/lib/order-source-lines'
 
 // ============================================================
 // B2B / SAP B1 (Đợt 2+3): whitelist + chuẩn hóa các trường header
@@ -19,6 +21,7 @@ interface B2BHeaderData {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: Date | null
   docCurrency?: string
@@ -34,7 +37,7 @@ interface B2BHeaderData {
 export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeaderData; error?: string } {
   const data: B2BHeaderData = {}
 
-  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode', label: string): string | undefined => {
+  const optInt = (key: 'salesPersonCode' | 'paymentGroupCode' | 'contactPersonCode', label: string): string | undefined => {
     if (!(key in body)) return undefined
     const v = body[key]
     if (v === null || v === undefined || v === '') { data[key] = null; return undefined }
@@ -64,6 +67,8 @@ export function parseB2BHeader(body: Record<string, unknown>): { data: B2BHeader
   err = optInt('salesPersonCode', 'Mã nhân viên bán hàng')
   if (err) return { data, error: err }
   err = optInt('paymentGroupCode', 'Mã điều khoản thanh toán')
+  if (err) return { data, error: err }
+  err = optInt('contactPersonCode', 'Mã người liên hệ')
   if (err) return { data, error: err }
   err = optStr('shipToCode', 50)
   if (err) return { data, error: err }
@@ -293,7 +298,7 @@ export async function POST(req: NextRequest) {
       warehouseCode?: string
       /** Chiết khấu ĐẦU CHỨNG TỪ % (SAP: Documents.DiscountPercent) */
       headerDiscPct?: number
-      lines: Array<{ itemCode: string; itemName: string; uom: string; quantity: number; unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string; isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null }>
+      lines: Array<{ itemCode: string; itemName: string; barcode?: string | null; uom: string; quantity: number; unitPrice: number; discPct?: number; vatPct?: number; taxCode?: string; warehouseCode?: string; isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null }>
     }
 
     if (!cardCode || !cardName) {
@@ -319,10 +324,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: linesError }, { status: 400 })
     }
     // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
-    const { lines: bomLines, error: bomError } = await normalizeBomLines(orderDbId, validLines)
+    const { lines: bomLines, error: bomError } = await normalizeBomLines(orderDbId, validLines, {
+      allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    })
     if (bomError) {
       return NextResponse.json({ error: bomError }, { status: 400 })
     }
+    // Copy-from báo giá: chỉ giữ sourceLineId hợp lệ (dòng báo giá thật, cùng KH, cùng mã hàng)
+    const { ids: srcIds, error: srcError } = await checkOrderSourceLines(bomLines, cardCode)
+    if (srcError) {
+      return NextResponse.json({ error: srcError }, { status: 400 })
+    }
+    bomLines.forEach((l, i) => { (l as { sourceLineId?: string | null }).sourceLineId = srcIds[i] })
 
     // Tính toán theo từng dòng (SAP B1 RDR1): LineTotal → Discount% dòng
     // → CK ĐẦU CHỨNG TỪ (phân bổ về dòng) → Vat%
@@ -383,6 +396,8 @@ export async function POST(req: NextRequest) {
               lineNum: i + 1,
               itemCode: l.itemCode,
               itemName: l.itemName,
+              barcode: cleanBarcode(l.barcode),
+              sourceLineId: (l as { sourceLineId?: string | null }).sourceLineId ?? null,
               uom: l.uom || 'kg',
               taxCode: l.taxCode?.trim() || null,
               warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,
@@ -417,6 +432,7 @@ export async function POST(req: NextRequest) {
       try {
         push = await pushOrderToSap({
           cardCode,
+          ...headerExtrasFromRecord(created),
           docDate: created.docDate.toISOString(),
           docDueDate: created.docDueDate.toISOString(),
           comments: created.remarks,
@@ -425,12 +441,15 @@ export async function POST(req: NextRequest) {
           databaseId: orderDbId,
           lines: created.lines.map((l) => ({
             itemCode: l.itemCode,
+            ...bomLineFields(l),
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             discPct: l.discPct,
             uom: l.uom,
             taxCode: l.taxCode,
             warehouseCode: l.warehouseCode,
+            // Copy-from báo giá → BaseType 23/BaseEntry/BaseLine (chặn đẩy nếu báo giá chưa lên SAP)
+            sourceLineId: l.sourceLineId,
           })),
         })
       } finally {

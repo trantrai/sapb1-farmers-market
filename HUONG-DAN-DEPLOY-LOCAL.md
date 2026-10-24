@@ -313,6 +313,72 @@ Mở **Danh sách đơn hàng** → bấm vào 1 đơn **Open** → modal chi ti
 
 ---
 
+## Bước 14 — Trợ lý sale admin với LLM miễn phí (chạy nội bộ)
+
+Trợ lý dùng **model mã nguồn mở, miễn phí** chạy trên máy trong mạng nội bộ — không trả phí API,
+**không gửi dữ liệu ra ngoài**. Hệ thống gọi máy chủ qua API chuẩn OpenAI (`/v1/chat/completions`).
+
+### 14.1 Cài Ollama + tải model (cách đơn giản nhất)
+
+```bash
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+# Windows / macOS: tải bộ cài tại https://ollama.com/download
+
+ollama pull qwen2.5:7b          # ~4.7 GB — tiếng Việt tốt, hỗ trợ gọi công cụ (tool calling)
+curl http://localhost:11434/v1/models   # kiểm tra: phải thấy "qwen2.5:7b"
+```
+
+| Model (miễn phí) | RAM / VRAM tối thiểu | Ghi chú |
+|---|---|---|
+| `qwen2.5:7b` | ~8 GB | **Khuyến nghị** — cân bằng tốc độ/chất lượng, tiếng Việt tốt |
+| `qwen2.5:14b` | ~16 GB | Trả lời chính xác hơn, chậm hơn |
+| `qwen2.5:3b` | ~4 GB | Máy yếu; hay chọn sai công cụ hơn |
+
+> Model **bắt buộc hỗ trợ tool calling** (trợ lý tra dữ liệu bằng công cụ). Muốn dùng GLM bản mở
+> hoặc model khác: kiểm tra trang model trên Ollama có nhãn *tools* trước khi dùng.
+
+**Ngữ cảnh (context):** trợ lý gửi kèm mô tả công cụ + dữ liệu tra cứu (~4–6 nghìn token). Ollama mặc định
+ngữ cảnh nhỏ — đặt lớn hơn trước khi chạy (Ollama bản mới):
+
+```bash
+# Linux (systemd): sudo systemctl edit ollama  → thêm:
+#   [Service]
+#   Environment="OLLAMA_CONTEXT_LENGTH=8192"
+sudo systemctl restart ollama
+```
+
+**Ollama ở máy khác** (máy có GPU): đặt `OLLAMA_HOST=0.0.0.0` cho Ollama trên máy đó, và **chỉ mở cổng
+11434 trong mạng nội bộ** (firewall) — Ollama không có xác thực.
+
+### 14.2 Cấu hình trong hệ thống
+
+1. Chạy `npm run db:push` (một lần — thêm cột cấu hình trợ lý).
+2. **Cài đặt → Trợ lý sale admin (LLM nội bộ)** → *Mẫu nhanh*: **Ollama** → URL tự điền `http://localhost:11434/v1`
+   (Ollama ở máy khác thì sửa `localhost` thành IP máy đó).
+3. Bấm **Lưu** → **Tải danh sách model** → chọn `qwen2.5:7b` → tick **Bật trợ lý** → **Lưu** → **Kiểm tra kết nối**.
+4. Tải lại trang: nút trợ lý (biểu tượng robot) hiện ở góc phải dưới.
+
+Thay thế Ollama: **LM Studio** (cổng 1234, có giao diện), **llama.cpp server** (cổng 8080),
+**vLLM** (cổng 8000, máy chủ GPU — bật tool calling khi khởi động). Đều có trong *Mẫu nhanh*.
+
+### 14.3 Dùng LLM miễn phí trên cloud (không cần máy mạnh)
+
+*Mẫu nhanh* có sẵn: **Zhipu GLM** (`https://open.bigmodel.cn/api/paas/v4`, model gợi ý `glm-4-flash`),
+**OpenRouter** (`https://openrouter.ai/api/v1`, chọn model có đuôi `:free`), **Groq**, **Google Gemini**.
+
+1. Đăng ký tài khoản ở nhà cung cấp → tạo **API key** (miễn phí).
+2. Cài đặt → Trợ lý → *Mẫu nhanh* chọn nhà cung cấp → dán API key → tick **xác nhận cho phép gửi dữ liệu ra
+   dịch vụ bên ngoài** → **Lưu** → **Tải danh sách model** → chọn model free có hỗ trợ tool calling → bật trợ lý → **Lưu**.
+3. Kiểm tra trên trang nhà cung cấp tên model miễn phí hiện hành — danh sách model free thay đổi theo thời gian.
+
+> ⚠️ **Dữ liệu rời mạng công ty:** câu hỏi và dữ liệu tra cứu (tên khách, mặt hàng, số lượng, giá, công nợ) được
+> gửi tới nhà cung cấp. Hệ thống tự **che SĐT, địa chỉ, ghi chú đơn**; khung chat hiển thị cảnh báo cho người dùng.
+> Gói miễn phí thường **giới hạn lượt gọi** (lỗi "đang giới hạn lượt gọi" → đợi vài phút) và có thể dùng dữ liệu để
+> huấn luyện — đọc điều khoản trước khi bật. Hệ thống bắt buộc `https://` cho máy chủ ngoài mạng nội bộ.
+
+---
+
 ## 🔧 Xử lý lỗi thường gặp
 
 | Lỗi | Nguyên nhân & cách xử lý |

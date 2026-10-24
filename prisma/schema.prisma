@@ -36,6 +36,9 @@ model BusinessPartner {
   email     String?   // EmailAddress (dòng đồng bộ từ SAP B1)
   contactPerson String? // Người liên hệ chính (ContactEmployees[0].Name trên SAP B1)
   contactPhone  String? // SĐT người liên hệ (ContactEmployees[0].Phone1/MobilePhone)
+  contactsJson  String? // Danh sách người liên hệ JSON [{code,name,phone,email,isDefault}] (SAP ContactEmployees, code = InternalCode)
+  shipToDefault String? // Địa chỉ giao hàng mặc định (SAP ShipToDefault = AddressName)
+  billToDefault String? // Địa chỉ ghi hóa đơn mặc định (SAP BilltoDefault = AddressName)
   groupType String    @default("Khách hàng") // Khách hàng | Nhà cung cấp
   syncedAt  DateTime? // Lần cuối dòng này được đồng bộ từ SAP B1
 
@@ -109,6 +112,7 @@ model SalesOrder {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -162,6 +166,7 @@ model Delivery {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -208,6 +213,7 @@ model DeliveryLine {
   lineNum    Int
   itemCode   String
   itemName   String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   quantity   Float
   uom        String   @default("")
   unitPrice  Float    @default(0)
@@ -233,6 +239,7 @@ model SalesOrderLine {
   lineNum    Int
   itemCode   String
   itemName   String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom        String     @default("kg")
   warehouseCode String? // Kho xuất của dòng (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng
   taxCode    String?    // Mã nhóm thuế SAP (SalesVATGroup) → VatGroup khi đẩy đơn
@@ -348,6 +355,12 @@ model AppSettings {
   smtpFromName  String    @default("") // vd: Farmers Market
   // --- Base Workflow API (module Import BOM) ---
   baseTokenEnc  String    @default("") // Access Token v2 Base.vn, mã hóa AES-256-GCM (fm-crypto)
+  // --- Trợ lý sale admin (LLM nội bộ hoặc cloud, API chuẩn OpenAI /chat/completions) ---
+  assistantEnabled Boolean @default(false)
+  assistantBaseUrl String  @default("") // vd: http://10.0.0.5:11434/v1 (Ollama nội bộ) hoặc https://openrouter.ai/api/v1
+  assistantModel   String  @default("") // Tên model trên máy chủ, vd qwen2.5:7b, glm-4-flash
+  assistantKeyEnc  String  @default("") // API key máy chủ LLM (nếu có), mã hóa AES-256-GCM
+  assistantAllowCloud Boolean @default(false) // Admin xác nhận cho gửi dữ liệu ra dịch vụ LLM bên ngoài (cloud)
   updatedAt     DateTime  @updatedAt
 }
 
@@ -435,6 +448,7 @@ model Quotation {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -472,6 +486,7 @@ model QuotationLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String    @default("kg")
   warehouseCode   String?   // Kho xuất của dòng
   taxCode         String?   // Mã nhóm thuế SAP (SalesVATGroup)
@@ -515,6 +530,7 @@ model ArInvoice {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -562,6 +578,7 @@ model ArInvoiceLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String    @default("kg")
   warehouseCode   String?
   taxCode         String?
@@ -603,6 +620,7 @@ model ArCreditMemo {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -646,6 +664,7 @@ model ArCreditMemoLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String       @default("kg")
   warehouseCode   String?
   taxCode         String?
@@ -685,6 +704,7 @@ model SalesReturn {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -726,6 +746,7 @@ model SalesReturnLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String      @default("kg")
   warehouseCode   String?
   taxCode         String?
@@ -770,6 +791,7 @@ model ArDownPayment {
   paymentGroupCode Int?    // Điều khoản thanh toán (SAP PaymentGroupCode)
   shipToCode      String?  // Địa chỉ giao hàng (SAP ShipToCode)
   billToCode      String?  // Địa chỉ ghi hóa đơn (SAP BillToCode)
+  contactPersonCode Int?   // Người liên hệ (SAP ContactPersonCode = ContactEmployees.InternalCode)
   numAtCard       String?  // Số PO / tham chiếu của KH (SAP NumAtCard)
   taxDate         DateTime? // Ngày tính thuế (SAP TaxDate)
   docCurrency     String?  @default("VND") // Tiền tệ chứng từ (SAP DocCurrency)
@@ -816,6 +838,7 @@ model ArDownPaymentLine {
   lineNum         Int
   itemCode        String
   itemName        String
+  barcode   String?  // Mã vạch (BarCode) của mặt hàng lúc chọn — chỉ lưu local, không đẩy SAP
   uom             String        @default("kg")
   warehouseCode   String?
   taxCode         String?

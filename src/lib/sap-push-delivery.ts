@@ -46,7 +46,15 @@ export interface SapDeliveryLine {
   batchNumber?: string | null
 }
 
+/** Dòng đơn hàng lấy TRỰC TIẾP từ SAP (không có bản ghi local): id dạng `sap-<LineNum>` */
+const SAP_ORDER_LINE_RE = /^sap-(\d+)$/
+
 export interface SapDeliveryInput extends SapDocHeaderExtras {
+  /**
+   * DocEntry đơn hàng nguồn trên SAP khi phiếu giao lập từ đơn CHỈ có trên SAP
+   * (Delivery.sapSourceDocEntry) — dòng nguồn khi đó có id `sap-<LineNum>`.
+   */
+  sapSourceDocEntry?: number | null
   /** Id SapDatabase đích */
   databaseId?: string | null
   cardCode: string
@@ -91,7 +99,7 @@ function buildPayload(input: SapDeliveryInput, withUdf = false, bases?: (SapLine
     // Ghi chú soạn/đóng gói (Đợt 2+3)
     ...(input.pickAndPackNotes?.trim() ? { PickAndPackNotes: input.pickAndPackNotes.trim().slice(0, 254) } : {}),
     // Header mở rộng Đợt 2+3 (SalesPersonCode, PaymentGroupCode, ShipToCode,
-    // BillToCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
+    // BillToCode, ContactPersonCode, NumAtCard, TaxDate, DocCurrency+DocRate, ProjectCode, ReqDate)
     // — chỉ gửi khi có giá trị
     ...sapDocHeaderExtras(input),
     ...(withUdf && input.localId ? { [UDF_LOCAL_ID]: input.localId } : {}),
@@ -174,6 +182,20 @@ export async function pushDeliveryToSap(input: SapDeliveryInput): Promise<SapDel
     const quotationLineId = (l.sourceQuotationLineId ?? '').trim()
     if (!orderLineId && !quotationLineId) {
       bases.push(null)
+      continue
+    }
+    // Đơn hàng nguồn CHỈ có trên SAP: không tra DB local mà dựng base trực tiếp
+    // từ DocEntry đơn nguồn + LineNum gắn trong id dòng (`sap-<LineNum>`)
+    const sapLine = orderLineId.match(SAP_ORDER_LINE_RE)
+    if (sapLine) {
+      if (typeof input.sapSourceDocEntry !== 'number') {
+        return {
+          status: 'error',
+          blocked: true,
+          error: 'Không thể đẩy phiếu giao hàng: thiếu DocEntry đơn hàng nguồn trên SAP B1 (sapSourceDocEntry) cho dòng lập từ đơn SAP.',
+        }
+      }
+      bases.push({ baseType: 17, baseEntry: input.sapSourceDocEntry, baseLine: Number(sapLine[1]) })
       continue
     }
     // 1 dòng chỉ thuộc 1 nguồn (from-order hoặc from-quotation) —

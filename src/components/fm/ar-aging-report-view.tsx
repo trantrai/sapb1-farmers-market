@@ -144,7 +144,7 @@ export default function ArAgingReportView() {
       {error && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
           <div><b>Không tải được báo cáo.</b> {error}</div>
-          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={reload}>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2" onClick={reload}>
             Thử lại
           </button>
         </div>

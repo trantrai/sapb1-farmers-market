@@ -48,6 +48,8 @@ export interface SalesDocLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -63,6 +65,13 @@ export interface SalesDocLine {
   sourceLineId?: string | null
   /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  /** Tài khoản kế toán (hóa đơn dịch vụ — SAP AccountCode) */
+  accountCode?: string | null
+  /** BOM: dòng con + khóa nhóm + sửa được SL + định mức */
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
+  bomQtyPerParent?: number | null
 }
 
 /** Khấu trừ đặt cọc gắn trên hóa đơn (model DownPaymentDraw của API — WORKER A) */
@@ -115,6 +124,7 @@ export interface SalesDoc {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -132,6 +142,8 @@ export interface EditDocLine {
   sapLineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -144,6 +156,10 @@ export interface EditDocLine {
   accountCode?: string | null
   /** Số lô (SAP BatchNumbers) — dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  isBomChild?: boolean
+  bomGroupKey?: string | null
+  bomEditable?: boolean
+  bomQtyPerParent?: number | null
 }
 
 export interface EditDocData {
@@ -171,6 +187,7 @@ export interface EditDocData {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -187,6 +204,8 @@ export interface EditDocSourceLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -199,6 +218,10 @@ export interface EditDocSourceLine {
   accountCode?: string | null
   /** Số lô (SAP BatchNumbers) — dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  isBomChild?: boolean | null
+  bomGroupKey?: string | null
+  bomEditable?: boolean | null
+  bomQtyPerParent?: number | null
 }
 
 export interface EditDocSource {
@@ -226,6 +249,7 @@ export interface EditDocSource {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -262,6 +286,7 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
   paymentGroupCode: o.paymentGroupCode ?? null,
   shipToCode: o.shipToCode ?? null,
   billToCode: o.billToCode ?? null,
+  contactPersonCode: o.contactPersonCode ?? null,
   numAtCard: o.numAtCard ?? null,
   taxDate: o.taxDate ?? null,
   docCurrency: o.docCurrency ?? null,
@@ -275,6 +300,7 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
     itemCode: l.itemCode,
     itemName: l.itemName,
+    barcode: l.barcode ?? null,
     uom: l.uom,
     warehouseCode: l.warehouseCode,
     quantity: l.quantity,
@@ -285,6 +311,10 @@ export const toEditDocData = (o: EditDocSource): EditDocData => ({
     sourceLineId: l.sourceLineId ?? null,
     accountCode: l.accountCode ?? null,
     batchNumber: l.batchNumber ?? null,
+    isBomChild: l.isBomChild ?? false,
+    bomGroupKey: l.bomGroupKey ?? null,
+    bomEditable: l.bomEditable ?? true,
+    bomQtyPerParent: l.bomQtyPerParent ?? null,
   })),
 })
 

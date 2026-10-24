@@ -21,13 +21,16 @@ import { parsePageParam, type ModuleKey } from '@/lib/fm-shared'
 import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { calcOrderLines, orderTotals, validateOrderLines, type OrderLineInput } from '@/lib/order-calc'
+import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode, type OrderLineInput } from '@/lib/order-calc'
+import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { nextDocNum, type SalesDocType } from '@/lib/doc-num'
-import { pushDocumentToSap, patchDocumentToSap } from '@/lib/sap-push-document'
+import { pushDocumentToSap, patchDocumentToSap, bomLineFields } from '@/lib/sap-push-document'
 // WORKER C: đọc chứng từ trực tiếp từ SAP B1 Service Layer.
 // Contract: fetchSapDocuments(entitySet, databaseId?) →
 //   Promise<{ ok: boolean; rows: SapDocRow[]; error?: string }>
 import { fetchSapDocuments, type SapDocRow } from '@/lib/sap-documents'
+import { fetchSapDocDetail } from '@/lib/sap-orders'
+import { attachSapBomGroups } from '@/lib/sap-doc-bom'
 
 /**
  * Lỗi nghiệp vụ có mã HTTP — hooks ném lỗi này để handler trả về
@@ -445,6 +448,7 @@ export interface B2bHeaderFields {
   paymentGroupCode: number | null
   shipToCode: string | null
   billToCode: string | null
+  contactPersonCode: number | null
   numAtCard: string | null
   taxDate: Date | null
   docCurrency: string
@@ -461,6 +465,7 @@ function parseB2bHeader(body: Record<string, unknown>, fallbackDate: Date): B2bH
     paymentGroupCode: intOrNull(body.paymentGroupCode),
     shipToCode: strOrNull(body.shipToCode, 50),
     billToCode: strOrNull(body.billToCode, 50),
+    contactPersonCode: intOrNull(body.contactPersonCode),
     numAtCard: strOrNull(body.numAtCard, 100),
     taxDate: dateOrNull(body.taxDate) ?? fallbackDate,
     docCurrency: (strOrNull(body.docCurrency, 3) ?? 'VND').toUpperCase(),
@@ -478,6 +483,7 @@ function lineCreateData(l: any, i: number, withBatchNumber = false): Record<stri
     lineNum: i + 1,
     itemCode: l.itemCode,
     itemName: l.itemName,
+    barcode: cleanBarcode(l.barcode),
     uom: l.uom || 'kg',
     warehouseCode: (l.warehouseCode || '').trim() || null,
     taxCode: (l.taxCode?.trim() || null) as string | null,
@@ -519,6 +525,7 @@ type HeaderBody = {
   paymentGroupCode?: unknown
   shipToCode?: unknown
   billToCode?: unknown
+  contactPersonCode?: unknown
   numAtCard?: unknown
   taxDate?: unknown
   docCurrency?: unknown
@@ -701,6 +708,7 @@ async function pushSalesDocAfterCreate(
     paymentGroupCode: created.paymentGroupCode ?? null,
     shipToCode: created.shipToCode ?? null,
     billToCode: created.billToCode ?? null,
+    contactPersonCode: created.contactPersonCode ?? null,
     numAtCard: created.numAtCard ?? null,
     taxDate: created.taxDate ?? null,
     docCurrency: created.docCurrency ?? null,
@@ -716,6 +724,7 @@ async function pushSalesDocAfterCreate(
     localId: created.id,
     lines: (created.lines as any[]).map((l) => ({
       itemCode: l.itemCode,
+      ...bomLineFields(l),
       // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)
       accountCode: l.accountCode ?? null,
       quantity: l.quantity,
@@ -806,6 +815,13 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
     const { lines: validLines, error: linesError } = validateOrderLines(lines)
     if (linesError) {
       return NextResponse.json({ error: linesError }, { status: 400 })
+    }
+    // BOM: con phải thuộc công thức của cha; Production/Assembly khóa SL theo công thức
+    const { error: bomError } = await normalizeBomLines(user.databaseId ?? null, validLines as any[], {
+      allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    })
+    if (bomError) {
+      return NextResponse.json({ error: bomError }, { status: 400 })
     }
     // Hóa đơn dịch vụ: mọi dòng phải có mã tài khoản (SAP: AccountCode) —
     // validate TRƯỚC khi cấp docNum để lỗi của user không đốt số chứng từ
@@ -929,11 +945,14 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
 // ==================== GET detail ====================
 
 /**
- * GET chi tiết 1 chứng từ local (kèm lines).
- * Chứng từ SAP live (id 'sap-<DocEntry>'): chi tiết Service Layer do
- * WORKER C bổ sung ở bước tích hợp — hiện tại báo rõ chưa hỗ trợ.
+ * GET chi tiết 1 chứng từ (kèm lines).
+ * id 'sap-<DocEntry>' (dòng danh sách đọc từ SAP):
+ *  - có bản local đã đẩy SAP cùng DocEntry → trả bản local (đủ thao tác sửa/đóng/thanh toán)
+ *  - không có → đọc trực tiếp Service Layer (chỉ xem, source='sap'), dựng lại nhóm
+ *    BOM Template theo U_BOMID
  */
-export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDocConfig) {
+export async function salesDocDetail(req: NextRequest, idParam: string, cfg: SalesDocConfig) {
+  let id = idParam
   try {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -942,10 +961,33 @@ export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDoc
   }
 
   if (id.startsWith('sap-')) {
-    return NextResponse.json(
-      { error: `Chưa hỗ trợ xem chi tiết ${cfg.short} từ SAP B1 — sẽ bổ sung ở bước tích hợp Service Layer` },
-      { status: 400 },
-    )
+    const docEntry = Number(id.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: `Mã ${cfg.short} SAP không hợp lệ` }, { status: 400 })
+    }
+    const s = await loadSapSettings(user.databaseId)
+    const dbId = s?.dbId ?? null
+    const local = await cfg.model.findFirst({
+      where: {
+        sapDocEntry: docEntry,
+        sapSyncStatus: 'synced',
+        ...(dbId ? { OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: '' }] } : {}),
+      },
+      select: { id: true },
+    })
+    if (local) {
+      id = local.id
+    } else {
+      if (!isSapConfigured(s)) {
+        return NextResponse.json({ error: 'Chưa cấu hình kết nối SAP B1 cho database đang đăng nhập' }, { status: 400 })
+      }
+      const det = await fetchSapDocDetail(s, cfg.entitySet, docEntry, cfg.short)
+      if (!det.ok || !det.order) {
+        return NextResponse.json({ error: det.error ?? `Không đọc được ${cfg.short} từ SAP B1` }, { status: 502 })
+      }
+      const doc = { ...det.order, id, source: 'sap' as const, lines: attachSapBomGroups(det.order.lines) }
+      return NextResponse.json({ ok: true, [cfg.resultKey]: doc })
+    }
   }
 
   const doc = await cfg.model.findUnique({
@@ -1045,6 +1087,19 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
+  // BOM: con phải thuộc công thức của cha; Production/Assembly khóa SL theo công thức
+  // Dòng con BOM đã lưu: giữ nguyên khi sửa (BOM bị xóa khỏi mirror / đã hoán đổi trước đó)
+  const savedChildren = await cfg.model.findUnique({
+    where: { id },
+    select: { lines: { where: { isBomChild: true }, select: { bomGroupKey: true, itemCode: true } } },
+  })
+  const { error: bomError } = await normalizeBomLines((doc as any).sapDatabaseId ?? user.databaseId ?? null, validLines as any[], {
+    allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    existingChildren: new Set(((savedChildren?.lines ?? []) as { bomGroupKey: string | null; itemCode: string }[]).map((l) => bomChildKey(l.bomGroupKey, l.itemCode))),
+  })
+  if (bomError) {
+    return NextResponse.json({ error: bomError }, { status: 400 })
+  }
   // Hóa đơn dịch vụ: mọi dòng phải có mã tài khoản (SAP: AccountCode)
   let effInvoiceDocType: 'Item' | 'Service' | 'Reserve' = 'Item'
   if (cfg.docType === 'invoice') {
@@ -1141,11 +1196,16 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
         docDueDate,
         comments: remarks ?? null,
         headerDiscPct: headerPct,
+        // Địa chỉ giao/ghi hóa đơn + người liên hệ đã lưu → cập nhật lên SAP
+        shipToCode: updated.shipToCode ?? null,
+        billToCode: updated.billToCode ?? null,
+        contactPersonCode: updated.contactPersonCode ?? null,
         lines: newLines.map((l: any) => ({
           // Dòng đã tồn tại trên SAP kèm LineNum cũ; dòng mới → null = thêm mới;
           // dòng bị bỏ khỏi danh sách sẽ bị XÓA (B1S-ReplaceCollectionsOnPatch)
           lineNum: oldLineNums.get(l.lineNum) ?? null,
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)
           accountCode: l.accountCode ?? null,
           quantity: l.quantity,
@@ -1427,6 +1487,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
     const inputLines: SalesDocLineInput[] = src.lines.map((l: any) => ({
       itemCode: l.itemCode,
       itemName: l.itemName,
+      barcode: l.barcode ?? null,
       uom: l.uom ?? '',
       warehouseCode: l.warehouseCode ?? undefined,
       taxCode: l.taxCode ?? undefined,
@@ -1476,6 +1537,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
             paymentGroupCode: src.paymentGroupCode ?? null,
             shipToCode: src.shipToCode ?? null,
             billToCode: src.billToCode ?? null,
+            contactPersonCode: src.contactPersonCode ?? null,
             numAtCard: src.numAtCard ?? null,
             docCurrency: src.docCurrency ?? 'VND',
             docRate: src.docRate ?? 1,
@@ -1484,6 +1546,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
             lines: rawLines.map((l) => ({
               itemCode: l.itemCode,
               itemName: l.itemName,
+              barcode: l.barcode ?? null,
               uom: l.uom ?? '',
               warehouseCode: l.warehouseCode ?? null,
               taxCode: l.taxCode ?? null,
@@ -1523,6 +1586,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
         paymentGroupCode: src.paymentGroupCode,
         shipToCode: src.shipToCode,
         billToCode: src.billToCode,
+        contactPersonCode: src.contactPersonCode,
         numAtCard: src.numAtCard,
         taxDate: src.taxDate ? new Date(src.taxDate).toISOString().slice(0, 10) : undefined,
         docCurrency: src.docCurrency,

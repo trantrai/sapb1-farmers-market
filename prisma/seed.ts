@@ -77,6 +77,8 @@ async function main() {
     excelTemplates: { view: true, create: true, edit: true, delete: true },
     orderTemplates: { view: true, create: true, edit: true, delete: true },
     bomImport: { view: true, create: true, edit: true, delete: true },
+    // Hoán đổi thành phần BOM Template (đưa mặt hàng ngoài công thức vào với giá 0)
+    bomSwap: { view: true, create: false, edit: true, delete: false },
   })
   const accPerm = JSON.stringify({
     orders: { view: true, create: true, edit: true, delete: false },
@@ -95,6 +97,8 @@ async function main() {
     excelTemplates: { view: true, create: true, edit: true, delete: false },
     orderTemplates: { view: true, create: true, edit: false, delete: false },
     bomImport: { view: true, create: true, edit: false, delete: false },
+    // Hoán đổi thành phần BOM Template (đưa mặt hàng ngoài công thức vào với giá 0)
+    bomSwap: { view: false, create: false, edit: false, delete: false },
   })
   const staffPerm = JSON.stringify({
     orders: { view: true, create: true, edit: false, delete: false },
@@ -113,6 +117,8 @@ async function main() {
     excelTemplates: { view: true, create: false, edit: false, delete: false },
     orderTemplates: { view: true, create: false, edit: false, delete: false },
     bomImport: { view: true, create: false, edit: false, delete: false },
+    // Hoán đổi thành phần BOM Template (đưa mặt hàng ngoài công thức vào với giá 0)
+    bomSwap: { view: false, create: false, edit: false, delete: false },
   })
   await prisma.role.createMany({
     data: [

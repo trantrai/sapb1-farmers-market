@@ -8,6 +8,8 @@
 export interface OrderLineInput {
   itemCode: string
   itemName: string
+  /** Mã vạch (BarCode) — chỉ lưu local để hiển thị/in, không đẩy SAP */
+  barcode?: string | null
   uom: string
   quantity: number
   unitPrice: number
@@ -173,4 +175,11 @@ export function orderTotals(calcLines: CalcLine[]) {
     vatAmt: calcLines.reduce((s, l) => s + l.vatAmt, 0),
     grandTotal: calcLines.reduce((s, l) => s + l.grandTotal, 0),
   }
+}
+
+/** Chuẩn hóa mã vạch dòng hàng client gửi lên: chuỗi đã trim, tối đa 64 ký tự; rỗng → null */
+export function cleanBarcode(v: unknown): string | null {
+  if (typeof v !== 'string' && typeof v !== 'number') return null
+  const s = String(v).trim().slice(0, 64)
+  return s || null
 }

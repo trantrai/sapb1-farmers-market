@@ -233,7 +233,7 @@ actions={
       {msg && (
         <div id="et-form-msg" className={`fm-alert ${msg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} role={msg.type === 'error' ? 'alert' : 'status'}>
           <div><b>{msg.type === 'success' ? 'Thành công' : 'Lỗi'}</b> {msg.text}</div>
-          <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
+          <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setMsg(null)}>✕</button>
         </div>
       )}
 
@@ -354,7 +354,7 @@ actions={
                   </button>
                 </div>
               ))}
-              <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={addMappingRow} style={{ marginTop: 4 }}>
+              <button className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-1" onClick={addMappingRow}>
                 <Plus size={14} /> Thêm cột
               </button>
             </div>

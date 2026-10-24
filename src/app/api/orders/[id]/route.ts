@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { bomLineFields } from '@/lib/sap-push-document'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
-import { calcOrderLines, orderTotals, validateOrderLines } from '@/lib/order-calc'
-import { normalizeBomLines } from '@/lib/order-bom'
+import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
+import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { parseB2BHeader } from '../route'
+import { checkOrderSourceLines } from '@/lib/order-source-lines'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -156,17 +158,30 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   // DB của đơn (để validate BOM đúng mirror) — đơn 'sap-*' chưa có local → dùng DB phiên
   const orderDbHint = id.startsWith('sap-')
     ? null
-    : await prisma.salesOrder.findUnique({ where: { id }, select: { sapDatabaseId: true } })
+    : await prisma.salesOrder.findUnique({
+        where: { id },
+        select: { sapDatabaseId: true, lines: { where: { isBomChild: true }, select: { bomGroupKey: true, itemCode: true } } },
+      })
   const bomDbId = orderDbHint?.sapDatabaseId ?? user.databaseId ?? null
   const { lines: validLines, error: linesError } = validateOrderLines(lines)
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
   // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
-  const { lines: bomLines, error: bomError } = await normalizeBomLines(bomDbId, validLines)
+  const { lines: bomLines, error: bomError } = await normalizeBomLines(bomDbId, validLines, {
+    allowSwap: Boolean(user.permissions.bomSwap?.edit),
+    // Dòng con đã lưu của đơn: giữ nguyên khi sửa (BOM bị xóa khỏi mirror / đã hoán đổi trước đó)
+    existingChildren: new Set((orderDbHint?.lines ?? []).map((l) => bomChildKey(l.bomGroupKey, l.itemCode))),
+  })
   if (bomError) {
     return NextResponse.json({ error: bomError }, { status: 400 })
   }
+  // Copy-from báo giá: chỉ giữ sourceLineId hợp lệ (dòng báo giá thật, cùng KH, cùng mã hàng)
+  const { ids: srcIds, error: srcError } = await checkOrderSourceLines(bomLines, cardCode)
+  if (srcError) {
+    return NextResponse.json({ error: srcError }, { status: 400 })
+  }
+  bomLines.forEach((l, i) => { (l as { sourceLineId?: string | null }).sourceLineId = srcIds[i] })
 
   const headerPct = Math.min(100, Math.max(0, Number(headerDiscPct) || 0))
   const calcLines = calcOrderLines(bomLines, headerPct)
@@ -220,11 +235,15 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       docDueDate,
       comments: remarks ?? null,
       headerDiscPct: headerPct,
+      shipToCode: b2b.shipToCode,
+      billToCode: b2b.billToCode,
+      contactPersonCode: b2b.contactPersonCode,
       lines: calcLines.map((l, idx) => {
         const sub = l as { sapLineNum?: number }
         return {
           lineNum: resolveLn(l.itemCode, l.warehouseCode, sub.sapLineNum, idx),
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,
@@ -283,6 +302,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 
   // ---------- 1) Đơn đã synced → PATCH lên Service Layer trước ----------
   let patchedInSap = false
+  // LineNum SAP theo từng dòng sau PATCH (có khi thêm BOM Template — dòng con
+  // mới nằm cuối chứng từ trên SAP nên không suy được theo vị trí)
+  let patchLineNums: number[] | undefined
   if (order.sapSyncStatus === 'synced' && order.sapDocEntry != null) {
     const s = await loadSapSettings(order.sapDatabaseId ?? user.databaseId)
     if (isSapConfigured(s)) {
@@ -309,9 +331,13 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         docDueDate,
         comments: remarks ?? null,
         headerDiscPct: headerPct,
+        shipToCode: b2b.shipToCode,
+        billToCode: b2b.billToCode,
+        contactPersonCode: b2b.contactPersonCode,
         lines: calcLines.map((l) => ({
           lineNum: resolveLineNum(l as { dbId?: string; sapLineNum?: number }),
           itemCode: l.itemCode,
+          ...bomLineFields(l),
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           discPct: l.discPct,
@@ -327,6 +353,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         )
       }
       patchedInSap = true
+      if (res.lineNums?.length === calcLines.length) patchLineNums = res.lineNums
     }
   }
 
@@ -371,6 +398,8 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             lineNum: i + 1,
             itemCode: l.itemCode,
             itemName: l.itemName,
+            barcode: cleanBarcode(l.barcode),
+            sourceLineId: (l as { sourceLineId?: string | null }).sourceLineId ?? null,
             uom: l.uom || 'kg',
             taxCode: l.taxCode?.trim() || null,
             warehouseCode: (l.warehouseCode || warehouseCode || '').trim() || null,
@@ -382,7 +411,8 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             vatPct: l.vatPct,
             vatAmt: l.vatAmt,
             grandTotal: l.grandTotal,
-            sapLineNum: (l as { dbId?: string }).dbId ? lineNumOf.get((l as { dbId?: string }).dbId as string) ?? null : null,
+            sapLineNum: patchLineNums?.[i]
+              ?? ((l as { dbId?: string }).dbId ? lineNumOf.get((l as { dbId?: string }).dbId as string) ?? null : null),
             isBomChild: l.isBomChild ?? false,
             bomGroupKey: (l.bomGroupKey as string | null | undefined) ?? null,
             bomEditable: l.bomEditable ?? true,

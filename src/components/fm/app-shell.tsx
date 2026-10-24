@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  LayoutDashboard, ClipboardList, PlusCircle, UsersRound, Settings, ShieldCheck,
+  LayoutDashboard, ClipboardList, UsersRound, Settings, ShieldCheck,
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
   FileText, Receipt, FileMinus2, Undo2, HandCoins, BarChart3, FileClock,
-  UserCheck, CalendarClock, ArrowLeftRight, ArrowRight,
+  UserCheck, CalendarClock, ArrowLeftRight, ArrowRight, Database,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -56,7 +56,8 @@ const DownPaymentDetailView = dynamic(() => import('./down-payment-detail-view')
 const SalesReportView = dynamic(() => import('./sales-report-view'), { ssr: false, loading: ViewLoading })
 const ArAgingReportView = dynamic(() => import('./ar-aging-report-view'), { ssr: false, loading: ViewLoading })
 const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
-import type { EditOrderData } from './order-form-view'
+import type { AssistantOrderDraft, EditOrderData } from './order-form-view'
+import AssistantChat from './assistant-chat'
 import { toEditData } from './order-form-view'
 import type { CopyTarget } from './sales-doc-shared'
 
@@ -69,33 +70,42 @@ interface MenuItem {
   short: string
   icon: React.ReactNode
   group: 'main' | 'sync' | 'admin'
-  badge?: string
 }
 
 const MENU: MenuItem[] = [
   { key: 'dashboard', module: 'orders', label: 'Tổng quan hệ thống', short: 'Tổng quan', icon: <LayoutDashboard size={16} />, group: 'main' },
-  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng bán', short: 'Đơn hàng bán', icon: <ClipboardList size={16} />, group: 'main', badge: 'SO' },
-  { key: 'ordersNew', module: 'ordersNew', label: 'Tạo đơn hàng bán mới', short: 'Tạo đơn bán', icon: <PlusCircle size={16} />, group: 'main' },
-  { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main', badge: 'DL' },
-  { key: 'quotations', module: 'quotations', label: 'Báo giá bán hàng', short: 'Báo giá', icon: <FileText size={16} />, group: 'main', badge: 'QT' },
-  { key: 'invoices', module: 'invoices', label: 'Hóa đơn bán hàng', short: 'Hóa đơn', icon: <Receipt size={16} />, group: 'main', badge: 'IV' },
-  { key: 'creditMemos', module: 'creditMemos', label: 'Phiếu ghi có phải thu', short: 'Ghi có', icon: <FileMinus2 size={16} />, group: 'main', badge: 'CM' },
-  { key: 'returns', module: 'returns', label: 'Phiếu trả hàng bán', short: 'Trả hàng', icon: <Undo2 size={16} />, group: 'main', badge: 'RT' },
-  { key: 'downPayments', module: 'downPayments', label: 'Hóa đơn đặt cọc phải thu', short: 'Đặt cọc', icon: <HandCoins size={16} />, group: 'main', badge: 'DP' },
-  { key: 'salesReport', module: 'salesReport', label: 'Báo cáo bán hàng', short: 'BC bán hàng', icon: <BarChart3 size={16} />, group: 'main', badge: 'BC' },
-  { key: 'arAgingReport', module: 'arAgingReport', label: 'Công nợ phải thu', short: 'Công nợ', icon: <FileClock size={16} />, group: 'main', badge: 'CN' },
+  { key: 'quotations', module: 'quotations', label: 'Báo giá bán hàng', short: 'Báo giá', icon: <FileText size={16} />, group: 'main' },
+  { key: 'orders', module: 'orders', label: 'Danh sách đơn hàng bán', short: 'Đơn hàng bán', icon: <ClipboardList size={16} />, group: 'main' },
+  { key: 'deliveries', module: 'deliveries', label: 'Quản lý giao hàng', short: 'Giao hàng', icon: <Truck size={16} />, group: 'main' },
+  { key: 'returns', module: 'returns', label: 'Phiếu trả hàng bán', short: 'Trả hàng', icon: <Undo2 size={16} />, group: 'main' },
+  { key: 'downPayments', module: 'downPayments', label: 'Hóa đơn đặt cọc phải thu', short: 'Đặt cọc', icon: <HandCoins size={16} />, group: 'main' },
+  { key: 'invoices', module: 'invoices', label: 'Hóa đơn bán hàng', short: 'Hóa đơn', icon: <Receipt size={16} />, group: 'main' },
+  { key: 'creditMemos', module: 'creditMemos', label: 'Phiếu ghi có phải thu', short: 'Ghi có', icon: <FileMinus2 size={16} />, group: 'main' },
+  { key: 'salesReport', module: 'salesReport', label: 'Báo cáo bán hàng', short: 'BC bán hàng', icon: <BarChart3 size={16} />, group: 'main' },
+  { key: 'arAgingReport', module: 'arAgingReport', label: 'Công nợ phải thu', short: 'Công nợ', icon: <FileClock size={16} />, group: 'main' },
   { key: 'excelTemplates', module: 'excelTemplates', label: 'Mẫu Excel', short: 'Mẫu Excel', icon: <FileSpreadsheet size={16} />, group: 'main' },
-  { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync', badge: 'Item' },
-  { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync', badge: 'VAT' },
-  { key: 'partners', module: 'settings', label: 'Đồng bộ Đối tác kinh doanh', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync', badge: 'KH' },
-  { key: 'salesPersons', module: 'settings', label: 'Đồng bộ Nhân viên bán hàng', short: 'NVBH', icon: <UserCheck size={16} />, group: 'sync', badge: 'NVBH' },
-  { key: 'paymentTerms', module: 'settings', label: 'Đồng bộ Điều khoản thanh toán', short: 'ĐKTT', icon: <CalendarClock size={16} />, group: 'sync', badge: 'ĐKTT' },
-  { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync', badge: 'BOM' },
+  { key: 'items', module: 'settings', label: 'Đồng bộ Mặt hàng', short: 'Mặt hàng', icon: <Boxes size={16} />, group: 'sync' },
+  { key: 'vatGroups', module: 'settings', label: 'Đồng bộ Nhóm thuế', short: 'Nhóm thuế', icon: <Percent size={16} />, group: 'sync' },
+  { key: 'partners', module: 'settings', label: 'Đồng bộ Đối tác kinh doanh', short: 'Khách hàng', icon: <Contact size={16} />, group: 'sync' },
+  { key: 'salesPersons', module: 'settings', label: 'Đồng bộ Nhân viên bán hàng', short: 'NVBH', icon: <UserCheck size={16} />, group: 'sync' },
+  { key: 'paymentTerms', module: 'settings', label: 'Đồng bộ Điều khoản thanh toán', short: 'ĐKTT', icon: <CalendarClock size={16} />, group: 'sync' },
+  { key: 'bomImport', module: 'bomImport', label: 'Import BOM/Combo', short: 'Import BOM', icon: <FileUp size={16} />, group: 'sync' },
   { key: 'users', module: 'users', label: 'Quản lý người dùng', short: 'Người dùng', icon: <UsersRound size={16} />, group: 'admin' },
   { key: 'roles', module: 'roles', label: 'Quản lý ủy quyền', short: 'Ủy quyền', icon: <ShieldCheck size={16} />, group: 'admin' },
   { key: 'settings', module: 'settings', label: 'Cài đặt SAP B1', short: 'Cài đặt', icon: <Settings size={16} />, group: 'admin' },
   { key: 'sapAudit', module: 'settings', label: 'Service Layer Audit', short: 'SL Audit', icon: <History size={16} />, group: 'admin' },
 ]
+
+// Màn tạo/sửa/chi tiết → tô sáng mục menu danh sách tương ứng
+const NAV_PARENT: Partial<Record<ViewKey, ViewKey>> = {
+  ordersNew: 'orders', orderDetail: 'orders',
+  deliveryNew: 'deliveries', deliveryDetail: 'deliveries',
+  quotationNew: 'quotations', quotationDetail: 'quotations',
+  invoiceNew: 'invoices', invoiceDetail: 'invoices',
+  creditMemoNew: 'creditMemos', creditMemoDetail: 'creditMemos',
+  returnNew: 'returns', returnDetail: 'returns',
+  downPaymentNew: 'downPayments', downPaymentDetail: 'downPayments',
+}
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   dashboard: 'Tổng quan hệ thống',
@@ -154,6 +164,8 @@ export default function AppShell({ user, onLogout }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
+  // Nháp đơn từ Trợ lý sale admin → form tạo đơn (nonce đổi mỗi lần mở)
+  const [assistantDraft, setAssistantDraft] = useState<AssistantOrderDraft | null>(null)
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
   const [detailDeliveryId, setDetailDeliveryId] = useState<string | null>(null)
   /** Id chi tiết từng loại chứng từ Phase 1 Sales A/R */
@@ -359,15 +371,16 @@ export default function AppShell({ user, onLogout }: Props) {
     }
   }
 
+  const navView = NAV_PARENT[view] ?? view
   const renderNavItem = (m: MenuItem) => (
     <div
       key={m.key}
-      className={`fm-menu-item${view === m.key ? ' is-active' : ''}`}
+      className={`fm-menu-item${navView === m.key ? ' is-active' : ''}`}
       role="button"
       tabIndex={0}
       aria-label={m.label}
       title={m.label} /* tablet rail ≤900px chỉ hiện icon — title làm tooltip */
-      aria-current={view === m.key ? 'page' : undefined}
+      aria-current={navView === m.key ? 'page' : undefined}
       onClick={() => go(m.key)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -378,7 +391,6 @@ export default function AppShell({ user, onLogout }: Props) {
     >
       {m.icon}
       <span className="fm-menu-item__label">{m.label}</span>
-      {m.badge && <span className="fm-badge-count">{m.badge}</span>}
       {m.key === 'orders' && overdueCount > 0 && (
         <span className="fm-badge-dot" title={`${overdueCount} đơn quá hạn giao`}>{overdueCount > 99 ? '99+' : overdueCount}</span>
       )}
@@ -399,8 +411,7 @@ export default function AppShell({ user, onLogout }: Props) {
             </div>
           </div>
           <button
-            className="fm-burger"
-            style={{ background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)', color: 'var(--fm-surface)', width: 44, height: 44 }}
+            className="fm-burger fm-burger--on-dark"
             aria-label="Đóng menu"
             onClick={() => setDrawerOpen(false)}
           >
@@ -502,17 +513,32 @@ export default function AppShell({ user, onLogout }: Props) {
               <kbd className="fm-search__kbd">Ctrl K</kbd>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div className="fm-header__right">
             <button className="fm-header__bell" aria-label="Thông báo" title="Chưa có thông báo mới" onClick={() => showToast('Chưa có thông báo mới', 'success')}>
               <Bell size={18} />
             </button>
+            {/* CSDL SAP B1 đang làm việc — đặt ngay trước người dùng, kèm trạng thái kết nối */}
+            <div
+              className={`fm-header__db is-${sapStatus}`}
+              title={`Cơ sở dữ liệu SAP B1 đang làm việc: ${user.databaseLabel ?? 'Mặc định'} — ${sapStatus === 'ok' ? 'đang kết nối' : sapStatus === 'none' ? 'chưa cấu hình Service Layer' : 'lỗi kết nối'}`}
+            >
+              <Database size={16} aria-hidden className="fm-header__db-icon" />
+              <span className="fm-header__db-text">
+                <small>Cơ sở dữ liệu</small>
+                <b>{user.databaseLabel ?? 'Mặc định'}</b>
+              </span>
+              <span className="fm-header__db-dot" aria-hidden />
+              <span className="fm-sr-only">
+                {sapStatus === 'ok' ? 'Đang kết nối' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi kết nối'}
+              </span>
+            </div>
             <div className="fm-header__user">
               <span className="fm-header__avatar">
                 {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
               </span>
               <span className="fm-header__info">
                 <b>{user.fullName}</b>
-                <small>{user.roleLabel}{user.databaseLabel ? ` · DB: ${user.databaseLabel}` : ''}</small>
+                <small>{user.roleLabel}</small>
               </span>
             </div>
           </div>
@@ -597,6 +623,8 @@ export default function AppShell({ user, onLogout }: Props) {
               <OrderFormView
                 editOrder={editOrder}
                 userId={user.id}
+                prefill={editOrder ? null : assistantDraft}
+                onPrefillApplied={() => setAssistantDraft(null)}
                 onCancel={() => { setEditOrder(null); go('orders') }}
                 onSaved={({ id: orderId, docNum, sapStatus, sapDocNum, sapError }) => {
                   const wasEdit = Boolean(editOrder)
@@ -765,6 +793,16 @@ export default function AppShell({ user, onLogout }: Props) {
             {view === 'bomImport' && <BomImportView user={user} />}
           </div>
         </main>
+        {(user.permissions.orders?.view || user.permissions.ordersNew?.create) && (
+          <AssistantChat
+            onOpenDraft={(d) => {
+              if (!user.permissions.ordersNew?.create) return
+              setEditOrder(null)
+              setAssistantDraft({ ...d, nonce: Date.now() })
+              go('ordersNew')
+            }}
+          />
+        )}
       </div>
 
       {/* ===== Bottom tab bar (mobile) ===== */}
@@ -772,8 +810,8 @@ export default function AppShell({ user, onLogout }: Props) {
         {menu.slice(0, 4).map((m) => (
           <button
             key={m.key}
-            className={`fm-bottomnav__item${view === m.key ? ' is-active' : ''}`}
-            aria-current={view === m.key ? 'page' : undefined}
+            className={`fm-bottomnav__item${navView === m.key ? ' is-active' : ''}`}
+            aria-current={navView === m.key ? 'page' : undefined}
             onClick={() => go(m.key)}
           >
             {m.icon}
@@ -781,7 +819,7 @@ export default function AppShell({ user, onLogout }: Props) {
           </button>
         ))}
         <button
-          className={`fm-bottomnav__item${view !== 'dashboard' && !menu.slice(0, 4).some((m) => m.key === view) ? ' is-active' : ''}`}
+          className={`fm-bottomnav__item${navView !== 'dashboard' && !menu.slice(0, 4).some((m) => m.key === navView) ? ' is-active' : ''}`}
           onClick={() => setDrawerOpen(true)}
           aria-expanded={drawerOpen}
           aria-label="Mở menu điều hướng"
@@ -797,7 +835,6 @@ export default function AppShell({ user, onLogout }: Props) {
           className="fm-drawer-backdrop"
           onClick={() => setDrawerOpen(false)}
           aria-label="Đóng menu"
-          style={{ border: 0, padding: 0, cursor: 'default' }}
         />
       )}
 
@@ -818,7 +855,7 @@ export default function AppShell({ user, onLogout }: Props) {
                   </button>
                 )}
               </div>
-              <button type="button" className="fm-icon-btn" style={{ flex: 'none', width: 32, height: 32, minWidth: 32, minHeight: 32 }} aria-label="Đóng thông báo" onClick={() => dismissToast(toast.id)}>
+              <button type="button" className="fm-icon-btn fm-icon-btn--sm" aria-label="Đóng thông báo" onClick={() => dismissToast(toast.id)}>
                 <CloseIcon size={14} />
               </button>
             </div>

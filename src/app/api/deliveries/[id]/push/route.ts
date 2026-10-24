@@ -4,6 +4,7 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { acquirePushLock, releasePushLock } from '@/lib/order-push-lock'
 import { pushDeliveryToSap } from '@/lib/sap-push-delivery'
+import { headerExtrasFromRecord } from '@/lib/sap-push-document'
 import { clearSapDeliveriesCache } from '@/lib/sap-deliveries'
 
 interface Ctx {
@@ -65,18 +66,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       comments: delivery.remarks,
       warehouseCode: delivery.warehouseCode ?? null,
       localId: delivery.id,
+      // Lập từ đơn hàng CHỈ có trên SAP → base dựng từ DocEntry này (dòng nguồn id `sap-<LineNum>`)
+      sapSourceDocEntry: delivery.sapSourceDocEntry ?? null,
       // B2B / SAP B1 (Đợt 2+3): các trường header đã lưu trên DB — tầng push
       // (buildPayload → sapDocHeaderExtras) chỉ gửi khi có giá trị
-      salesPersonCode: delivery.salesPersonCode ?? null,
-      paymentGroupCode: delivery.paymentGroupCode ?? null,
-      shipToCode: delivery.shipToCode ?? null,
-      billToCode: delivery.billToCode ?? null,
-      numAtCard: delivery.numAtCard ?? null,
-      taxDate: delivery.taxDate ?? null,
-      docCurrency: delivery.docCurrency ?? null,
-      docRate: delivery.docRate ?? null,
-      projectCode: delivery.projectCode ?? null,
-      reqDate: delivery.reqDate ?? null,
+      ...headerExtrasFromRecord(delivery),
       headerDiscPct: delivery.headerDiscPct ?? 0,
       pickAndPackNotes: delivery.pickAndPackNotes ?? null,
       lines: delivery.lines.map((l) => ({

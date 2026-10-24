@@ -245,6 +245,33 @@ function buildAddressesJson(
   return JSON.stringify([...byCode.values()])
 }
 
+type B1Contact = { InternalCode?: number; Active?: string; Name?: string; FirstName?: string; LastName?: string; Phone1?: string; MobilePhone?: string; E_Mail?: string }
+
+/**
+ * Chuẩn hóa ContactEmployees của SAP thành JSON gọn lưu vào contactsJson.
+ *   [{ code: InternalCode, name, phone, email, isDefault }]
+ *  - code = ContactEmployees.InternalCode → gửi lên chứng từ làm ContactPersonCode.
+ *  - Bỏ người liên hệ đã ngừng (Active = tNO) và dòng không có InternalCode.
+ *  - isDefault: khớp tên với OCRD.ContactPerson (người liên hệ mặc định của KH).
+ */
+function buildContactsJson(list: B1Contact[] | undefined, defaultName?: string): string | null {
+  if (!Array.isArray(list) || list.length === 0) return null
+  const def = (defaultName ?? '').trim()
+  const rows = list
+    .filter((c) => typeof c.InternalCode === 'number' && c.Active !== 'tNO')
+    .map((c) => {
+      const name = (c.Name ?? '').trim() || [c.FirstName, c.LastName].filter(Boolean).join(' ').trim() || String(c.InternalCode)
+      return {
+        code: c.InternalCode as number,
+        name,
+        phone: (c.Phone1 ?? '').trim() || (c.MobilePhone ?? '').trim() || '',
+        email: (c.E_Mail ?? '').trim(),
+        isDefault: !!def && (c.Name ?? '').trim() === def,
+      }
+    })
+  return rows.length ? JSON.stringify(rows) : null
+}
+
 function toPayload(p: {
   CardCode: string
   CardName?: string
@@ -252,7 +279,10 @@ function toPayload(p: {
   Phone1?: string
   EmailAddress?: string
   GroupNum?: number
-  ContactEmployees?: Array<{ Name?: string; FirstName?: string; LastName?: string; Phone1?: string; MobilePhone?: string }>
+  ContactPerson?: string
+  ShipToDefault?: string
+  BilltoDefault?: string
+  ContactEmployees?: B1Contact[]
   BPAddresses?: Array<{ AddressName?: string; AddressType?: string; Street?: string; City?: string; ZipCode?: string; Country?: string }>
 }, syncDbId: string, now: Date, groupNums: Map<string, number>) {
   const contact = primaryContact(p)
@@ -270,6 +300,9 @@ function toPayload(p: {
     // (loadCustomers $select không gồm GroupNum), fallback sang bản ghi gốc.
     groupNum: groupNums.get(p.CardCode) ?? (typeof p.GroupNum === 'number' ? p.GroupNum : null),
     addressesJson: buildAddressesJson(p.BPAddresses),
+    contactsJson: buildContactsJson(p.ContactEmployees, p.ContactPerson),
+    shipToDefault: (p.ShipToDefault ?? '').trim() || null,
+    billToDefault: (p.BilltoDefault ?? '').trim() || null,
     syncedAt: now,
   }
 }

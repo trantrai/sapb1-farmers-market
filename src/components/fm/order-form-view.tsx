@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy, Paperclip } from 'lucide-react'
+import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy, Paperclip } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND, formatNum, formatDateVN } from '@/lib/fm-shared'
@@ -11,16 +11,35 @@ import { useFocusTrap } from './use-focus-trap'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
+import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
+import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
+import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
+import PrecheckDialog from './precheck-dialog'
+import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
+import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
+import CustomerBasket from './customer-basket'
+import DeliveryHint from './delivery-hint'
+import type { OrderDraft as AssistantDraftData } from '@/lib/assistant/agent'
+import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
+import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
+
+/** Nháp đơn từ Trợ lý sale admin + nonce (đổi nonce để áp dụng lại) */
+export type AssistantOrderDraft = AssistantDraftData & { nonce: number }
 
 interface DraftLine {
   key: number
   item: ACOption | null
+  /** Copy-from: id dòng báo giá nguồn (tương đương BaseLine SAP) — đẩy SAP gắn BaseType 23 */
+  sourceLineId?: string | null
   quantity: number
   unitPrice: number
   discPct: number
   vatPct: number
   /** 'special' = giá đặc biệt theo khách hàng (OSPP); 'pricelist' = Price List 1 */
   priceSource?: string
+  /** Giá tham chiếu đã giải (OSPP / Price List 1) — cảnh báo khi giá nhập tay thấp hơn */
+  refPrice?: number
   /** Mã nhóm thuế SAP (SalesVATGroup, vd S1/S2/S8) — tự điền khi chọn mặt hàng, đi kèm khi đẩy đơn sang SAP B1 */
   taxCode?: string
   /** true = người dùng đã tự sửa VAT% tay (ghi đè thuế suất từ mã thuế) */
@@ -53,6 +72,10 @@ export interface EditOrderLine {
   sapLineNum?: number
   itemCode: string
   itemName: string
+  /** Copy-from: id dòng báo giá nguồn */
+  sourceLineId?: string | null
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -92,6 +115,8 @@ export interface EditOrderData {
   shipToCode?: string | null
   /** Địa chỉ ghi hóa đơn (SAP BillToCode) */
   billToCode?: string | null
+  /** Người liên hệ (SAP ContactPersonCode) */
+  contactPersonCode?: number | null
   /** Số PO / tham chiếu của KH (SAP NumAtCard) */
   numAtCard?: string | null
   /** Ngày tính thuế (SAP TaxDate) — ISO date */
@@ -116,6 +141,10 @@ export interface EditOrderSourceLine {
   lineNum?: number
   itemCode: string
   itemName: string
+  /** Copy-from: id dòng báo giá nguồn */
+  sourceLineId?: string | null
+  /** Mã vạch (BarCode) đã lưu trên dòng */
+  barcode?: string | null
   uom?: string
   warehouseCode?: string
   quantity: number
@@ -151,6 +180,7 @@ export interface EditOrderSource {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -186,6 +216,7 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
   paymentGroupCode: o.paymentGroupCode ?? null,
   shipToCode: o.shipToCode ?? null,
   billToCode: o.billToCode ?? null,
+  contactPersonCode: o.contactPersonCode ?? null,
   numAtCard: o.numAtCard ?? null,
   taxDate: o.taxDate ? String(o.taxDate).slice(0, 10) : null,
   docCurrency: o.docCurrency ?? null,
@@ -198,6 +229,7 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
     sapLineNum: o.source === 'sap' ? l.lineNum : undefined,
     itemCode: l.itemCode,
     itemName: l.itemName,
+    barcode: l.barcode ?? null,
     uom: l.uom,
     warehouseCode: l.warehouseCode,
     quantity: l.quantity,
@@ -209,6 +241,7 @@ export const toEditData = (o: EditOrderSource): EditOrderData => ({
     bomGroupKey: l.bomGroupKey ?? null,
     bomEditable: l.bomEditable ?? true,
     bomQtyPerParent: l.bomQtyPerParent ?? null,
+    sourceLineId: l.sourceLineId ?? null,
   })),
 })
 
@@ -241,6 +274,8 @@ export interface B2BFormState {
   shipToCode: string
   /** Địa chỉ ghi hóa đơn (BillToCode) */
   billToCode: string
+  /** Người liên hệ (ContactPersonCode) — mã số dạng chuỗi */
+  contactPersonCode: string
   /** Ngày cần giao (yyyy-mm-dd) */
   reqDate: string
   /** Danh sách đính kèm {name, url} */
@@ -258,6 +293,7 @@ export const defaultB2BForm = (docDate: string): B2BFormState => ({
   projectCode: '',
   shipToCode: '',
   billToCode: '',
+  contactPersonCode: '',
   reqDate: '',
   attachments: [],
 })
@@ -286,6 +322,7 @@ export function b2bFromSaved(
     numAtCard?: string | null; taxDate?: string | null; docCurrency?: string | null
     docRate?: number | null; projectCode?: string | null; shipToCode?: string | null
     billToCode?: string | null; reqDate?: string | null; attachmentsJson?: string | null
+    contactPersonCode?: number | null
   },
 ): B2BFormState {
   const tax = (o.taxDate || '').slice(0, 10)
@@ -302,6 +339,7 @@ export function b2bFromSaved(
     projectCode: o.projectCode ?? '',
     shipToCode: o.shipToCode ?? '',
     billToCode: o.billToCode ?? '',
+    contactPersonCode: o.contactPersonCode != null ? String(o.contactPersonCode) : '',
     reqDate: (o.reqDate || '').slice(0, 10),
     attachments: parseB2BAttachments(o.attachmentsJson),
   }
@@ -312,6 +350,7 @@ export interface B2BPayload {
   paymentGroupCode: number | null
   shipToCode: string | null
   billToCode: string | null
+  contactPersonCode: number | null
   numAtCard: string | null
   taxDate: string | null
   docCurrency: string
@@ -352,6 +391,7 @@ export function buildB2BPayload(b: B2BFormState): { payload: B2BPayload; error?:
       paymentGroupCode: intOrNull(b.paymentGroupCode),
       shipToCode: strOrNull(b.shipToCode),
       billToCode: strOrNull(b.billToCode),
+      contactPersonCode: intOrNull(b.contactPersonCode),
       numAtCard: strOrNull(b.numAtCard),
       taxDate: strOrNull(b.taxDate),
       docCurrency: currency,
@@ -363,30 +403,8 @@ export function buildB2BPayload(b: B2BFormState): { payload: B2BPayload; error?:
   }
 }
 
-/** Địa chỉ đối tác từ BusinessPartner.addressesJson — shape [{code,name,detail,type:'B'|'S'}] */
-export interface B2BAddress {
-  code: string
-  name: string
-  detail?: string
-  /** 'S' = địa chỉ giao hàng (ShipTo), 'B' = địa chỉ ghi hóa đơn (BillTo) */
-  type?: string
-}
-
-export function parseB2BAddresses(json?: string | null): B2BAddress[] {
-  if (!json || typeof json !== 'string') return []
-  try {
-    const arr = JSON.parse(json)
-    if (!Array.isArray(arr)) return []
-    return arr
-      .filter((a) => a && typeof a === 'object' && ((a as B2BAddress).code || (a as B2BAddress).name))
-      .map((a) => {
-        const x = a as B2BAddress
-        return { code: String(x.code ?? ''), name: String(x.name ?? ''), detail: x.detail ? String(x.detail) : undefined, type: x.type ? String(x.type) : undefined }
-      })
-  } catch {
-    return []
-  }
-}
+// Địa chỉ đối tác: dùng chung từ '@/lib/bp-b2b' (giữ export cũ cho các form khác)
+export { parseB2BAddresses, type B2BAddress } from '@/lib/bp-b2b'
 
 // ============================================================
 // KHU VỰC "THÔNG TIN B2B / SAP B1" — dùng chung cho form Đơn hàng & Giao hàng
@@ -404,19 +422,19 @@ interface B2BSectionProps {
   paymentTerms: { code: number; name: string }[]
   /** true = không tải được danh mục ĐKTT → dùng ô nhập số (fallback) */
   ptListFailed: boolean
-  /** Địa chỉ của KH (từ addressesJson) — rỗng → ẩn 2 dropdown địa chỉ */
-  addresses: B2BAddress[]
+  /** Địa chỉ + người liên hệ của KH đã chọn (useBpB2BInfo) */
+  partyInfo: BpB2BInfo
+  partyLoading?: boolean
+  /** Đã chọn khách hàng chưa */
+  hasPartner: boolean
 }
 
 /** Khu vực "Thông tin B2B / SAP B1" trên form chứng từ: NVBH, ĐKTT, PO KH,
  *  ngày tính thuế, tiền tệ/tỷ giá, dự án, địa chỉ giao/ghi hóa đơn, đính kèm. */
 export function B2BFieldsSection({
   b2b, onChange, saving, idPrefix,
-  salesPersons, spListFailed, paymentTerms, ptListFailed, addresses,
+  salesPersons, spListFailed, paymentTerms, ptListFailed, partyInfo, partyLoading, hasPartner,
 }: B2BSectionProps) {
-  const shipAddrs = addresses.filter((a) => !a.type || a.type === 'S')
-  const billAddrs = addresses.filter((a) => !a.type || a.type === 'B')
-  const addrLabel = (a: B2BAddress) => (a.code ? `${a.code} · ${a.name}` : a.name)
 
   const setAttachment = (idx: number, patch: Partial<{ name: string; url: string }>) => {
     onChange('attachments', b2b.attachments.map((a, i) => (i === idx ? { ...a, ...patch } : a)))
@@ -567,44 +585,15 @@ export function B2BFieldsSection({
             maxLength={50}
           />
         </div>
-        {addresses.length > 0 && (
-          <>
-            <div className="fm-field">
-              <label className="fm-label" htmlFor={`${idPrefix}-shipto`} title="Địa chỉ giao hàng của khách (SAP: ShipToCode)">Địa chỉ giao hàng</label>
-              <select
-                id={`${idPrefix}-shipto`}
-                className="fm-input"
-                value={b2b.shipToCode}
-                onChange={(e) => onChange('shipToCode', e.target.value)}
-                disabled={saving}
-              >
-                <option value="">— Chưa chọn —</option>
-                {shipAddrs.map((a) => (
-                  <option key={a.code || a.name} value={a.code} title={a.detail || addrLabel(a)}>
-                    {addrLabel(a)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="fm-field">
-              <label className="fm-label" htmlFor={`${idPrefix}-billto`} title="Địa chỉ ghi hóa đơn của khách (SAP: BillToCode)">Địa chỉ ghi hóa đơn</label>
-              <select
-                id={`${idPrefix}-billto`}
-                className="fm-input"
-                value={b2b.billToCode}
-                onChange={(e) => onChange('billToCode', e.target.value)}
-                disabled={saving}
-              >
-                <option value="">— Chưa chọn —</option>
-                {billAddrs.map((a) => (
-                  <option key={a.code || a.name} value={a.code} title={a.detail || addrLabel(a)}>
-                    {addrLabel(a)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
+        <B2BPartyFields
+          value={{ shipToCode: b2b.shipToCode, billToCode: b2b.billToCode, contactPersonCode: b2b.contactPersonCode }}
+          onChange={(patch) => { for (const [k, v] of Object.entries(patch)) onChange(k as keyof B2BPartySelection, v as string) }}
+          info={partyInfo}
+          loading={partyLoading}
+          disabled={saving}
+          hasPartner={hasPartner}
+          idPrefix={idPrefix}
+        />
         <div className="fm-field" style={{ gridColumn: '1 / -1' }}>
           <span className="fm-label" id={`${idPrefix}-attachments-label`}>Đính kèm</span>
           {b2b.attachments.length > 0 && (
@@ -686,6 +675,8 @@ export default function OrderFormView({
   editOrder,
   onCancel,
   userId,
+  prefill,
+  onPrefillApplied,
 }: {
   onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
   /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
@@ -694,6 +685,10 @@ export default function OrderFormView({
   onCancel?: () => void
   /** Id user đăng nhập — dùng làm key nháp form (fm-order-draft-<userId>-...) */
   userId?: string
+  /** Nháp đơn từ Trợ lý sale admin — đổi nonce để áp dụng lại */
+  prefill?: AssistantOrderDraft | null
+  /** Đã đổ nháp trợ lý vào form → cha xoá để mở lại form không áp dụng lại */
+  onPrefillApplied?: () => void
 }) {
   const [partner, setPartner] = useState<ACOption | null>(null)
   const [partnerErr, setPartnerErr] = useState('')
@@ -722,8 +717,6 @@ export default function OrderFormView({
   /** ĐKTT: GET /api/payment-terms → [{code, name}]; 404/lỗi → ô nhập số (fallback) */
   const [paymentTerms, setPaymentTerms] = useState<{ code: number; name: string }[]>([])
   const [ptListFailed, setPtListFailed] = useState(false)
-  /** Địa chỉ của KH đã chọn (từ BusinessPartner.addressesJson) — rỗng → ẩn 2 dropdown địa chỉ */
-  const [b2bAddresses, setB2bAddresses] = useState<B2BAddress[]>([])
 
   const [lines, setLines] = useState<DraftLine[]>([
     { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 },
@@ -904,22 +897,6 @@ export default function OrderFormView({
     }
   }
 
-  // ---- Gợi ý mặt hàng theo lịch sử mua hàng của khách ----
-  interface SuggestItem {
-    itemCode: string
-    itemName: string
-    orderCount: number
-    totalQty: number
-    lastPrice: number
-    lastDate: string
-    uom?: string
-    taxCode?: string
-    warehouseCode?: string
-  }
-  const [suggests, setSuggests] = useState<SuggestItem[]>([])
-  const [suggestLoading, setSuggestLoading] = useState(false)
-  const [suggestOpen, setSuggestOpen] = useState(true)
-
   // ---- Lịch sử giá theo khách hàng ----
   interface PriceHistRow {
     docNum: number
@@ -954,43 +931,6 @@ export default function OrderFormView({
     if (!priceHistFor) return
     updateLine(priceHistFor.key, { unitPrice: row.unitPrice, discPct: row.discPct, priceSource: 'manual' })
     setPriceHistFor(null)
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    const code = partner?.code
-    if (!code) { setSuggests([]); return }
-    setSuggestLoading(true)
-    api(`/api/orders/suggest-items?cardCode=${encodeURIComponent(code)}`)
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}))
-        if (!cancelled && res.ok && json.ok) setSuggests(json.data ?? [])
-        else if (!cancelled) setSuggests([])
-      })
-      .catch(() => { if (!cancelled) setSuggests([]) })
-      .finally(() => { if (!cancelled) setSuggestLoading(false) })
-    return () => { cancelled = true }
-  }, [partner?.code])
-
-  const addSuggested = (s: SuggestItem) => {
-    const key = nextKey()
-    const line: DraftLine = {
-      key,
-      item: { code: s.itemCode, name: s.itemName } as ACOption,
-      quantity: 1,
-      unitPrice: s.lastPrice || 0,
-      discPct: 0,
-      vatPct: 8,
-      uom: s.uom,
-      taxCode: s.taxCode,
-      warehouseCode: s.warehouseCode || headerWh || undefined,
-    }
-    setLines((ls) => {
-      const hasData = ls.some((l) => l.item)
-      return hasData ? [...ls, line] : [line]
-    })
-    void resolvePrice(key, s.itemCode, partner?.code ?? null)
-    void checkAtp(key, s.itemCode, line.warehouseCode)
   }
 
   /** Parse số từ ô Excel: chấp nhận "1.234,56" (vi), "1,234.56" (en), "1,5".
@@ -1243,7 +1183,7 @@ export default function OrderFormView({
     setB2b(b2bFromSaved((o.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), o))
     const prefilled: DraftLine[] = (o.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -1259,6 +1199,8 @@ export default function OrderFormView({
       bomGroupKey: l.bomGroupKey ?? undefined,
       bomEditable: l.bomEditable ?? true,
       bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+      // Chỉ giữ liên kết nguồn khi SỬA đơn; "Nhân bản" (id rỗng) tạo đơn mới độc lập
+      sourceLineId: o.id ? (l.sourceLineId ?? null) : null,
     }))
     // Suy loại BOM của dòng cha từ dòng con (production/assembly → con khóa SL)
     for (const pl of prefilled) {
@@ -1295,7 +1237,7 @@ export default function OrderFormView({
     setB2b(b2bFromSaved((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), p as unknown as Parameters<typeof b2bFromSaved>[1]))
     const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -1308,6 +1250,7 @@ export default function OrderFormView({
       bomGroupKey: l.bomGroupKey ?? undefined,
       bomEditable: l.bomEditable ?? true,
       bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+      sourceLineId: (l as { sourceLineId?: string | null }).sourceLineId ?? null,
     }))
     // Suy loại BOM của dòng cha từ dòng con (giống applyEditData)
     for (const pl of prefilled) {
@@ -1335,7 +1278,7 @@ export default function OrderFormView({
   // Đổi view (lỡ bấm sidebar...) unmount form → dữ liệu đang nhập không mất.
   // Key riêng theo user + chế độ (tạo mới / sửa đơn nào); xóa sau khi lưu thành công.
   interface OrderDraftLine {
-    item: { code: string; name: string; uom?: string; taxCode?: string } | null
+    item: { code: string; name: string; uom?: string; taxCode?: string; barcode?: string } | null
     quantity: number
     unitPrice: number
     discPct: number
@@ -1349,6 +1292,7 @@ export default function OrderFormView({
     bomGroupKey?: string
     bomEditable?: boolean
     bomQtyPerParent?: number
+    sourceLineId?: string | null
   }
   interface OrderDraft {
     v: 1
@@ -1418,6 +1362,7 @@ export default function OrderFormView({
         bomGroupKey: l.bomGroupKey,
         bomEditable: l.bomEditable ?? true,
         bomQtyPerParent: l.bomQtyPerParent,
+        sourceLineId: l.sourceLineId ?? null,
       }))
       setLines(restored)
       setDraftRestored(true)
@@ -1425,6 +1370,33 @@ export default function OrderFormView({
       for (const l of restored) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
     } catch { /* nháp hỏng → bỏ qua */ }
   }, [draftKey])
+
+  // Nháp đơn từ Trợ lý sale admin: chọn khách trước, đợi partner cập nhật
+  // rồi mới đổ dòng (để giá đặc biệt theo KH được giải đúng). Khai báo SAU
+  // effect restore nháp local để nháp của trợ lý thắng.
+  const [pendingPrefill, setPendingPrefill] = useState<AssistantOrderDraft | null>(null)
+  const startPrefill = useEffectEvent((p: AssistantOrderDraft) => {
+    if (partner?.code !== p.cardCode) {
+      party.requestDefaults()
+      setPartner({ code: p.cardCode, name: p.cardName } as ACOption)
+    }
+    setPendingPrefill(p)
+  })
+  useEffect(() => {
+    if (prefill && !isEdit) startPrefill(prefill)
+  }, [prefill?.nonce])
+  const finishPrefill = useEffectEvent(() => {
+    const p = pendingPrefill
+    if (!p || partner?.code !== p.cardCode) return
+    setPendingPrefill(null)
+    addItemsBatch(p.lines.map((l) => ({
+      item: recentLineToOption({ ...l, available: true, warehouseCode: null }),
+      quantity: l.quantity,
+    })), 'replace')
+    onPrefillApplied?.()
+    setTplMsg({ type: 'success', text: `Trợ lý đã đổ ${p.lines.length} dòng cho ${p.cardCode} — ${p.cardName}. Kiểm tra giá, tồn kho rồi bấm Lưu.` })
+  })
+  useEffect(() => { finishPrefill() }, [partner?.code, pendingPrefill])
 
   // Tự lưu nháp (debounce 800ms) — đổi view giữa chừng vẫn kịp lưu
   useEffect(() => {
@@ -1455,6 +1427,7 @@ export default function OrderFormView({
             bomGroupKey: l.bomGroupKey,
             bomEditable: l.bomEditable,
             bomQtyPerParent: l.bomQtyPerParent,
+            sourceLineId: l.sourceLineId ?? null,
           })),
         }
         localStorage.setItem(draftKey, JSON.stringify(d))
@@ -1613,8 +1586,116 @@ export default function OrderFormView({
     setFieldErr((fe) => ({ ...fe, [parentKey]: '' }))
   }
 
-  const addLine = () =>
-    setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
+  /** Dòng đang mở chi tiết (ĐVT, kho, ATP, thuế) */
+  const expandedLines = useExpandedLines()
+
+  /** Chọn mặt hàng cho dòng (dùng chung ô tìm trong dòng và ô thêm dòng nhanh) */
+  const selectItem = (key: number, v: ACOption | null, whOverride?: string) => {
+    const cur = lines.find((x) => x.key === key)
+    // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
+    // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
+    const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
+    const wh = whOverride || cur?.warehouseCode || headerWh || undefined
+    updateLine(key, {
+      item: v,
+      unitPrice: v?.price ?? 0,
+      priceSource: v ? 'pricelist' : undefined,
+      refPrice: v?.price && v.price > 0 ? v.price : undefined,
+      taxCode: v?.taxCode || undefined,
+      uom: v?.uom || undefined,
+      warehouseCode: wh,
+      ...(vat !== null ? { vatPct: vat, vatOverridden: false } : {}),
+    })
+    if (v) {
+      void resolvePrice(key, v.code, partner?.code ?? null)
+      void checkAtp(key, v.code, wh) // ATP check tự động sau khi chọn mặt hàng
+      // Mặt hàng BOM → tự bung thành phần con (Template/Production)
+      void expandBom(key, v.code)
+    } else {
+      // Xóa mặt hàng → gỡ luôn nhóm con BOM cũ
+      void expandBom(key, '')
+    }
+  }
+
+  // ---------- BOM Template: hoán đổi thành phần con với mặt hàng khác ----------
+  const [swapKey, setSwapKey] = useState<number | null>(null)
+  /** Quyền hoán đổi thành phần BOM (Ủy quyền → Hoán đổi thành phần BOM → Sửa) */
+  const canSwapBom = useCanSwapBom()
+  const swapTarget = swapKey != null ? lines.find((x) => x.key === swapKey && x.isBomChild) ?? null : null
+  const swapParentCode = swapTarget
+    ? lines.find((x) => !x.isBomChild && x.bomGroupKey === swapTarget.bomGroupKey)?.item?.code
+    : undefined
+  /** Xác nhận hoán đổi: thay mã thành phần + nạp tên/ĐVT/mã thuế/barcode; giữ SL, định mức, giá 0, nhóm BOM */
+  const swapBomComponent = (key: number, v: ACOption) => {
+    const cur = lines.find((x) => x.key === key)
+    const wh = cur?.warehouseCode || headerWh || undefined
+    updateLine(key, {
+      item: v,
+      uom: v.uom || undefined,
+      taxCode: v.taxCode || undefined,
+      ...(typeof v.vatRate === 'number' ? { vatPct: v.vatRate, vatOverridden: false } : {}),
+    })
+    void checkAtp(key, v.code, wh)
+    setSwapKey(null)
+  }
+
+  /**
+   * "Đặt lại đơn gần nhất": thêm nhiều mặt hàng 1 lượt (thay toàn bộ dòng hoặc nối thêm).
+   * Mỗi dòng đi qua selectItem như khi chọn tay → giá đặc biệt/bảng giá, thuế, ATP,
+   * bung BOM theo công thức hiện hành.
+   */
+  /**
+   * Thêm nhiều mặt hàng 1 lượt (dán danh sách / đặt lại đơn cũ): mỗi dòng đi qua
+   * selectItem như khi chọn tay → giá, thuế, ĐVT, kho, ATP, bung BOM.
+   */
+  const addItemsBatch = (
+    entries: { item: ACOption; quantity: number; warehouseCode?: string | null }[],
+    mode: 'replace' | 'append' = 'append',
+  ) => {
+    const fresh = entries.map((e) => ({
+      key: nextKey(), item: null, quantity: e.quantity, unitPrice: 0, discPct: 0, vatPct: 8,
+      warehouseCode: e.warehouseCode || headerWh || undefined,
+    }))
+    // Bỏ dòng trống đang nhập dở khi nối thêm
+    setLines((ls) => [...(mode === 'replace' ? [] : ls.filter((x) => x.item || x.isBomChild)), ...fresh])
+    if (mode === 'replace') setAtp({})
+    fresh.forEach((nl, i) => selectItem(nl.key, entries[i].item, nl.warehouseCode))
+  }
+
+  const applyRecentOrder = (order: RecentOrder, mode: 'replace' | 'append') => {
+    const usable = order.lines.filter((l) => l.available && l.quantity > 0)
+    addItemsBatch(usable.map((l) => ({ item: recentLineToOption(l), quantity: l.quantity, warehouseCode: l.warehouseCode })), mode)
+    const skipped = order.lines.length - usable.length
+    setTplMsg({
+      type: 'success',
+      text: `${mode === 'replace' ? 'Đã dùng lại' : 'Đã thêm'} ${usable.length} dòng từ đơn #${order.docNum ?? ''}`
+        + (skipped ? ` — bỏ qua ${skipped} mặt hàng không còn trong danh mục bán.` : '.')
+        + ' Giá đã tính lại theo bảng giá hiện tại.',
+    })
+  }
+
+  /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
+  const quickAddLine = (v: ACOption, quantity: number) => {
+    const empty = lines.find((x) => !x.item && !x.isBomChild)
+    const key = empty?.key ?? nextKey()
+    setLines((ls) =>
+      empty
+        ? ls.map((x) => (x.key === key ? { ...x, quantity } : x))
+        : [...ls, { key, item: null, quantity, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }],
+    )
+    selectItem(key, v)
+  }
+
+  /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
+  const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleBomGroup = (gk: string) =>
+    setBomCollapsed((cur) => {
+      const next = new Set(cur)
+      if (next.has(gk)) next.delete(gk)
+      else next.add(gk)
+      return next
+    })
+
   const removeLine = (key: number) => {
     setAtp((m) => {
       const nv = { ...m }
@@ -1701,35 +1782,11 @@ export default function OrderFormView({
     return () => { cancelled = true }
   }, [])
 
-  // ---- B2B: địa chỉ giao/ghi hóa đơn của KH đã chọn (BusinessPartner.addressesJson) ----
-  // Rỗng → ẩn 2 dropdown địa chỉ. Đồng bộ lại shipTo/billTo nếu mã đã chọn
-  // không còn trong danh sách (tránh lưu mã địa chỉ không thuộc KH này).
-  useEffect(() => {
-    const code = partner?.code
-    if (!code) { setB2bAddresses([]); return }
-    let cancelled = false
-    api(`/api/bpartners/sync?q=${encodeURIComponent(code)}&pageSize=5`)
-      .then(async (r) => {
-        if (cancelled) return
-        const addrs: B2BAddress[] = []
-        if (r.ok) {
-          const j = await r.json().catch(() => null)
-          const rows: Array<{ cardCode?: string; addressesJson?: string | null }> = Array.isArray(j?.data) ? j.data : []
-          const rec = rows.find((d) => String(d.cardCode ?? '').toLowerCase() === code.toLowerCase()) ?? rows[0]
-          const parsed = parseB2BAddresses(rec?.addressesJson ?? null)
-          addrs.push(...parsed)
-        }
-        setB2bAddresses(addrs)
-        const codes = new Set(addrs.map((a) => a.code))
-        setB2b((b) => ({
-          ...b,
-          shipToCode: b.shipToCode && codes.has(b.shipToCode) ? b.shipToCode : '',
-          billToCode: b.billToCode && codes.has(b.billToCode) ? b.billToCode : '',
-        }))
-      })
-      .catch(() => { if (!cancelled) setB2bAddresses([]) })
-    return () => { cancelled = true }
-  }, [partner?.code])
+  // ---- Địa chỉ giao/ghi hóa đơn + người liên hệ của KH đã chọn ----
+  // Chọn KH → tự điền mặc định của KH; người dùng vẫn đổi được trên form.
+  const party = useBpB2BInfo(partner?.code, (update) =>
+    setB2b((b) => ({ ...b, ...update({ shipToCode: b.shipToCode, billToCode: b.billToCode, contactPersonCode: b.contactPersonCode }) })),
+  )
 
   // Đổi ngày chứng từ → Ngày tính thuế (SAP TaxDate) mặc định theo;
   // chỉ tự đồng bộ khi user chưa sửa tay ô Ngày tính thuế
@@ -1749,7 +1806,7 @@ export default function OrderFormView({
       if (json?.ok && typeof json.price === 'number' && json.price > 0) {
         setLines((ls) =>
           ls.map((l) =>
-            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source } : l,
+            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source, refPrice: json.price } : l,
           ),
         )
       }
@@ -1758,8 +1815,40 @@ export default function OrderFormView({
     }
   }
 
+  // Phím tắt nhập liệu: Alt+N/Alt+K, Ctrl+Enter lưu, Ctrl+Shift+Enter lưu nháp, Enter giữa các dòng, ?
+  const shortcuts = useFormShortcuts({
+    onSave: () => void save(isEdit && Boolean(editOrder?.isDraft)),
+    onSaveDraft: !isEdit ? () => void save(true) : undefined,
+    disabled: saving,
+  })
+
+  /** Kiểm tra trước khi lưu: danh sách lỗi + cảnh báo đang hiển thị (null = đóng) */
+  const [precheck, setPrecheck] = useState<PrecheckIssue[] | null>(null)
+
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
-  const save = async (asDraft = false) => {
+  const save = async (asDraft = false, opts?: { skipPrecheck?: boolean }) => {
+    // Lưu chính thức: gom mọi lỗi/cảnh báo 1 lần trước khi gửi (nháp thì bỏ qua)
+    if (!asDraft && !opts?.skipPrecheck) {
+      const issues = precheckOrder({
+        hasPartner: Boolean(partner),
+        docDate,
+        docDueDate,
+        today: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        lines: lines.filter((l) => l.item).map((l) => ({
+          key: l.key,
+          itemCode: l.item!.code,
+          itemName: l.item!.name,
+          quantity: l.quantity,
+          unitPrice: l.isBomChild ? 0 : l.unitPrice,
+          refPrice: l.refPrice,
+          priceSource: l.priceSource,
+          isBomChild: l.isBomChild,
+          warehouseCode: l.warehouseCode || headerWh || null,
+          atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
+        })),
+      })
+      if (issues.length > 0) { setPrecheck(issues); return }
+    }
     setError('')
     setVersionConflict(false)
     setPartnerErr('')
@@ -1797,6 +1886,7 @@ export default function OrderFormView({
           ...(isEdit ? { dbId: l.dbId, sapLineNum: l.sapLineNum } : {}),
           itemCode: l.item!.code,
           itemName: l.item!.name,
+          barcode: l.item!.barcode || undefined,
           uom: l.uom?.trim() || l.item!.uom?.trim() || 'kg',
           taxCode: l.taxCode || l.item!.taxCode || undefined,
           warehouseCode: l.warehouseCode || headerWh || undefined,
@@ -1808,6 +1898,8 @@ export default function OrderFormView({
           bomGroupKey: l.bomGroupKey ?? null,
           bomEditable: l.bomEditable ?? true,
           bomQtyPerParent: l.bomQtyPerParent ?? null,
+          // Copy-from báo giá: giữ liên kết dòng nguồn để đẩy SAP gắn BaseType/BaseEntry/BaseLine
+          sourceLineId: l.sourceLineId ?? null,
         })),
       }
       const baseUrl = isEdit ? `/api/orders/${editOrder!.id}` : '/api/orders'
@@ -1933,8 +2025,7 @@ export default function OrderFormView({
           {versionConflict && (
             <button
               type="button"
-              className="fm-btn fm-btn--secondary fm-btn--sm"
-              style={{ marginTop: 8 }}
+              className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2"
               onClick={() => void reloadLatest()}
               disabled={reloading}
             >
@@ -2047,7 +2138,7 @@ export default function OrderFormView({
         {tplMsg && (
           <div className={`fm-alert ${tplMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginBottom: 12 }} role={tplMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{tplMsg.text}</div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setTplMsg(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setTplMsg(null)}>✕</button>
           </div>
         )}
 
@@ -2060,6 +2151,8 @@ export default function OrderFormView({
             value={partner}
             disabled={saving}
             onChange={(v) => {
+              // người dùng chọn KH khác → điền địa chỉ/người liên hệ mặc định của KH mới
+              if (v?.code !== partner?.code) party.requestDefaults()
               setPartner(v)
               setPartnerErr('')
               // đổi khách hàng → tính lại giá (đặc biệt → bảng giá) cho các dòng chưa sửa giá tay
@@ -2073,21 +2166,26 @@ export default function OrderFormView({
             <input id="fm-partner-addr" className="fm-input" value={partner?.address || ''} readOnly placeholder="—" tabIndex={-1} />
           </div>
           <div className="fm-field">
-            <label className="fm-label" htmlFor="fm-partner-contact">Người liên hệ</label>
-            <input
-              id="fm-partner-contact"
-              className="fm-input"
-              value={partner?.contactPerson ? `${partner.contactPerson}${partner.contactPhone ? ` · ${partner.contactPhone}` : ''}` : ''}
-              readOnly placeholder="—" tabIndex={-1}
-            />
-          </div>
-          <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-date">Ngày chứng từ <span className="fm-label__req">*</span></label>
             <input id="fm-doc-date" type="date" className="fm-datepicker" value={docDate} onChange={(e) => onDocDateChange(e.target.value)} disabled={saving} />
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-due-date">Ngày giao hàng <span className="fm-label__req">*</span></label>
             <input id="fm-doc-due-date" type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} disabled={saving} />
+            {!isEdit && (
+              <DeliveryHint
+                cardCode={partner?.code}
+                docDate={docDate}
+                docDueDate={docDueDate}
+                headerWh={headerWh}
+                warehouseCodes={warehouses.map((w) => w.warehouseCode)}
+                disabled={saving}
+                onApply={(due, wh) => {
+                  setDocDueDate(due)
+                  if (wh && wh !== headerWh) applyHeaderWarehouse(wh)
+                }}
+              />
+            )}
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-header-wh" title="Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng ở Bước 2">Kho hàng xuất bán</label>
@@ -2143,7 +2241,9 @@ export default function OrderFormView({
         spListFailed={spListFailed}
         paymentTerms={paymentTerms}
         ptListFailed={ptListFailed}
-        addresses={b2bAddresses}
+        partyInfo={party.info}
+        partyLoading={party.loading}
+        hasPartner={!!partner}
       />
 
       {/* Bước 2 — Dòng hàng hóa (CK% + VAT% theo từng dòng) */}
@@ -2152,88 +2252,40 @@ export default function OrderFormView({
           <ShoppingBasket size={18} /> Bước 2 — Hàng hóa
         </h2>
 
-        {/* Gợi ý mặt hàng theo lịch sử mua hàng của khách */}
-        {partner?.code && (suggestLoading || suggests.length > 0) && (
-          <div style={{ marginBottom: 14, border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', background: 'var(--fm-cream)', padding: '10px 12px' }}>
-            <button
-              type="button"
-              onClick={() => setSuggestOpen((v) => !v)}
-              disabled={saving}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12.5, color: 'var(--fm-text)', padding: 0, width: '100%', textAlign: 'left' }}
-            >
-              <Sparkles size={16} style={{ color: 'var(--fm-primary)' }} />
-              Gợi ý theo lịch sử mua hàng
-              {suggestLoading
-                ? <span style={{ fontWeight: 400, color: 'var(--fm-text-2)' }}> — đang tải…</span>
-                : <span className="fm-chip fm-chip--role" style={{ marginLeft: 4 }}>{suggests.length} mặt hàng</span>}
-              <span style={{ marginLeft: 'auto', color: 'var(--fm-text-2)' }}>
-                {suggestOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </span>
-            </button>
-            {suggestOpen && !suggestLoading && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                {suggests.map((s) => (
-                  <div
-                    key={s.itemCode}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--fm-surface)', border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', padding: '6px 8px 6px 10px', maxWidth: 320 }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.itemName}>
-                        {s.itemName}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>
-                        {s.itemCode} · đã mua {s.orderCount} lần
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="fm-btn fm-btn--secondary fm-btn--sm"
-                      onClick={() => addSuggested(s)}
-                      disabled={saving}
-                      title={`Thêm ${s.itemName} vào đơn`}
-                    >
-                      <Plus size={14} /> Thêm
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Đặt lại đơn gần nhất của khách (chỉ khi TẠO đơn mới) */}
+        {!isEdit && <RecentOrdersPanel cardCode={partner?.code} disabled={saving} onUse={applyRecentOrder} />}
+
+        {/* Giỏ hàng quen: nhập SL nhiều mặt hàng khách hay mua → thêm 1 lượt */}
+        <CustomerBasket
+          cardCode={partner?.code}
+          disabled={saving}
+          inOrder={new Set(lines.filter((l) => l.item && !l.isBomChild).map((l) => l.item!.code))}
+          onAdd={(entries) => addItemsBatch(entries)}
+        />
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
-          <table className="fm-table fm-stack-table fm-stack-table--form">
+          <table className="fm-table fm-stack-table fm-stack-table--form fm-line-table">
             <thead>
               <tr>
-                <th style={{ width: 34 }}>#</th>
-                <th style={{ minWidth: 230 }}>Hàng hóa (ItemCode)</th>
-                <th style={{ width: 96 }}>Số lượng</th>
-                <th style={{ width: 78 }}>Đơn vị tính</th>
-                <th style={{ width: 86 }} title="Kho hàng xuất bán (WarehouseCode) — mặc định lấy từ header, chỉnh được theo dòng">Kho</th>
-                <th style={{ width: 128 }} title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt. Tự kiểm tra sau khi chọn mặt hàng">Tồn kho (ATP)</th>
-                <th style={{ width: 132 }}>Đơn giá (₫)</th>
-                <th style={{ width: 92 }} title="Chiết khấu áp dụng riêng cho dòng này">Chiết khấu (%)</th>
-                <th style={{ width: 88 }} title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">Mã thuế</th>
-                <th style={{ width: 92 }} title="Thuế suất VAT áp dụng riêng cho dòng này — tự điền theo mã thuế">Thuế (%)</th>
-                <th className="fm-num" style={{ minWidth: 128 }}>Sau chiết khấu (₫)</th>
-                <th style={{ width: 44 }}></th>
+                <th className="fm-col-no">#</th>
+                <th style={{ minWidth: 240 }}>Hàng hóa</th>
+                <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
+                <th className="fm-col-qty fm-num">Số lượng</th>
+                <th className="fm-col-price fm-num" style={{ width: 170 }}>Đơn giá (₫)</th>
+                <th className="fm-col-disc fm-num" title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
+                <th className="fm-col-total fm-num">Thành tiền (₫)</th>
+                <th className="fm-col-del"><span className="fm-sr-only">Xóa dòng</span></th>
               </tr>
             </thead>
             <tbody>
               {(() => {
-                // Chỉ vẽ dòng con của BOM Template; Production/Assembly ẩn
-                // (vẫn giữ trong data để submit và validate theo công thức).
-                const pType = new Map(
-                  lines.filter((x) => !x.isBomChild && x.bomGroupKey)
-                    .map((x) => [x.bomGroupKey as string, x.bomType ?? 'none']),
+                // Chỉ vẽ dòng con của BOM Template (Production/Assembly ẩn — vẫn
+                // giữ trong data để submit/validate) và nhóm đang mở rộng.
+                const vis = visibleBomLines(lines, bomCollapsed)
+                const childCounts = bomChildCounts(lines)
+                const parentCodes = new Map(
+                  lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
                 )
-                const vis = lines.filter((x) => {
-                  if (!x.isBomChild) return true
-                  const pt = pType.get(x.bomGroupKey as string)
-                  if (pt === 'production' || pt === 'assembly') return false
-                  if (pt === 'template') return true
-                  return x.bomEditable !== false
-                })
                 let stt = 0
                 return vis.map((l) => {
                 const invalid = Boolean(fieldErr[l.key])
@@ -2246,57 +2298,86 @@ export default function OrderFormView({
                 const afterDisc = lineTotal - discAmt
                 const isChild = Boolean(l.isBomChild)
                 if (!isChild) stt += 1
+                /** Dòng cha BOM Template có thành phần hiển thị → nút thu gọn/mở rộng */
+                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
+                const detailId = `fm-line-detail-${l.key}`
+                const expanded = expandedLines.isOpen(l.key)
+                const atpLow = (() => {
+                  const a = atp[l.key]
+                  if (!l.item || a?.status !== 'ok') return false
+                  const row = pickAtpRow(a, l, headerWh)
+                  return !row || row.available - l.quantity < 0
+                })()
                 return (
-                  <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}`}>
-                    <td data-label="Dòng">{isChild ? '' : stt}</td>
-                    <td data-label="Hàng hóa (ItemCode)" data-full>
+                  <Fragment key={l.key}>
+                  <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                    <td data-label="Dòng">
+                      <div className="fm-bom-parent-no">
+                        <LineExpandButton
+                          expanded={expanded}
+                          onToggle={() => expandedLines.toggle(l.key)}
+                          lineNo={stt}
+                          controls={detailId}
+                          hideNo={isChild}
+                          hasIssue={Boolean(l.vatOverridden) || atpLow}
+                        />
+                        {showToggle && (
+                          <BomToggle
+                            collapsed={bomCollapsed.has(l.bomGroupKey as string)}
+                            count={childCounts.get(l.bomGroupKey as string) ?? 0}
+                            parentLabel={l.item?.code ?? ''}
+                            onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
+                          />
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="Hàng hóa" data-full>
                       {isChild ? (
-                        <div style={{ paddingLeft: 18 }}>
-                          <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>
-                          <b>{l.item?.code}</b>
-                          <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>{l.item?.name}</div>
-                        </div>
+                        <BomChildCell
+                          code={l.item?.code}
+                          name={l.item?.name}
+                          qtyPerParent={l.bomQtyPerParent}
+                          uom={l.uom || l.item?.uom}
+                          parentCode={parentCodes.get(l.bomGroupKey as string)}
+                          onSwap={canSwapBom && l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          disabled={saving}
+                        />
                       ) : (
                       <>
                       <Autocomplete
                         label="Hàng hóa"
                         hideLabel
-                        placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
+                        placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
                         fetchUrl="/api/items"
                         disabled={saving}
                         minChars={2}
                         minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
                         value={l.item}
-                        onChange={(v) => {
-                          // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
-                          // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
-                          const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
-                          const wh = l.warehouseCode || headerWh || undefined
-                          updateLine(l.key, {
-                            item: v,
-                            unitPrice: v?.price ?? 0,
-                            priceSource: v ? 'pricelist' : undefined,
-                            taxCode: v?.taxCode || undefined,
-                            uom: v?.uom || undefined,
-                            warehouseCode: wh,
-                            ...(vat !== null ? { vatPct: vat, vatOverridden: false } : {}),
-                          })
-                          if (v) {
-                            void resolvePrice(l.key, v.code, partner?.code ?? null)
-                            void checkAtp(l.key, v.code, wh) // ATP check tự động sau khi chọn mặt hàng
-                            // Mặt hàng BOM → tự bung thành phần con (Template/Production)
-                            void expandBom(l.key, v.code)
-                          } else {
-                            // Xóa mặt hàng → gỡ luôn nhóm con BOM cũ
-                            void expandBom(l.key, '')
-                          }
-                        }}
+                        onChange={(v) => selectItem(l.key, v)}
                         error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                       />
                       </>
                     )}
+                      {l.item && !expanded && (
+                        <div className="fm-line-summary">
+                          {[l.uom || l.item.uom, (l.warehouseCode || headerWh) && `Kho ${l.warehouseCode || headerWh}`, l.taxCode && `${l.taxCode} · ${l.vatPct ?? '?'}%`].filter(Boolean).join(' · ')}
+                          {(() => {
+                            const a = atp[l.key]
+                            if (a?.status !== 'ok') return null
+                            const row = pickAtpRow(a, l, headerWh)
+                            if (!row) return null
+                            const enough = row.available - l.quantity >= 0
+                            return (
+                              <span className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`} style={{ marginLeft: 6 }} title={atpTooltip(a, row)}>
+                                {enough ? 'ATP ' : 'Thiếu '}{formatNum(enough ? row.available : -(row.available - l.quantity))}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      )}
                     </td>
-                    <td data-label="Số lượng">
+                    <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
+                    <td data-label="Số lượng" className="fm-num">
                       <input
                         type="number"
                         min={0}
@@ -2318,75 +2399,7 @@ export default function OrderFormView({
                         </span>
                       )}
                     </td>
-                    <td data-label="Đơn vị tính">
-                      {l.item ? (
-                        <input
-                          className="fm-line-input"
-                          style={{ maxWidth: 80 }}
-                          value={l.uom || l.item.uom || ''}
-                          onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
-                          disabled={saving}
-                          title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
-                          aria-label={`Đơn vị tính dòng ${l.key}`}
-                        />
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td data-label="Kho">
-                      <select
-                        className="fm-line-select"
-                        value={l.warehouseCode ?? headerWh ?? ''}
-                        title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
-                        disabled={saving || warehouses.length === 0}
-                        onChange={(e) => {
-                          updateLine(l.key, { warehouseCode: e.target.value || undefined })
-                          if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
-                        }}
-                      >
-                        <option value="">—</option>
-                        {warehouses.map((w) => (
-                          <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td data-label="Tồn kho (ATP)">
-                      {!l.item ? (
-                        '—'
-                      ) : (
-                        <div className="fm-atp-cell">
-                          {atp[l.key]?.status === 'loading' && <span className="fm-line-meta">Đang kiểm tra…</span>}
-                          {atp[l.key]?.status === 'error' && (
-                            <span className="fm-line-meta fm-atp--warn" title={atp[l.key]?.error}>Không kiểm tra được</span>
-                          )}
-                          {atp[l.key]?.status === 'ok' && (() => {
-                            const row = pickAtpRow(atp[l.key], l, headerWh)
-                            if (!row) return <span className="fm-line-meta fm-atp--warn" title="SAP không có dữ liệu tồn cho kho này">Không có tồn</span>
-                            const enough = row.available - l.quantity >= 0
-                            return (
-                              <span
-                                className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`}
-                                title={atpTooltip(atp[l.key], row)}
-                              >
-                                {enough ? 'ATP ' : 'Thiếu '}
-                                {formatNum(enough ? row.available : -(row.available - l.quantity))}
-                              </span>
-                            )
-                          })()}
-                          <button
-                            type="button"
-                            className="fm-atp-recheck"
-                            title="Kiểm tra lại tồn kho khả dụng (ATP)"
-                            aria-label={`Kiểm tra lại tồn kho cho ${l.item?.name ?? 'mặt hàng'}`}
-                            disabled={saving}
-                            onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
-                          >
-                            <RefreshCw size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                    <td data-label="Đơn giá (₫)">
+                    <td data-label="Đơn giá (₫)" className="fm-num">
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Thành phần BOM: giá bán luôn = 0đ">0</span>
                       ) : (
@@ -2419,8 +2432,7 @@ export default function OrderFormView({
                           return (
                             <button
                               type="button"
-                              className="fm-icon-btn"
-                              style={{ width: 26, height: 26, minWidth: 26, minHeight: 26 }}
+                              className="fm-icon-btn fm-icon-btn--xs"
                               title="Lịch sử giá đã bán cho khách hàng này"
                               aria-label={`Lịch sử giá ${it.code}`}
                               disabled={saving}
@@ -2433,7 +2445,7 @@ export default function OrderFormView({
                       </div>
                       )}
                     </td>
-                    <td data-label="Chiết khấu (%)">
+                    <td data-label="CK (%)" className="fm-num">
                       <input
                         type="number"
                         min={0}
@@ -2448,33 +2460,7 @@ export default function OrderFormView({
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
                       />
                     </td>
-                    <td data-label="Mã thuế">
-                      {l.item && l.taxCode ? (
-                        <span className="fm-line-meta" title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>
-                          {l.taxCode}
-                          <small style={{ color: 'var(--fm-text-3)' }}> · {l.vatPct ?? '?'}%</small>
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td data-label="Thuế (%)">
-                      <input
-                        type="number"
-                        aria-label={`VAT % dòng ${l.key}`}
-                        className="fm-line-input fm-line-input--pct"
-                        value={l.vatPct || ''}
-                        disabled={saving}
-                        title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
-                        onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
-                      />
-                      {l.vatOverridden && (
-                        <div style={{ fontSize: 11, color: 'var(--fm-gold-ink)', lineHeight: 1.3, marginTop: 2 }}>
-                          Đã ghi đè thuế suất từ mã thuế
-                        </div>
-                      )}
-                    </td>
-                    <td className="fm-num" data-label="Sau chiết khấu (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
+                    <td className="fm-num fm-line-total" data-label="Thành tiền (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
                     <td data-label="Xóa dòng">
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
@@ -2485,6 +2471,105 @@ export default function OrderFormView({
                       )}
                     </td>
                   </tr>
+                  {expanded && (
+                    <LineDetailRow id={detailId} colSpan={8}>
+                        <LineDetailField label="Đơn vị tính" title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">
+                          {l.item ? (
+                            <input
+                              className="fm-line-input"
+                              style={{ maxWidth: 80 }}
+                              value={l.uom || l.item.uom || ''}
+                              onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
+                              disabled={saving}
+                              title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
+                              aria-label={`Đơn vị tính dòng ${l.key}`}
+                            />
+                          ) : (
+                            '—'
+                          )}
+                        </LineDetailField>
+                        <LineDetailField label="Kho" title="Kho xuất của dòng (WarehouseCode) — mặc định theo header">
+                          <select
+                            className="fm-line-select"
+                            value={l.warehouseCode ?? headerWh ?? ''}
+                            title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
+                            disabled={saving || warehouses.length === 0}
+                            onChange={(e) => {
+                              updateLine(l.key, { warehouseCode: e.target.value || undefined })
+                              if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
+                            }}
+                          >
+                            <option value="">—</option>
+                            {warehouses.map((w) => (
+                              <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
+                            ))}
+                          </select>
+                        </LineDetailField>
+                        <LineDetailField label="Tồn kho (ATP)" title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt">
+                          {!l.item ? (
+                            '—'
+                          ) : (
+                            <div className="fm-atp-cell">
+                              {atp[l.key]?.status === 'loading' && <span className="fm-line-meta">Đang kiểm tra…</span>}
+                              {atp[l.key]?.status === 'error' && (
+                                <span className="fm-line-meta fm-atp--warn" title={atp[l.key]?.error}>Không kiểm tra được</span>
+                              )}
+                              {atp[l.key]?.status === 'ok' && (() => {
+                                const row = pickAtpRow(atp[l.key], l, headerWh)
+                                if (!row) return <span className="fm-line-meta fm-atp--warn" title="SAP không có dữ liệu tồn cho kho này">Không có tồn</span>
+                                const enough = row.available - l.quantity >= 0
+                                return (
+                                  <span
+                                    className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`}
+                                    title={atpTooltip(atp[l.key], row)}
+                                  >
+                                    {enough ? 'ATP ' : 'Thiếu '}
+                                    {formatNum(enough ? row.available : -(row.available - l.quantity))}
+                                  </span>
+                                )
+                              })()}
+                              <button
+                                type="button"
+                                className="fm-atp-recheck"
+                                title="Kiểm tra lại tồn kho khả dụng (ATP)"
+                                aria-label={`Kiểm tra lại tồn kho cho ${l.item?.name ?? 'mặt hàng'}`}
+                                disabled={saving}
+                                onClick={() => l.item && checkAtp(l.key, l.item.code, l.warehouseCode || headerWh || undefined)}
+                              >
+                                <RefreshCw size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </LineDetailField>
+                        <LineDetailField label="Mã thuế" title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">
+                          {l.item && l.taxCode ? (
+                            <span className="fm-line-meta" title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>
+                              {l.taxCode}
+                              <small style={{ color: 'var(--fm-text-3)' }}> · {l.vatPct ?? '?'}%</small>
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </LineDetailField>
+                        <LineDetailField label="Thuế (%)" title="Thuế suất VAT của dòng — tự điền theo mã thuế, có thể sửa tay">
+                          <input
+                            type="number"
+                            aria-label={`VAT % dòng ${l.key}`}
+                            className="fm-line-input fm-line-input--pct"
+                            value={l.vatPct || ''}
+                            disabled={saving}
+                            title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
+                            onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
+                          />
+                          {l.vatOverridden && (
+                            <div style={{ fontSize: 11, color: 'var(--fm-gold-ink)', lineHeight: 1.3, marginTop: 2 }}>
+                              Đã ghi đè thuế suất từ mã thuế
+                            </div>
+                          )}
+                        </LineDetailField>
+                    </LineDetailRow>
+                  )}
+                  </Fragment>
                 )
                 })
               })()}
@@ -2492,10 +2577,32 @@ export default function OrderFormView({
           </table>
         </div>
 
+        {precheck && (
+          <PrecheckDialog
+            issues={precheck}
+            onClose={() => setPrecheck(null)}
+            onProceed={() => { setPrecheck(null); void save(isEdit && Boolean(editOrder?.isDraft), { skipPrecheck: true }) }}
+          />
+        )}
+        <LineQuickAdd
+          onAdd={quickAddLine}
+          onAddMany={(entries) => {
+            addItemsBatch(entries)
+            setTplMsg({ type: 'success', text: `Đã thêm ${entries.length} dòng từ danh sách dán. Giá đã tính theo bảng giá hiện tại.` })
+          }}
+          disabled={saving}
+        />
+        {swapTarget && (
+          <BomSwapDialog
+            key={swapTarget.key}
+            open
+            component={swapTarget.item ? { code: swapTarget.item.code, name: swapTarget.item.name } : null}
+            parentCode={swapParentCode}
+            onConfirm={(v) => swapBomComponent(swapTarget.key, v)}
+            onCancel={() => setSwapKey(null)}
+          />
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="fm-btn fm-btn--dashed fm-btn--sm" onClick={addLine} disabled={saving}>
-            <Plus size={14} /> Thêm dòng hàng
-          </button>
           <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => fileRef.current?.click()} disabled={saving || importProgress !== null}>
             <Upload size={14} /> {importProgress ? 'Đang nhập…' : 'Nhập từ Excel'}
           </button>
@@ -2515,7 +2622,7 @@ export default function OrderFormView({
         {importMsg && (
           <div className={`fm-alert ${importMsg.type === 'success' ? 'fm-alert--success' : 'fm-alert--error'}`} style={{ marginTop: 10 }} role={importMsg.type === 'error' ? 'alert' : 'status'}>
             <div>{importMsg.text}</div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportMsg(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setImportMsg(null)}>✕</button>
           </div>
         )}
         {importErrors && importErrors.length > 0 && (
@@ -2525,7 +2632,7 @@ export default function OrderFormView({
               {importErrors.slice(0, 5).join('; ')}
               {importErrors.length > 5 ? ` (+${importErrors.length - 5} dòng nữa)` : ''}
             </div>
-            <button className="fm-btn fm-btn--ghost fm-btn--sm" style={{ marginLeft: 'auto' }} aria-label="Đóng thông báo" onClick={() => setImportErrors(null)}>✕</button>
+            <button className="fm-btn fm-btn--ghost fm-btn--sm fm-ml-auto" aria-label="Đóng thông báo" onClick={() => setImportErrors(null)}>✕</button>
           </div>
         )}
       </div>
@@ -2574,7 +2681,7 @@ export default function OrderFormView({
               disabled={saving}
               title="Lưu đơn hàng hiện tại thành mẫu để tạo nhanh lần sau"
             >
-              <BookmarkPlus size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+              <BookmarkPlus size={16} />
               Lưu thành mẫu
             </button>
           </div>
@@ -2631,14 +2738,15 @@ export default function OrderFormView({
         )}
         {/* Phase 2 — Lưu nháp: gọi API với ?draft=true (chỉ khi tạo mới; khi sửa
             bản nháp, nút Lưu chính đã giữ trạng thái nháp) */}
+        <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         {!isEdit && (
           <button className="fm-btn fm-btn--secondary" onClick={() => save(true)} disabled={saving}>
-            <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+            <Save size={16} />
             {saving ? 'Đang lưu nháp…' : 'Lưu nháp'}
           </button>
         )}
         <button className="fm-btn fm-btn--primary" onClick={() => save(isEdit && Boolean(editOrder?.isDraft))} disabled={saving}>
-          <Save size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
+          <Save size={16} />
           {saving ? 'Đang lưu…' : isEdit ? (editOrder?.isDraft ? 'Lưu bản nháp' : 'Lưu thay đổi') : 'Lưu đơn hàng bán'}
         </button>
       </div>
@@ -2686,7 +2794,7 @@ export default function OrderFormView({
                 Hủy
               </button>
               <button className="fm-btn fm-btn--primary" onClick={saveAsTemplate} disabled={tplSaving}>
-                <BookmarkPlus size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                <BookmarkPlus size={14} />
                 {tplSaving ? 'Đang lưu…' : 'Lưu mẫu'}
               </button>
             </div>

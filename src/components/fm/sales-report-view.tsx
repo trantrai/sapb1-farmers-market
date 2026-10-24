@@ -122,7 +122,7 @@ export default function SalesReportView() {
               <option value="month">Tháng</option>
             </select>
           </div>
-          <button type="button" className="fm-btn fm-btn--primary fm-btn--sm" style={{ alignSelf: 'flex-end' }} onClick={applyFilter} disabled={refreshing || loading}>
+          <button type="button" className="fm-btn fm-btn--primary fm-btn--sm fm-self-end" onClick={applyFilter} disabled={refreshing || loading}>
             Áp dụng
           </button>
         </div>
@@ -131,7 +131,7 @@ export default function SalesReportView() {
       {error && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>
           <div><b>Không tải được báo cáo.</b> {error}</div>
-          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 8 }} onClick={applyFilter}>
+          <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2" onClick={applyFilter}>
             Thử lại
           </button>
         </div>

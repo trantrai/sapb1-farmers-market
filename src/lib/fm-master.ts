@@ -175,7 +175,14 @@ export interface B1Partner {
   Phone1?: string
   EmailAddress?: string
   /** Người liên hệ (ComplexType — trả inline, không cần $expand) */
+  /** Tên người liên hệ mặc định (OCRD.CntctPrsn — khớp ContactEmployees[].Name) */
+  ContactPerson?: string
+  /** AddressName của địa chỉ giao hàng / ghi hóa đơn mặc định */
+  ShipToDefault?: string
+  BilltoDefault?: string
   ContactEmployees?: Array<{
+    InternalCode?: number
+    Active?: string // 'tYES' | 'tNO'
     Name?: string
     FirstName?: string
     LastName?: string
@@ -213,7 +220,7 @@ export async function loadCustomers(s: SapSessConfig, onProgress?: ProgressCb, o
   // ① Lọc ngay trên SL: CardType eq 'C' (điều kiện and-only, an toàn mọi bản SL)
   onProgress?.({ phase: 'fetch', message: 'Đang lấy danh mục khách hàng (/BusinessPartners) từ SAP B1…' })
   const r1 = await sapGetAll<B1Partner>(s, '/BusinessPartners', {
-    $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses,UpdateDate,UpdateTime',
+    $select: 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactPerson,ShipToDefault,BilltoDefault,ContactEmployees,BPAddresses,UpdateDate,UpdateTime',
     $filter: `CardType eq 'C'`,
     $orderby: 'CardCode',
   }, opts)
@@ -247,7 +254,7 @@ export async function loadCustomersDelta(
   opts?: SapGetAllOpts,
 ): Promise<{ rows: B1Partner[]; error?: string }> {
   const [f1, f2] = deltaFilters(`CardType eq 'C'`, wm)
-  const select = 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactEmployees,BPAddresses,UpdateDate,UpdateTime'
+  const select = 'CardCode,CardName,CardType,Address,Phone1,EmailAddress,ContactPerson,ShipToDefault,BilltoDefault,ContactEmployees,BPAddresses,UpdateDate,UpdateTime'
   onProgress?.({
     phase: 'fetch',
     message: `Đang lấy khách hàng thay đổi từ ${wm.date} (giờ SAP)…`,

@@ -11,7 +11,7 @@
 // nguồn → API ?prefill=1 trả dữ liệu điền sẵn (không tạo chứng từ ngay).
 // ============================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, ArrowLeft, Wallet, Copy, Building2 } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
@@ -19,6 +19,17 @@ import { formatVND } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
 import CopyFromPicker from './copy-from-picker'
+import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
+import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
+import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
+import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
+import {
+  BomChildCell, BomToggle, applyParentQty, bomChildCounts, explodeBom, fetchBomDef,
+  inferBomTypes, removeWithBom, roundQty, visibleBomLines, type BomKind,
+} from './bom-lines'
+import type { B2BPartySelection } from '@/lib/bp-b2b'
+
+const EMPTY_PARTY: B2BPartySelection = { shipToCode: '', billToCode: '', contactPersonCode: '' }
 import type { CopyFromTarget, PrefillDoc } from '@/lib/copy-from'
 import {
   clampPct,
@@ -51,7 +62,21 @@ interface DraftLine {
   accountCode?: string
   /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán (Đợt 2) */
   batchNumber?: string
+  // ---------- BOM (xem bom-lines.tsx) ----------
+  bomType?: BomKind
+  isBomChild?: boolean
+  bomGroupKey?: string
+  bomEditable?: boolean
+  bomQtyPerParent?: number
 }
+
+/** Trường BOM của dòng nạp từ chứng từ đã lưu / prefill */
+const bomFromSaved = (l: { isBomChild?: boolean | null; bomGroupKey?: string | null; bomEditable?: boolean | null; bomQtyPerParent?: number | null }) => ({
+  isBomChild: l.isBomChild ?? false,
+  bomGroupKey: l.bomGroupKey ?? undefined,
+  bomEditable: l.bomEditable ?? true,
+  bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+})
 
 let keyCounter = 0
 const nextKey = () => ++keyCounter
@@ -59,8 +84,6 @@ const nextKey = () => ++keyCounter
 /** Đợt 2 — Đính kèm chứng từ: [{name, url}] lưu vào cột attachmentsJson */
 export interface AttachmentItem { name: string; url: string }
 
-/** Địa chỉ đối tác từ API đối tác (shape [{code,name,detail,type:'B'|'S'}]) */
-export interface PartnerAddress { code: string; name: string; detail: string; type: 'B' | 'S' }
 
 /** Parse attachmentsJson (string JSON) → danh sách hiển thị trên form */
 function parseAttachmentsState(raw: string | null | undefined): AttachmentItem[] {
@@ -75,24 +98,6 @@ function parseAttachmentsState(raw: string | null | undefined): AttachmentItem[]
   } catch {
     return []
   }
-}
-
-/** Parse addressesJson của đối tác → [{code,name,detail,type}] */
-function parseAddressesState(raw: unknown): PartnerAddress[] {
-  let arr: unknown = raw
-  if (typeof raw === 'string') {
-    try { arr = JSON.parse(raw) } catch { return [] }
-  }
-  if (!Array.isArray(arr)) return []
-  const out: PartnerAddress[] = []
-  for (const a of arr as Record<string, unknown>[]) {
-    const t = a?.type
-    if (t !== 'B' && t !== 'S') continue
-    const code = String(a?.code ?? '')
-    if (!code) continue
-    out.push({ code, name: String(a?.name ?? ''), detail: String(a?.detail ?? ''), type: t })
-  }
-  return out
 }
 
 interface Props {
@@ -150,12 +155,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   const [docRate, setDocRate] = useState(1)
   /** Mã dự án (SAP ProjectCode) */
   const [projectCode, setProjectCode] = useState('')
-  /** Địa chỉ KH: giao hàng (S) / ghi hóa đơn (B) — ẩn khi KH không có địa chỉ */
-  const [addresses, setAddresses] = useState<PartnerAddress[]>([])
-  const [shipToCode, setShipToCode] = useState('')
-  const [billToCode, setBillToCode] = useState('')
-  /** Khôi phục địa chỉ khi nạp dữ liệu sửa/copy (applyEditData/applyCopyFrom đặt trước khi effect địa chỉ chạy) */
-  const pendingAddrRef = useRef<{ ship: string; bill: string } | null>(null)
+  /** Địa chỉ giao hàng / ghi hóa đơn + người liên hệ (SAP ShipToCode / BillToCode / ContactPersonCode) */
+  const [partySel, setPartySel] = useState<B2BPartySelection>(EMPTY_PARTY)
   /** Đính kèm [{name,url}] (lưu vào attachmentsJson) */
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
 
@@ -227,10 +228,12 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     setDocCurrency(o.docCurrency || 'VND')
     setDocRate(o.docRate && o.docRate > 0 ? o.docRate : 1)
     setProjectCode(o.projectCode ?? '')
-    // Địa chỉ giao/ghi hóa đơn: đặt khôi phục trước khi effect địa chỉ chạy
-    pendingAddrRef.current = { ship: o.shipToCode ?? '', bill: o.billToCode ?? '' }
-    setShipToCode(o.shipToCode ?? '')
-    setBillToCode(o.billToCode ?? '')
+    // Địa chỉ giao/ghi hóa đơn + người liên hệ đã lưu (giữ nguyên nếu còn thuộc KH)
+    setPartySel({
+      shipToCode: o.shipToCode ?? '',
+      billToCode: o.billToCode ?? '',
+      contactPersonCode: o.contactPersonCode != null ? String(o.contactPersonCode) : '',
+    })
     setAttachments(parseAttachmentsState(o.attachmentsJson))
     // Khấu trừ đặt cọc đã gắn (chế độ sửa hóa đơn): đánh dấu sẵn, merge thêm
     // số dư còn lại khi danh sách đặt cọc của KH tải xong
@@ -245,7 +248,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     }
     const prefilled: DraftLine[] = (o.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -258,8 +261,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
       sourceLineId: l.sourceLineId ?? null,
       accountCode: l.accountCode ?? undefined,
       batchNumber: l.batchNumber ?? undefined,
+      ...bomFromSaved(l),
     }))
-    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setLines(prefilled.length > 0 ? inferBomTypes(prefilled) : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
     setError('')
     setPartnerErr('')
     setFieldErr({})
@@ -295,16 +299,15 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     const pRate = Number(p2.docRate)
     setDocRate(Number.isFinite(pRate) && pRate > 0 ? pRate : 1)
     setProjectCode(typeof p2.projectCode === 'string' ? p2.projectCode : '')
-    pendingAddrRef.current = {
-      ship: typeof p2.shipToCode === 'string' ? p2.shipToCode : '',
-      bill: typeof p2.billToCode === 'string' ? p2.billToCode : '',
-    }
-    setShipToCode(typeof p2.shipToCode === 'string' ? p2.shipToCode : '')
-    setBillToCode(typeof p2.billToCode === 'string' ? p2.billToCode : '')
+    setPartySel({
+      shipToCode: typeof p2.shipToCode === 'string' ? p2.shipToCode : '',
+      billToCode: typeof p2.billToCode === 'string' ? p2.billToCode : '',
+      contactPersonCode: typeof p2.contactPersonCode === 'number' ? String(p2.contactPersonCode) : '',
+    })
     setAttachments(parseAttachmentsState(typeof p2.attachmentsJson === 'string' ? p2.attachmentsJson : null))
     const prefilled: DraftLine[] = (p.lines ?? []).map((l) => ({
       key: nextKey(),
-      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '' },
+      item: { code: l.itemCode, name: l.itemName, uom: l.uom || '', taxCode: l.taxCode || '', barcode: (l as { barcode?: string | null }).barcode || undefined },
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       discPct: l.discPct ?? 0,
@@ -315,8 +318,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
       sourceLineId: l.sourceLineId ?? null,
       accountCode: l.accountCode ?? undefined,
       batchNumber: (l as { batchNumber?: string | null }).batchNumber ?? undefined,
+      ...bomFromSaved(l),
     }))
-    setLines(prefilled.length > 0 ? prefilled : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
+    setLines(prefilled.length > 0 ? inferBomTypes(prefilled) : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
     setError('')
     setPartnerErr('')
     setFieldErr({})
@@ -434,45 +438,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
     return () => { cancelled = true }
   }, [])
 
-  // ---- Đợt 2 — Địa chỉ KH: addressesJson từ API đối tác, shape
-  // [{code,name,detail,type:'B'|'S'}]. Không có → ẩn 2 dropdown. ----
-  useEffect(() => {
-    const code = partner?.code
-    if (!code) {
-      setAddresses([])
-      setShipToCode('')
-      setBillToCode('')
-      pendingAddrRef.current = null
-      return
-    }
-    let cancelled = false
-    const restore = pendingAddrRef.current
-    pendingAddrRef.current = null
-    api(`/api/partners?q=${encodeURIComponent(code)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (cancelled) return
-        const rows = ((j?.data ?? []) as Record<string, unknown>[])
-        const row = rows.find((d) => String(d.cardCode ?? '') === code)
-        setAddresses(parseAddressesState(row?.addressesJson))
-        if (restore) {
-          setShipToCode(restore.ship)
-          setBillToCode(restore.bill)
-        } else {
-          setShipToCode('')
-          setBillToCode('')
-        }
-      })
-      .catch(() => {
-        if (cancelled) return
-        setAddresses([])
-        if (restore) {
-          setShipToCode(restore.ship)
-          setBillToCode(restore.bill)
-        }
-      })
-    return () => { cancelled = true }
-  }, [partner?.code])
+  // ---- Địa chỉ giao/ghi hóa đơn + người liên hệ của KH đã chọn ----
+  // Chọn KH → tự điền mặc định của KH; người dùng vẫn đổi được trên form.
+  const party = useBpB2BInfo(partner?.code, setPartySel)
 
   // ---- Phase 2 — Khấu trừ đặt cọc: tải đặt cọc còn dư của khách hàng ----
   // Chỉ khi form Hóa đơn (enableDownPaymentDraws) và đã chọn KH. Lọc
@@ -555,15 +523,120 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   }, [enableDownPaymentDraws, drawOpts, drawSel, totals.grand])
 
   const updateLine = (key: number, patch: Partial<DraftLine>) => {
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+    setLines((ls) => {
+      const next = ls.map((l) => (l.key === key ? { ...l, ...patch } : l))
+      // Đổi SL dòng cha BOM → SL con = SL cha × định mức
+      return patch.quantity !== undefined ? applyParentQty(next, key, patch.quantity) : next
+    })
     setFieldErr((fe) => ({ ...fe, [key]: '' }))
   }
 
-  const addLine = () =>
-    setLines((ls) => [...ls, { key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
+  /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
+  const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleBomGroup = (gk: string) =>
+    setBomCollapsed((cur) => {
+      const next = new Set(cur)
+      if (next.has(gk)) next.delete(gk)
+      else next.add(gk)
+      return next
+    })
+
+  // ---------- BOM: chọn mặt hàng BOM → bung thành phần con (giá 0, SL = SL cha × định mức) ----------
+  const expandBom = async (parentKey: number, itemCode: string) => {
+    const def = itemCode ? await fetchBomDef(itemCode) : null
+    setLines((ls) => {
+      const parent = ls.find((l) => l.key === parentKey)
+      // Người dùng đã đổi sang mặt hàng khác trong lúc chờ → bỏ qua
+      if (!parent || (parent.item?.code ?? '') !== itemCode) return ls
+      if (!def && !parent.bomGroupKey) return ls
+      return explodeBom(ls, parentKey, def, (c, p, groupKey) => ({
+        key: nextKey(),
+        item: { code: c.childItemCode, name: c.childItemName || c.childItemCode, uom: c.uom || '' },
+        quantity: roundQty((Number(p.quantity) || 0) * Number(c.qtyPerParent || 0)),
+        unitPrice: 0, // thành phần con giá bán luôn = 0
+        discPct: 0,
+        vatPct: 0,
+        uom: c.uom || undefined,
+        warehouseCode: p.warehouseCode || headerWh || undefined,
+        isBomChild: true,
+        bomGroupKey: groupKey,
+        bomEditable: def!.bomType === 'template',
+        bomQtyPerParent: Number(c.qtyPerParent || 0),
+      })).lines
+    })
+  }
+
+  /** Dòng đang mở chi tiết (ĐVT, kho, thuế, số lô…) */
+  const expandedLines = useExpandedLines()
+
+  /**
+   * Chọn mặt hàng cho dòng: tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
+   * mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header;
+   * mặt hàng BOM → bung thành phần con; bỏ chọn → gỡ nhóm con cũ.
+   */
+  const selectItem = (key: number, v: ACOption | null) => {
+    const cur = lines.find((l) => l.key === key)
+    const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
+    const wh = cur?.warehouseCode || headerWh || undefined
+    updateLine(key, {
+      item: v,
+      unitPrice: v?.price ?? 0,
+      taxCode: v?.taxCode || undefined,
+      uom: v?.uom || undefined,
+      warehouseCode: wh,
+      ...(vat !== null ? { vatPct: vat } : {}),
+    })
+    if (v) void resolvePrice(key, v.code, partner?.code ?? null)
+    void expandBom(key, v?.code ?? '')
+  }
+
+  // ---------- BOM Template: hoán đổi thành phần con với mặt hàng khác ----------
+  const [swapKey, setSwapKey] = useState<number | null>(null)
+  /** Quyền hoán đổi thành phần BOM (Ủy quyền → Hoán đổi thành phần BOM → Sửa) */
+  const canSwapBom = useCanSwapBom()
+  const swapTarget = swapKey != null ? lines.find((x) => x.key === swapKey && x.isBomChild) ?? null : null
+  const swapParentCode = swapTarget
+    ? lines.find((x) => !x.isBomChild && x.bomGroupKey === swapTarget.bomGroupKey)?.item?.code
+    : undefined
+  /** Xác nhận hoán đổi: thay mã thành phần + nạp tên/ĐVT/mã thuế/barcode; giữ SL, định mức, giá 0, nhóm BOM */
+  const swapBomComponent = (key: number, v: ACOption) => {
+    updateLine(key, {
+      item: v,
+      uom: v.uom || undefined,
+      taxCode: v.taxCode || undefined,
+      ...(typeof v.vatRate === 'number' ? { vatPct: v.vatRate } : {}),
+    })
+    setSwapKey(null)
+  }
+
+  /**
+   * Thêm nhiều mặt hàng 1 lượt (dán danh sách / đặt lại đơn cũ): mỗi dòng đi qua
+   * selectItem như khi chọn tay → giá, thuế, ĐVT, kho, bung BOM.
+   */
+  const addItemsBatch = (entries: { item: ACOption; quantity: number }[]) => {
+    const fresh = entries.map((e) => ({
+      key: nextKey(), item: null, quantity: e.quantity, unitPrice: 0, discPct: 0, vatPct: 8,
+      warehouseCode: headerWh || undefined,
+    }))
+    setLines((ls) => [...ls.filter((x) => x.item || x.isBomChild), ...fresh])
+    fresh.forEach((nl, i) => selectItem(nl.key, entries[i].item))
+  }
+
+  /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
+  const quickAddLine = (v: ACOption, quantity: number) => {
+    const empty = lines.find((l) => !l.item && !l.isBomChild)
+    const key = empty?.key ?? nextKey()
+    setLines((ls) =>
+      empty
+        ? ls.map((l) => (l.key === key ? { ...l, quantity } : l))
+        : [...ls, { key, item: null, quantity, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }],
+    )
+    selectItem(key, v)
+  }
   const removeLine = (key: number) => {
     setLines((ls) => {
-      const next = ls.filter((l) => l.key !== key)
+      // Xóa dòng cha BOM → xóa cả nhóm thành phần con
+      const next = removeWithBom(ls, key)
       return next.length > 0
         ? next
         : [{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }]
@@ -588,6 +661,13 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   }
 
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
+  // Phím tắt nhập liệu: Alt+N/Alt+K, Ctrl+Enter lưu, Ctrl+Shift+Enter lưu nháp, Enter giữa các dòng, ?
+  const shortcuts = useFormShortcuts({
+    onSave: () => void save(isDraftDoc),
+    onSaveDraft: !isEdit ? () => void save(true) : undefined,
+    disabled: saving || prefillLoading,
+  })
+
   const save = async (asDraft = false) => {
     setError('')
     setActionMsg(null)
@@ -655,8 +735,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         docCurrency: (docCurrency.trim() || 'VND').toUpperCase(),
         docRate: docRate > 0 ? docRate : 1,
         projectCode: projectCode.trim() || undefined,
-        shipToCode: shipToCode || undefined,
-        billToCode: billToCode || undefined,
+        shipToCode: partySel.shipToCode || undefined,
+        billToCode: partySel.billToCode || undefined,
+        contactPersonCode: partySel.contactPersonCode ? Number(partySel.contactPersonCode) : null,
         attachments: attachments.length > 0
           ? attachments.map((a) => ({ name: a.name.trim(), url: a.url.trim() })).filter((a) => a.name || a.url)
           : undefined,
@@ -669,14 +750,20 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         lines: valid.map((l) => ({
           itemCode: l.item!.code,
           itemName: l.item!.name,
+          barcode: l.item!.barcode || undefined,
           uom: l.uom?.trim() || l.item!.uom?.trim() || 'kg',
           taxCode: l.taxCode || l.item!.taxCode || undefined,
           warehouseCode: l.warehouseCode || headerWh || undefined,
           quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discPct: clampPct(l.discPct),
+          unitPrice: l.isBomChild ? 0 : l.unitPrice,
+          discPct: l.isBomChild ? 0 : clampPct(l.discPct),
           vatPct: clampPct(l.vatPct),
           sourceLineId: l.sourceLineId ?? null,
+          // BOM: SL con là SL người dùng đã chỉnh — đẩy SAP đúng SL này
+          isBomChild: l.isBomChild ?? false,
+          bomGroupKey: l.bomGroupKey ?? null,
+          bomEditable: l.bomEditable ?? true,
+          bomQtyPerParent: l.bomQtyPerParent ?? null,
           // Mã tài khoản kế toán (dòng hóa đơn dịch vụ) — API validate bắt buộc
           accountCode: l.accountCode?.trim() || undefined,
           // Số lô (SAP BatchNumbers) — chỉ phiếu trả hàng (Đợt 2)
@@ -766,8 +853,6 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
   // Đợt 2 — Phiếu trả hàng bán: mỗi dòng thêm cột "Số lô" (SAP BatchNumbers)
   const showBatchCol = config.showBatchNumberCol === true
   /** Địa chỉ giao hàng (type 'S') và ghi hóa đơn (type 'B') — ẩn khi không có */
-  const shipAddrOpts = useMemo(() => addresses.filter((a) => a.type === 'S'), [addresses])
-  const billAddrOpts = useMemo(() => addresses.filter((a) => a.type === 'B'), [addresses])
   const title = isEdit ? `Cập nhật ${dl}` : `Tạo ${dl} mới`
   const crumb = isEdit ? `Sửa ${dl}` : `Tạo ${dl} mới`
 
@@ -850,8 +935,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           {versionConflict && (
             <button
               type="button"
-              className="fm-btn fm-btn--secondary fm-btn--sm"
-              style={{ marginTop: 8 }}
+              className="fm-btn fm-btn--secondary fm-btn--sm fm-mt-2"
               onClick={() => void reloadLatest()}
               disabled={reloading}
             >
@@ -892,10 +976,10 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
               disabled={saving}
               error={partnerErr || undefined}
               onChange={(v) => {
+                // người dùng chọn KH khác → điền địa chỉ/người liên hệ mặc định của KH mới
+                if (v?.code !== partner?.code) party.requestDefaults()
                 setPartner(v)
                 setPartnerErr('')
-                // đổi KH tay → bỏ khôi phục địa chỉ đang chờ (nếu có)
-                pendingAddrRef.current = null
                 // đổi khách hàng → tính lại giá cho các dòng chưa có đơn giá tay
                 if (v) for (const line of lines) if (line.item && line.unitPrice === 0) void resolvePrice(line.key, line.item.code, v.code)
               }}
@@ -1105,45 +1189,16 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
               onChange={(e) => setProjectCode(e.target.value)}
             />
           </div>
-          {/* Địa chỉ giao hàng / ghi hóa đơn — chỉ hiện khi KH có địa chỉ */}
-          {shipAddrOpts.length > 0 && (
-            <div>
-              <label className="fm-label" htmlFor="fm-ship" title="Địa chỉ giao hàng (SAP: ShipToCode)">Địa chỉ giao hàng</label>
-              <select
-                id="fm-ship"
-                className="fm-select"
-                value={shipToCode}
-                disabled={saving}
-                onChange={(e) => setShipToCode(e.target.value)}
-              >
-                <option value="">— Mặc định —</option>
-                {shipAddrOpts.map((a) => (
-                  <option key={a.code} value={a.code} title={a.detail || undefined}>
-                    {a.name ? `${a.code} — ${a.name}` : a.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {billAddrOpts.length > 0 && (
-            <div>
-              <label className="fm-label" htmlFor="fm-bill" title="Địa chỉ ghi hóa đơn (SAP: BillToCode)">Địa chỉ ghi hóa đơn</label>
-              <select
-                id="fm-bill"
-                className="fm-select"
-                value={billToCode}
-                disabled={saving}
-                onChange={(e) => setBillToCode(e.target.value)}
-              >
-                <option value="">— Mặc định —</option>
-                {billAddrOpts.map((a) => (
-                  <option key={a.code} value={a.code} title={a.detail || undefined}>
-                    {a.name ? `${a.code} — ${a.name}` : a.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Người liên hệ + địa chỉ giao hàng / ghi hóa đơn — mặc định theo KH, cho phép đổi */}
+          <B2BPartyFields
+            value={partySel}
+            onChange={(patch) => setPartySel((cur) => ({ ...cur, ...patch }))}
+            info={party.info}
+            loading={party.loading}
+            disabled={saving}
+            hasPartner={!!partner}
+            idPrefix="fm-party"
+          />
         </div>
         {/* Đính kèm [{name,url}] */}
         <div style={{ marginTop: 12 }}>
@@ -1201,31 +1256,37 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
         </h2>
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
-          <table className="fm-table fm-stack-table fm-stack-table--form">
+          <table className="fm-table fm-stack-table fm-stack-table--form fm-line-table">
             <thead>
               <tr>
-                <th style={{ width: 34 }}>#</th>
-                <th style={{ minWidth: 230 }}>Hàng hóa (ItemCode)</th>
+                <th className="fm-col-no">#</th>
+                <th style={{ minWidth: 240 }}>Hàng hóa</th>
+                <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
                 {showAccountCol && (
                   <th style={{ width: 120 }} title="Mã tài khoản kế toán (SAP: DocumentLines.AccountCode) — bắt buộc với hóa đơn dịch vụ">Tài khoản *</th>
                 )}
-                <th style={{ width: 96 }}>Số lượng</th>
-                <th style={{ width: 78 }}>Đơn vị tính</th>
-                <th style={{ width: 86 }}>Kho</th>
-                {/* Đợt 2 — Số lô: chỉ phiếu trả hàng (SAP BatchNumbers) */}
-                {showBatchCol && (
-                  <th style={{ width: 120 }} title="Số lô (SAP BatchNumbers) — truy xuất nguồn gốc">Số lô</th>
-                )}
-                <th style={{ width: 132 }}>Đơn giá (₫)</th>
-                <th style={{ width: 92 }} title="Chiết khấu áp dụng riêng cho dòng này">Chiết khấu (%)</th>
-                <th style={{ width: 88 }} title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">Mã thuế</th>
-                <th style={{ width: 92 }} title="Thuế suất VAT áp dụng riêng cho dòng này — tự điền theo mã thuế">Thuế (%)</th>
-                <th className="fm-num" style={{ minWidth: 128 }}>Sau chiết khấu (₫)</th>
-                <th style={{ width: 44 }}></th>
+                <th className="fm-col-qty fm-num">Số lượng</th>
+                <th className="fm-col-price fm-num">Đơn giá (₫)</th>
+                <th className="fm-col-disc fm-num" title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
+                <th className="fm-col-total fm-num">Thành tiền (₫)</th>
+                <th className="fm-col-del"><span className="fm-sr-only">Xóa dòng</span></th>
               </tr>
             </thead>
             <tbody>
-              {lines.map((l, idx) => {
+              {(() => {
+                const vis = visibleBomLines(lines, bomCollapsed)
+                const childCounts = bomChildCounts(lines)
+                const parentCodes = new Map(
+                  lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
+                )
+                const colCount = 8 + (showAccountCol ? 1 : 0)
+                let stt = 0
+                return vis.map((l) => {
+                const isChild = Boolean(l.isBomChild)
+                if (!isChild) stt += 1
+                const idx = stt - 1
+                const lineNo = stt
+                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
                 const invalid = Boolean(fieldErr[l.key])
                 const qtyInvalid = Boolean(l.item) && l.quantity <= 0
                 const priceInvalid = l.unitPrice < 0
@@ -1233,37 +1294,59 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                 const lineTotal = l.quantity * l.unitPrice
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
+                const detailId = `fm-line-detail-${l.key}`
+                const expanded = expandedLines.isOpen(l.key)
+                const uomText = l.uom || l.item?.uom || ''
+                const whText = l.warehouseCode || headerWh || ''
+                const taxText = l.taxCode || l.item?.taxCode || ''
                 return (
-                  <tr key={l.key} className={l.item ? '' : 'is-draft'}>
-                    <td data-label="Dòng">{idx + 1}</td>
-                    <td data-label="Hàng hóa (ItemCode)" data-full>
+                  <Fragment key={l.key}>
+                  <tr className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                    <td data-label="Dòng">
+                      <div className="fm-bom-parent-no">
+                        <LineExpandButton expanded={expanded} onToggle={() => expandedLines.toggle(l.key)} lineNo={lineNo} controls={detailId} hideNo={isChild} />
+                        {showToggle && (
+                          <BomToggle
+                            collapsed={bomCollapsed.has(l.bomGroupKey as string)}
+                            count={childCounts.get(l.bomGroupKey as string) ?? 0}
+                            parentLabel={l.item?.code ?? ''}
+                            onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
+                          />
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="Hàng hóa" data-full>
+                      {isChild ? (
+                        <BomChildCell
+                          code={l.item?.code}
+                          name={l.item?.name}
+                          qtyPerParent={l.bomQtyPerParent}
+                          uom={uomText}
+                          parentCode={parentCodes.get(l.bomGroupKey as string)}
+                          onSwap={canSwapBom && l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          disabled={saving}
+                        />
+                      ) : (
                       <Autocomplete
                         label="Hàng hóa"
                         hideLabel
-                        placeholder="Gõ tối thiểu 2 ký tự: mã hàng hoặc tên hàng…"
+                        placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
                         fetchUrl="/api/items"
                         disabled={saving}
                         minChars={2}
                         minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
                         value={l.item}
-                        onChange={(v) => {
-                          // chọn mặt hàng → tự load đơn giá (Price List 1 / OSPP), VAT% (qua mã thuế),
-                          // mã nhóm thuế (SalesVATGroup), đơn vị tính (SalesUnit) + KHO theo header
-                          const vat = typeof v?.vatRate === 'number' ? v.vatRate : null
-                          const wh = l.warehouseCode || headerWh || undefined
-                          updateLine(l.key, {
-                            item: v,
-                            unitPrice: v?.price ?? 0,
-                            taxCode: v?.taxCode || undefined,
-                            uom: v?.uom || undefined,
-                            warehouseCode: wh,
-                            ...(vat !== null ? { vatPct: vat } : {}),
-                          })
-                          if (v) void resolvePrice(l.key, v.code, partner?.code ?? null)
-                        }}
+                        onChange={(v) => selectItem(l.key, v)}
                         error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                       />
+                      )}
+                      {l.item && !expanded && (
+                        <div className="fm-line-summary">
+                          {[uomText, whText && `Kho ${whText}`, taxText && `${taxText} · ${clampPct(l.vatPct)}%`, showBatchCol && l.batchNumber && `Lô ${l.batchNumber}`].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
                     </td>
+                    <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                     {showAccountCol && (
                       <td data-label="Tài khoản">
                         {l.item ? (
@@ -1271,7 +1354,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                             type="text"
                             aria-label={`Tài khoản dòng ${idx + 1}`}
                             className="fm-line-input"
-                            style={acctInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
+                            style={acctInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)', textAlign: 'left' } : { textAlign: 'left' }}
                             value={l.accountCode || ''}
                             disabled={saving}
                             placeholder="VD: 5111"
@@ -1281,7 +1364,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         ) : '—'}
                       </td>
                     )}
-                    <td data-label="Số lượng">
+                    <td data-label="Số lượng" className="fm-num">
                       <input
                         type="number"
                         min={0}
@@ -1291,58 +1374,15 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         className="fm-line-input"
                         style={qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
                         value={l.quantity || ''}
-                        disabled={saving}
-                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : undefined}
+                        disabled={saving || (isChild && l.bomEditable === false)}
+                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : isChild ? 'BOM Template: được chỉnh số lượng thành phần — SL này được đẩy lên SAP' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
                     </td>
-                    <td data-label="Đơn vị tính">
-                      {l.item ? (
-                        <input
-                          className="fm-line-input"
-                          style={{ maxWidth: 80 }}
-                          value={l.uom || l.item.uom || ''}
-                          onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
-                          disabled={saving}
-                          title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
-                          aria-label={`Đơn vị tính dòng ${idx + 1}`}
-                        />
-                      ) : '—'}
-                    </td>
-                    <td data-label="Kho">
-                      {l.item ? (
-                        <select
-                          className="fm-line-input"
-                          aria-label={`Kho dòng ${idx + 1}`}
-                          value={l.warehouseCode || ''}
-                          disabled={saving}
-                          onChange={(e) => updateLine(l.key, { warehouseCode: e.target.value || undefined })}
-                        >
-                          <option value="">Theo header</option>
-                          {warehouses.map((w) => (
-                            <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
-                          ))}
-                        </select>
-                      ) : '—'}
-                    </td>
-                    {/* Đợt 2 — Số lô: chỉ phiếu trả hàng */}
-                    {showBatchCol && (
-                      <td data-label="Số lô">
-                        {l.item ? (
-                          <input
-                            className="fm-line-input"
-                            value={l.batchNumber || ''}
-                            disabled={saving}
-                            placeholder="VD: L2026-001"
-                            maxLength={60}
-                            aria-label={`Số lô dòng ${idx + 1}`}
-                            title="Số lô (SAP BatchNumbers) — truy xuất nguồn gốc"
-                            onChange={(e) => updateLine(l.key, { batchNumber: e.target.value || undefined })}
-                          />
-                        ) : '—'}
-                      </td>
-                    )}
-                    <td data-label="Đơn giá (₫)">
+                    <td data-label="Đơn giá (₫)" className="fm-num">
+                      {isChild ? (
+                        <span className="fm-line-meta" title="Thành phần BOM: giá bán luôn = 0đ">0</span>
+                      ) : (
                       <input
                         type="number"
                         min={0}
@@ -1355,8 +1395,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         disabled={saving}
                         onChange={(e) => updateLine(l.key, { unitPrice: Number(e.target.value) || 0 })}
                       />
+                      )}
                     </td>
-                    <td data-label="Chiết khấu (%)">
+                    <td data-label="CK (%)" className="fm-num">
                       <input
                         type="number"
                         min={0}
@@ -1367,52 +1408,105 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         className="fm-line-input"
                         value={l.discPct || ''}
                         placeholder="0"
-                        disabled={saving}
+                        disabled={saving || isChild}
+                        title={isChild ? 'Thành phần BOM: không chiết khấu (giá = 0)' : undefined}
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value) || 0) })}
                       />
                     </td>
-                    <td data-label="Mã thuế">
-                      {l.item ? (
-                        <span className="fm-line-meta" title="Mã nhóm thuế (SalesVATGroup)">{l.taxCode || l.item.taxCode || '—'}</span>
-                      ) : '—'}
-                    </td>
-                    <td data-label="Thuế (%)">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="any"
-                        inputMode="decimal"
-                        aria-label={`Thuế dòng ${idx + 1}`}
-                        className="fm-line-input"
-                        value={l.vatPct || ''}
-                        placeholder="8"
-                        disabled={saving}
-                        onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value) || 0) })}
-                      />
-                    </td>
-                    <td className="fm-num" data-label="Sau chiết khấu (₫)">{formatVND(afterDisc)}</td>
-                    <td>
+                    <td className="fm-num fm-line-total" data-label="Thành tiền (₫)">{formatVND(afterDisc)}</td>
+                    <td data-label="Xóa dòng">
+                      {isChild ? (
+                        <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
+                      ) : (
                       <button
                         type="button"
                         className="fm-row-del"
-                        title="Xóa dòng"
-                        aria-label={`Xóa dòng ${idx + 1}`}
+                        title={showToggle ? 'Xóa dòng (gồm cả các thành phần BOM)' : 'Xóa dòng'}
+                        aria-label={`Xóa dòng ${idx + 1}${showToggle ? ' và các thành phần BOM' : ''}`}
                         disabled={saving}
                         onClick={() => removeLine(l.key)}
                       >
                         <Trash2 size={14} />
                       </button>
+                      )}
                     </td>
                   </tr>
+                  {expanded && (
+                    <LineDetailRow id={detailId} colSpan={colCount}>
+                      <LineDetailField label="Đơn vị tính" htmlFor={`${detailId}-uom`} title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">
+                        <input
+                          id={`${detailId}-uom`}
+                          className="fm-line-input"
+                          value={uomText}
+                          onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
+                          disabled={saving || !l.item}
+                        />
+                      </LineDetailField>
+                      <LineDetailField label="Kho" htmlFor={`${detailId}-wh`} title="Kho xuất của dòng (WarehouseCode) — mặc định theo kho header">
+                        <select
+                          id={`${detailId}-wh`}
+                          className="fm-line-select"
+                          value={l.warehouseCode || ''}
+                          disabled={saving || !l.item}
+                          onChange={(e) => updateLine(l.key, { warehouseCode: e.target.value || undefined })}
+                        >
+                          <option value="">Theo header{headerWh ? ` (${headerWh})` : ''}</option>
+                          {warehouses.map((w) => (
+                            <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
+                          ))}
+                        </select>
+                      </LineDetailField>
+                      <LineDetailField label="Mã thuế" title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">
+                        <span className="fm-line-meta">{taxText || '—'}</span>
+                      </LineDetailField>
+                      <LineDetailField label="Thuế (%)" htmlFor={`${detailId}-vat`} title="Thuế suất VAT của dòng — tự điền theo mã thuế">
+                        <input
+                          id={`${detailId}-vat`}
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          inputMode="decimal"
+                          className="fm-line-input"
+                          value={l.vatPct || ''}
+                          placeholder="8"
+                          disabled={saving}
+                          onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value) || 0) })}
+                        />
+                      </LineDetailField>
+                      {showBatchCol && (
+                        <LineDetailField label="Số lô" htmlFor={`${detailId}-batch`} title="Số lô (SAP BatchNumbers) — truy xuất nguồn gốc">
+                          <input
+                            id={`${detailId}-batch`}
+                            className="fm-line-input"
+                            value={l.batchNumber || ''}
+                            disabled={saving || !l.item}
+                            placeholder="VD: L2026-001"
+                            maxLength={60}
+                            onChange={(e) => updateLine(l.key, { batchNumber: e.target.value || undefined })}
+                          />
+                        </LineDetailField>
+                      )}
+                    </LineDetailRow>
+                  )}
+                  </Fragment>
                 )
-              })}
+              })
+              })()}
             </tbody>
           </table>
         </div>
-        <button type="button" className="fm-btn fm-btn--secondary fm-btn--sm" style={{ marginTop: 10 }} onClick={addLine} disabled={saving}>
-          <Plus size={14} /> Thêm dòng hàng
-        </button>
+        <LineQuickAdd onAdd={quickAddLine} onAddMany={addItemsBatch} disabled={saving} />
+        {swapTarget && (
+          <BomSwapDialog
+            key={swapTarget.key}
+            open
+            component={swapTarget.item ? { code: swapTarget.item.code, name: swapTarget.item.name } : null}
+            parentCode={swapParentCode}
+            onConfirm={(v) => swapBomComponent(swapTarget.key, v)}
+            onCancel={() => setSwapKey(null)}
+          />
+        )}
       </div>
 
       {/* Phase 2 — Khấu trừ đặt cọc (chỉ form Hóa đơn bán hàng) */}
@@ -1532,6 +1626,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           zIndex: 10,
         }}
       >
+        <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         <button type="button" className="fm-btn fm-btn--secondary" onClick={onBack} disabled={saving}>
           <ArrowLeft size={16} /> Quay lại
         </button>

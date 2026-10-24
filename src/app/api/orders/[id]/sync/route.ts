@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { pushOrderToSap } from '@/lib/sap-push-order'
+import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -50,18 +51,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       localId: order.id,
       // B2B / SAP B1 (Đợt 2+3): các trường header đã lưu trên DB — tầng push
       // (buildSapDocPayload → sapDocHeaderExtras) chỉ gửi khi có giá trị
-      salesPersonCode: order.salesPersonCode ?? null,
-      paymentGroupCode: order.paymentGroupCode ?? null,
-      shipToCode: order.shipToCode ?? null,
-      billToCode: order.billToCode ?? null,
-      numAtCard: order.numAtCard ?? null,
-      taxDate: order.taxDate ?? null,
-      docCurrency: order.docCurrency ?? null,
-      docRate: order.docRate ?? null,
-      projectCode: order.projectCode ?? null,
-      reqDate: order.reqDate ?? null,
+      ...headerExtrasFromRecord(order),
       lines: order.lines.map((l) => ({
         itemCode: l.itemCode,
+        ...bomLineFields(l),
         quantity: l.quantity,
         unitPrice: l.unitPrice,
         discPct: l.discPct,

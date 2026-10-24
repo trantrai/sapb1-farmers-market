@@ -6,10 +6,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, Receipt, Undo2, BadgeCheck } from 'lucide-react'
-import { formatVND, formatDateVN } from '@/lib/fm-shared'
+import { ArrowLeft, CloudUpload, Pencil, Ban, X, Printer, Receipt, Undo2, BadgeCheck } from 'lucide-react'
+import { formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import CopyToMenu from './copy-to-menu'
+import { computeDocTotals, DocField, DocInfoCards, DocLinesCard } from './doc-detail-sections'
 import DeliveryPrintView from './delivery-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { type CopyTarget, docNumLabel } from './sales-doc-shared'
@@ -29,6 +31,9 @@ interface DeliveryLine {
   sourceOrderLineId?: string | null
   /** Số lô (SAP BatchNumbers) — truy xuất nguồn gốc */
   batchNumber?: string | null
+  barcode?: string | null
+  /** Thuế suất theo mã thuế (API bổ sung từ nhóm thuế) */
+  vatPct?: number | null
 }
 
 interface Delivery {
@@ -50,6 +55,7 @@ interface Delivery {
   paymentGroupCode?: number | null
   shipToCode?: string | null
   billToCode?: string | null
+  contactPersonCode?: number | null
   numAtCard?: string | null
   taxDate?: string | null
   docCurrency?: string | null
@@ -110,8 +116,6 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   /** Tên NVBH / ĐKTT (best-effort từ danh mục; 404 → chỉ hiện mã số) */
-  const [spNames, setSpNames] = useState<Record<number, string>>({})
-  const [ptNames, setPtNames] = useState<Record<number, string>>({})
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
 
@@ -171,28 +175,6 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
   }, [deliveryId])
 
   useEffect(() => { void load() }, [load])
-
-  // B2B: tải tên NVBH / ĐKTT (best-effort — 404/lỗi thì chỉ hiện mã số)
-  useEffect(() => {
-    let cancelled = false
-    const loadNames = async (url: string, set: (m: Record<number, string>) => void) => {
-      try {
-        const r = await api(url)
-        if (!r.ok || cancelled) return
-        const j = await r.json().catch(() => null)
-        const arr = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : []
-        const m: Record<number, string> = {}
-        for (const x of arr as Array<{ code?: unknown; name?: unknown }>) {
-          const c = Number(x.code)
-          if (Number.isFinite(c)) m[c] = String(x.name ?? '')
-        }
-        if (!cancelled) set(m)
-      } catch { /* bỏ qua — chỉ hiện mã */ }
-    }
-    void loadNames('/api/sales-persons', setSpNames)
-    void loadNames('/api/payment-terms', setPtNames)
-    return () => { cancelled = true }
-  }, [])
 
   const doPush = async () => {
     if (!delivery) return
@@ -412,56 +394,35 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
       <div>
         <PageHeader breadcrumb={['Chức năng chính', 'Giao hàng', 'Chi tiết']} title="Chi tiết phiếu giao hàng" />
         <div className="fm-alert fm-alert--error" role="alert">{error || 'Không tìm thấy'}</div>
-        <button className="fm-btn fm-btn--secondary" onClick={onBack} style={{ marginTop: 12 }}>
+        <button className="fm-btn fm-btn--secondary fm-mt-3" onClick={onBack}>
           <ArrowLeft size={16} /> Quay lại
         </button>
       </div>
     )
   }
 
-  // ---------- B2B / SAP B1 (Đợt 2+3): chỉ hiện card khi có ít nhất 1 trường ----------
-  const hasB2B = Boolean(
-    delivery.salesPersonCode != null || delivery.paymentGroupCode != null ||
-    delivery.shipToCode || delivery.billToCode || delivery.numAtCard || delivery.taxDate ||
-    (delivery.docCurrency && delivery.docCurrency !== 'VND') || delivery.docRate != null ||
-    delivery.projectCode || delivery.reqDate || delivery.attachmentsJson ||
-    (delivery.headerDiscPct != null && delivery.headerDiscPct > 0) || delivery.pickAndPackNotes,
-  )
-  const spLabel = (code?: number | null) =>
-    code == null ? '—' : spNames[code] ? `${code} · ${spNames[code]}` : String(code)
-  const ptLabel = (code?: number | null) =>
-    code == null ? '—' : ptNames[code] ? `${code} · ${ptNames[code]}` : String(code)
-  const b2bAttachments: { name: string; url: string }[] = (() => {
-    try {
-      const arr = JSON.parse(delivery.attachmentsJson ?? 'null')
-      return Array.isArray(arr) ? arr.filter((a) => a && (a.name || a.url)) : []
-    } catch {
-      return []
-    }
-  })()
-
   return (
     <div>
       <PageHeader
-        breadcrumb={['Chức năng chính', 'Giao hàng', `Phiếu #${delivery.docNum}`]}
+        breadcrumb={['Chức năng chính', { label: 'Giao hàng', onNavigate: onBack }, `Phiếu #${delivery.docNum}`]}
         title={`Phiếu giao hàng #${delivery.docNum}`}
         actions={
           <>
-            <button className="fm-btn fm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={16} /> Quay lại
-            </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
               <Printer size={16} /> In
             </button>
             {canEdit && (
               <>
-                <button
-                  className="fm-btn fm-btn--secondary"
-                  onClick={() => void openEditModal()}
-                  disabled={actionBusy || editLoading}
-                >
-                  <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa SL'}
-                </button>
+                {/* Có form chỉnh sửa đầy đủ (gồm cả SL) → không lặp nút "Sửa SL" nhanh */}
+                {!(onEdit && canEditDelivery !== false) && (
+                  <button
+                    className="fm-btn fm-btn--secondary"
+                    onClick={() => void openEditModal()}
+                    disabled={actionBusy || editLoading}
+                  >
+                    <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa SL'}
+                  </button>
+                )}
                 {onEdit && canEditDelivery !== false && (
                   <button
                     className="fm-btn fm-btn--secondary"
@@ -478,24 +439,13 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
               </>
             )}
             {onCopyTo && delivery.status !== 'Cancelled' && (
-              <>
-                <button
-                  className="fm-btn fm-btn--secondary"
-                  onClick={() => onCopyTo('invoice', delivery.id)}
-                  disabled={actionBusy}
-                  title="Tạo hóa đơn bán hàng từ phiếu giao hàng này (wire ở app-shell)"
-                >
-                  <Receipt size={16} /> Sao chép sang hóa đơn bán hàng
-                </button>
-                <button
-                  className="fm-btn fm-btn--secondary"
-                  onClick={() => onCopyTo('return', delivery.id)}
-                  disabled={actionBusy}
-                  title="Tạo phiếu trả hàng bán từ phiếu giao hàng này (wire ở app-shell)"
-                >
-                  <Undo2 size={16} /> Sao chép sang phiếu trả hàng bán
-                </button>
-              </>
+              <CopyToMenu
+                disabled={actionBusy}
+                items={[
+                  { key: 'invoice', label: 'Hóa đơn bán hàng', icon: <Receipt size={16} />, onSelect: () => onCopyTo('invoice', delivery.id), hint: 'Tạo hóa đơn bán hàng từ phiếu giao hàng này' },
+                  { key: 'return', label: 'Phiếu trả hàng bán', icon: <Undo2 size={16} />, onSelect: () => onCopyTo('return', delivery.id), hint: 'Tạo phiếu trả hàng bán từ phiếu giao hàng này' },
+                ]}
+              />
             )}
             {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP */}
             {delivery.isDraft && delivery.status !== 'Cancelled' && (
@@ -529,10 +479,10 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
         </div>
       )}
 
-      {/* Đơn nguồn */}
+      {/* Chứng từ nguồn */}
       <div className="fm-card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
-          <h2 className="fm-card__title" style={{ margin: 0 }}>Đơn nguồn</h2>
+          <h2 className="fm-card__title" style={{ margin: 0 }}>Chứng từ nguồn</h2>
           {delivery.sourceOrder && (
             <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => onGoOrder(delivery.sourceOrder!.id)}>
               <ArrowLeft size={16} style={{ transform: 'rotate(180deg)' }} /> Xem đơn nguồn
@@ -554,164 +504,19 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
         )}
       </div>
 
-      {/* Thông tin chung */}
-      <div className="fm-card" style={{ marginBottom: 16 }}>
-        <h2 className="fm-card__title">Thông tin chung</h2>
-        <dl className="fm-view-detail">
-          <div><dt>Khách hàng</dt><dd><b>{delivery.cardCode}</b> — {delivery.cardName}</dd></div>
-          <div><dt>Ngày giao</dt><dd>{formatDateVN(delivery.docDate)}</dd></div>
-          <div><dt>Kho xuất hàng</dt><dd>{delivery.warehouseCode || '— (theo mặc định SAP)'}</dd></div>
-          <div><dt>Trạng thái</dt><dd><span className={`fm-chip fm-chip--${delivery.status.toLowerCase()}`}>{STATUS_LABEL[delivery.status] ?? delivery.status}</span></dd></div>
-          <div>
-            <dt>SAP B1</dt>
-            <dd>
-              {delivery.source === 'sap' ? (
-                <span className="fm-chip fm-chip--sap">Từ SAP B1 — DocNum {delivery.sapDocNum}</span>
-              ) : delivery.sapSyncStatus === 'synced' ? (
-                <span className="fm-chip fm-chip--sap">Đã đẩy — DocNum {delivery.sapDocNum}</span>
-              ) : delivery.sapSyncStatus === 'pending' ? (
-                <span className="fm-chip fm-chip--error" title={delivery.sapSyncError ?? ''}>Đẩy lỗi</span>
-              ) : (
-                <span style={{ color: 'var(--fm-text-2)', fontWeight: 400 }}>Chưa đẩy</span>
-              )}
-            </dd>
-          </div>
-          {delivery.source !== 'sap' && (
-            <>
-              <div><dt>Người tạo</dt><dd>{delivery.createdBy || '—'}</dd></div>
-              <div><dt>Ngày tạo</dt><dd>{delivery.createdAt ? formatDateVN(delivery.createdAt) : '—'}</dd></div>
-              <div><dt>Cập nhật cuối</dt><dd>{delivery.updatedAt ? formatDateVN(delivery.updatedAt) : '—'}</dd></div>
-              <div><dt>Version</dt><dd>v{delivery.version ?? 0}</dd></div>
-            </>
-          )}
-          <div><dt>Ghi chú</dt><dd>{delivery.remarks || '—'}</dd></div>
-        </dl>
-      </div>
+      <DocInfoCards
+        doc={delivery}
+        showDueDate={false}
+        b2bExtra={<DocField label="Ghi chú soạn/đóng gói">{delivery.pickAndPackNotes || '—'}</DocField>}
+      />
 
-      {/* Thông tin B2B / SAP B1 (Đợt 2+3) — chỉ hiện khi có dữ liệu */}
-      {hasB2B && (
-        <div className="fm-card" style={{ marginBottom: 16 }}>
-          <h2 className="fm-card__title">Thông tin B2B / SAP B1</h2>
-          <dl className="fm-view-detail">
-            <div><dt>Nhân viên bán hàng</dt><dd>{spLabel(delivery.salesPersonCode)}</dd></div>
-            <div><dt>Điều khoản thanh toán</dt><dd>{ptLabel(delivery.paymentGroupCode)}</dd></div>
-            <div><dt>Số PO / Tham chiếu KH</dt><dd>{delivery.numAtCard || '—'}</dd></div>
-            <div><dt>Ngày tính thuế</dt><dd>{delivery.taxDate ? formatDateVN(delivery.taxDate) : '—'}</dd></div>
-            <div><dt>Ngày cần giao</dt><dd>{delivery.reqDate ? formatDateVN(delivery.reqDate) : '—'}</dd></div>
-            <div>
-              <dt>Tiền tệ</dt>
-              <dd>
-                {delivery.docCurrency || 'VND'}
-                {delivery.docCurrency && delivery.docCurrency !== 'VND' && delivery.docRate != null ? ` · Tỷ giá ${delivery.docRate}` : ''}
-              </dd>
-            </div>
-            <div><dt>Mã dự án</dt><dd>{delivery.projectCode || '—'}</dd></div>
-            <div><dt>Địa chỉ giao hàng</dt><dd>{delivery.shipToCode || '—'}</dd></div>
-            <div><dt>Địa chỉ ghi hóa đơn</dt><dd>{delivery.billToCode || '—'}</dd></div>
-            {delivery.headerDiscPct != null && delivery.headerDiscPct > 0 && (
-              <div><dt>Chiết khấu đầu chứng từ</dt><dd>{delivery.headerDiscPct}%</dd></div>
-            )}
-            {delivery.pickAndPackNotes && (
-              <div><dt>Ghi chú soạn/đóng gói</dt><dd>{delivery.pickAndPackNotes}</dd></div>
-            )}
-            <div>
-              <dt>Đính kèm</dt>
-              <dd>
-                {b2bAttachments.length > 0 ? (
-                  <ul style={{ margin: 0, paddingLeft: 18 }}>
-                    {b2bAttachments.map((a, i) => (
-                      <li key={i}>
-                        {a.url ? (
-                          <a href={a.url} target="_blank" rel="noreferrer">{a.name || a.url}</a>
-                        ) : (
-                          a.name
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : '—'}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      )}
-
-      {/* Dòng hàng */}
-      <div className="fm-card" style={{ marginBottom: 16 }}>
-        <h2 className="fm-card__title">Hàng hóa & chi tiết</h2>
-        <div className="fm-table-wrap">
-          <table className="fm-table">
-            <thead>
-              <tr>
-                <th>STT</th>
-                <th>Mã hàng</th>
-                <th>Tên hàng</th>
-                <th>Kho</th>
-                <th className="fm-num">Số lượng</th>
-                <th>Đơn vị tính</th>
-                <th className="fm-num">Đơn giá</th>
-                <th>Mã thuế</th>
-                <th>Số lô</th>
-                <th className="fm-num">CK %</th>
-                <th className="fm-num">Thành tiền</th>
-              </tr>
-            </thead>
-            <tbody>
-              {delivery.lines.map((l, i) => (
-                <tr key={l.id}>
-                  <td>{i + 1}</td>
-                  <th scope="row"><b>{l.itemCode}</b></th>
-                  <td>{l.itemName}</td>
-                  <td>{l.warehouseCode || delivery.warehouseCode || '—'}</td>
-                  <td className="fm-num">{l.quantity}</td>
-                  <td>{l.uom}</td>
-                  <td className="fm-num">{formatVND(l.unitPrice)}</td>
-                  <td>{l.taxCode || '—'}</td>
-                  <td>{l.batchNumber || '—'}</td>
-                  <td className="fm-num">{(l.discPct ?? 0) > 0 ? `${l.discPct}%` : '—'}</td>
-                  <td className="fm-num"><b>{formatVND(l.lineTotal)}</b></td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={4} style={{ textAlign: 'right' }}><b>Tổng SL:</b></td>
-                <td className="fm-num"><b>{delivery.lines.reduce((s, l) => s + (l.quantity || 0), 0)}</b></td>
-                <td colSpan={6} />
-              </tr>
-              <tr>
-                <td colSpan={10} style={{ textAlign: 'right', fontSize: 16 }}><b>Tổng chứng từ:</b></td>
-                <td className="fm-num" style={{ fontSize: 17, color: 'var(--fm-navy)' }}><b>{formatVND(delivery.grandTotal)}</b></td>
-              </tr>
-            </tfoot>
-          </table>
-          {/* Mobile (<=640px): card thay cho bảng 7 cột cuộn ngang */}
-          <div className="fm-lcard-list">
-            {delivery.lines.map((l, i) => (
-              <div key={l.id} className="fm-lcard">
-                <div className="fm-lcard__head">
-                  <span className="fm-lcard__num">{i + 1}</span>
-                  <div>
-                    <div className="fm-lcard__name">{l.itemName}</div>
-                    <div className="fm-lcard__code">{l.itemCode} · {l.uom}{l.warehouseCode ? ` · Kho ${l.warehouseCode}` : ''}</div>
-                  </div>
-                </div>
-                <div className="fm-lcard__grid">
-                  <div><span className="k">Số lượng</span><span className="v">{l.quantity}</span></div>
-                  <div><span className="k">Đơn giá</span><span className="v">{formatVND(l.unitPrice)}</span></div>
-                  <div><span className="k">Mã thuế</span><span className="v">{l.taxCode || '—'}</span></div>
-                  <div><span className="k">Số lô</span><span className="v">{l.batchNumber || '—'}</span></div>
-                  <div><span className="k">CK %</span><span className="v">{(l.discPct ?? 0) > 0 ? `${l.discPct}%` : '—'}</span></div>
-                </div>
-                <div className="fm-lcard__total">
-                  <span>Thành tiền</span>
-                  <b>{formatVND(l.lineTotal)}</b>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {(() => {
+        const lines = delivery.lines.map((l) => ({ ...l, warehouseCode: l.warehouseCode || delivery.warehouseCode }))
+        // Phiếu local lưu grandTotal TRƯỚC thuế → tính tổng (gồm thuế) từ dòng như các chứng từ khác;
+        // phiếu đọc từ SAP: DocTotal đã gồm thuế
+        const totals = computeDocTotals(lines, Number(delivery.headerDiscPct) || 0, delivery.source === 'sap' ? delivery.grandTotal : undefined)
+        return <DocLinesCard lines={lines} defaultWarehouse={delivery.warehouseCode} totals={totals} />
+      })()}
 
       {/* Lịch sử thao tác — suy ra từ các mốc thời gian của phiếu (chỉ phiếu local) */}
       {delivery.source !== 'sap' && (() => {

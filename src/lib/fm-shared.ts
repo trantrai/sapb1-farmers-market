@@ -2,7 +2,7 @@
 // FARMERS MARKET — Shared types & helpers (client + server safe)
 // ============================================================
 
-export type ModuleKey = 'orders' | 'ordersNew' | 'deliveries' | 'quotations' | 'invoices' | 'creditMemos' | 'returns' | 'downPayments' | 'salesReport' | 'arAgingReport' | 'users' | 'settings' | 'roles' | 'excelTemplates' | 'orderTemplates' | 'bomImport'
+export type ModuleKey = 'orders' | 'ordersNew' | 'deliveries' | 'quotations' | 'invoices' | 'creditMemos' | 'returns' | 'downPayments' | 'salesReport' | 'arAgingReport' | 'users' | 'settings' | 'roles' | 'excelTemplates' | 'orderTemplates' | 'bomImport' | 'bomSwap'
 export type ActionKey = 'view' | 'create' | 'edit' | 'delete'
 
 export type PermMap = Record<ModuleKey, Record<ActionKey, boolean>>
@@ -38,6 +38,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   excelTemplates: 'Mẫu Excel',
   orderTemplates: 'Đơn hàng mẫu',
   bomImport: 'Import BOM/Combo',
+  bomSwap: 'Hoán đổi thành phần BOM (dùng quyền Sửa)',
 }
 
 export const ACTION_LABELS: Record<ActionKey, string> = {
@@ -49,7 +50,7 @@ export const ACTION_LABELS: Record<ActionKey, string> = {
 
 export function emptyPerm(): PermMap {
   const mk = (): Record<ActionKey, boolean> => ({ view: false, create: false, edit: false, delete: false })
-  return { orders: mk(), ordersNew: mk(), deliveries: mk(), quotations: mk(), invoices: mk(), creditMemos: mk(), returns: mk(), downPayments: mk(), salesReport: mk(), arAgingReport: mk(), users: mk(), settings: mk(), roles: mk(), excelTemplates: mk(), orderTemplates: mk(), bomImport: mk() }
+  return { orders: mk(), ordersNew: mk(), deliveries: mk(), quotations: mk(), invoices: mk(), creditMemos: mk(), returns: mk(), downPayments: mk(), salesReport: mk(), arAgingReport: mk(), users: mk(), settings: mk(), roles: mk(), excelTemplates: mk(), orderTemplates: mk(), bomImport: mk(), bomSwap: mk() }
 }
 
 export function parsePerm(json: string | null | undefined): PermMap {

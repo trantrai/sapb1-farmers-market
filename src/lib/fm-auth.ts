@@ -7,8 +7,8 @@ import { parsePerm, SessionUser } from '@/lib/fm-shared'
 export { hashPassword, verifyPassword } from './fm-crypto'
 
 /**
- * Migration 1 lần: bổ sung quyền module `deliveries` cho các role cũ
- * (tạo trước khi module Giao hàng ra đời). Chạy lazy khi có request
+ * Migration 1 lần: bổ sung quyền module `deliveries` (tạo trước khi module
+ * Giao hàng ra đời) và `bomSwap` (chỉ Admin) cho các role cũ. Chạy lazy khi có request
  * authenticated đầu tiên sau deploy — không cần chạy seed lại.
  */
 let _roleMigrated = false
@@ -24,20 +24,31 @@ async function ensureDeliveriesPerm(): Promise<void> {
       } catch {
         continue
       }
-      if (perm.deliveries) continue
-      // Mặc định kế thừa từ quyền orders (cùng workflow chứng từ)
-      const orders = perm.orders ?? {}
-      perm.deliveries = {
-        view: true,
-        create: Boolean(orders.create),
-        edit: Boolean(orders.edit),
-        delete: Boolean(orders.delete),
+      const changed: string[] = []
+      if (!perm.deliveries) {
+        // Mặc định kế thừa từ quyền orders (cùng workflow chứng từ)
+        const orders = perm.orders ?? {}
+        perm.deliveries = {
+          view: true,
+          create: Boolean(orders.create),
+          edit: Boolean(orders.edit),
+          delete: Boolean(orders.delete),
+        }
+        changed.push('deliveries')
       }
+      if (!perm.bomSwap) {
+        // Hoán đổi thành phần BOM (đưa mặt hàng ngoài công thức vào với giá 0):
+        // mặc định CHỈ Admin; role khác do Admin cấp ở màn Ủy quyền
+        const admin = r.name === 'Admin'
+        perm.bomSwap = { view: admin, create: false, edit: admin, delete: false }
+        changed.push('bomSwap')
+      }
+      if (changed.length === 0) continue
       await prisma.role.update({
         where: { id: r.id },
         data: { permissions: JSON.stringify(perm) },
       })
-      console.log(`[migrate] Đã bổ sung quyền deliveries cho role ${r.name}`)
+      console.log(`[migrate] Đã bổ sung quyền ${changed.join(', ')} cho role ${r.name}`)
     }
   } catch (e) {
     console.warn('[migrate] Bổ sung quyền deliveries thất bại:', e instanceof Error ? e.message : e)

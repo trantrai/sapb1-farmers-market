@@ -126,6 +126,13 @@ function fetchErrorDetail(e: unknown): string {
   return 'lỗi không xác định'
 }
 
+/** Khớp CHÍNH XÁC mã vạch (ưu tiên) hoặc mã hàng — dùng cho máy quét barcode (gõ nhanh + Enter) */
+function exactMatch(opts: ACOption[], q: string): ACOption | undefined {
+  const t = q.trim().toLowerCase()
+  if (!t) return undefined
+  return opts.find((o) => (o.barcode ?? '').toLowerCase() === t) ?? opts.find((o) => o.code.toLowerCase() === t)
+}
+
 /** Autocomplete chọn CardCode / ItemCode (Bước 1 & 2 của form SO) */
 export default function Autocomplete({ label, required, placeholder, fetchUrl, value, onChange, error, minChars, minCharsHint, hideLabel, disabled }: Props) {
   const [query, setQuery] = useState('')
@@ -138,6 +145,10 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  /** Enter khi kết quả tìm chưa về (máy quét barcode) → chờ kết quả rồi tự chọn mục khớp */
+  const pendingEnterRef = useRef<string | null>(null)
+  const onChangeRef = useRef(onChange)
+  useEffect(() => { onChangeRef.current = onChange })
   const uid = useId()
   const inputId = `fm-ac-${uid}`
   const listId = `fm-ac-list-${uid}`
@@ -216,6 +227,17 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
     }
   }, [open, fetchUrl, minChars])
 
+  /** Kết quả tìm vừa về: nếu đang chờ Enter cho đúng từ khóa này → chọn mục khớp chính xác (hoặc mục duy nhất) */
+  const resolvePendingEnter = (opts: ACOption[], qq: string) => {
+    if (pendingEnterRef.current !== qq) return
+    pendingEnterRef.current = null
+    const o = exactMatch(opts, qq) ?? (opts.length === 1 ? opts[0] : undefined)
+    if (o) {
+      onChangeRef.current(o)
+      setOpen(false)
+    }
+  }
+
   // CHẾ ĐỘ TÌM TRỰC TIẾP (minChars): gõ đủ ký tự → gọi API tìm kiếm (debounce 300ms).
   // Cache theo từ khóa 60s nên gõ lùi/xóa không phải gọi lại.
   useEffect(() => {
@@ -243,6 +265,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
         setAll(hit.options)
         setMeta({ source: hit.source, error: hit.error })
         setLoading(false)
+        resolvePendingEnter(hit.options, qq)
         return
       }
       setLoading(true)
@@ -256,6 +279,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           const m = mapResponse(json)
           setAll(m.options)
           setMeta({ source: m.source, error: m.error })
+          resolvePendingEnter(m.options, qq)
           if (!m.error) listCache.set(key, { ts: Date.now(), options: m.options, source: m.source, error: '' })
         })
         .catch((e: unknown) => {
@@ -346,6 +370,7 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
           disabled={disabled}
           value={value ? `${value.code} — ${value.name}` : query}
           onChange={(e) => {
+            pendingEnterRef.current = null // gõ tiếp → hủy lượt Enter đang chờ
             setQuery(e.target.value)
             onChange(null)
             setOpen(true)
@@ -372,7 +397,17 @@ export default function Autocomplete({ label, required, placeholder, fetchUrl, v
             if (!open) return
             if (e.key === 'ArrowDown') { e.preventDefault(); setHl((h) => Math.min(h + 1, options.length - 1)) }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setHl((h) => Math.max(h - 1, 0)) }
-            else if (e.key === 'Enter' && options[hlSafe]) { e.preventDefault(); pick(options[hlSafe]) }
+            else if (e.key === 'Enter') {
+              // Ưu tiên khớp chính xác mã vạch / mã hàng (quét barcode), sau đó mục đang chọn
+              const ex = exactMatch(options, query)
+              if (ex) { e.preventDefault(); pick(ex) }
+              else if (options[hlSafe] && !loading) { e.preventDefault(); pick(options[hlSafe]) }
+              else if (minChars !== undefined && query.trim().length >= minChars) {
+                // Kết quả chưa về (vừa quét xong) → chờ kết quả rồi tự chọn
+                e.preventDefault()
+                pendingEnterRef.current = query.trim()
+              }
+            }
             else if (e.key === 'Escape') setOpen(false)
           }}
           autoComplete="off"
