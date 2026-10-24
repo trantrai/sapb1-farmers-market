@@ -114,7 +114,7 @@ describe('normalizeBomLines — hoán đổi thành phần BOM Template', () => 
       { itemCode: 'GIO', quantity: 1, unitPrice: 500, isBomChild: false, bomGroupKey: 'g' },
       { itemCode: 'LE', quantity: 5, unitPrice: 0, isBomChild: true, bomGroupKey: 'g', bomEditable: true },
     ]) as Record<string, unknown>[]
-    expect(out[0]).toMatchObject({ ItemCode: 'GIO', TreeType: 'iNotATree' })
+    expect(out[0]).toMatchObject({ ItemCode: 'GIO' })
     expect(out[1]).toMatchObject({ ItemCode: 'LE', Quantity: 5, UnitPrice: 0, U_BOMID: 'GIO' })
   })
 })

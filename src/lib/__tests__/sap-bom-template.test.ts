@@ -1,7 +1,7 @@
 // ============================================================
 // Test BOM Template:
-// - Payload SAP: cha TreeType=iNotATree (SAP không bung lại theo định mức cũ),
-//   con mang SL người dùng đã chỉnh, giá 0, U_BOMID = mã cha
+// - Payload SAP: cha gửi như hàng thường (SAP luôn tự bung Template — đẩy 2
+//   bước ở sap-bom-reconcile), con mang SL người dùng đã chỉnh, giá 0, U_BOMID = mã cha
 // - Production/Assembly giữ nguyên hành vi cũ
 // - Logic dòng trên form: bung con, nhân định mức, xóa cha xóa con, thu gọn
 // ============================================================
@@ -31,8 +31,9 @@ const tplLines = [
 describe('buildSapLines — BOM Template', () => {
   const out = buildSapLines(tplLines) as Record<string, unknown>[]
 
-  it('dòng cha gửi TreeType=iNotATree, giữ giá/CK của cha', () => {
-    expect(out[0]).toMatchObject({ ItemCode: 'GIO-QUA', TreeType: 'iNotATree', UnitPrice: 500000, DiscountPercent: 5 })
+  it('dòng cha giữ giá/CK của cha, không gửi TreeType (SAP bỏ qua iNotATree)', () => {
+    expect(out[0]).toMatchObject({ ItemCode: 'GIO-QUA', UnitPrice: 500000, DiscountPercent: 5 })
+    expect(out[0]).not.toHaveProperty('TreeType')
     expect(out[0]).not.toHaveProperty('U_BOMID')
   })
 
@@ -61,6 +62,9 @@ describe('buildSapLines — BOM Template', () => {
     const p = buildSapLines(tplLines, [0, 1, null, 3]) as Record<string, unknown>[]
     expect(p[1]).toMatchObject({ LineNum: 1, Quantity: 7, U_BOMID: 'GIO-QUA' })
     expect(p[2]).not.toHaveProperty('LineNum')
+    // Cha đã có trên SAP: không gửi lại ItemCode (tránh SAP bung công thức lần nữa)
+    expect(p[0]).toMatchObject({ LineNum: 0, Quantity: 2 })
+    expect(p[0]).not.toHaveProperty('ItemCode')
   })
 
   it('buildSapDocPayload (POST) áp dụng cho DocumentLines', () => {

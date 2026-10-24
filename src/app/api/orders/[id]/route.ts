@@ -302,6 +302,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 
   // ---------- 1) Đơn đã synced → PATCH lên Service Layer trước ----------
   let patchedInSap = false
+  // LineNum SAP theo từng dòng sau PATCH (có khi thêm BOM Template — dòng con
+  // mới nằm cuối chứng từ trên SAP nên không suy được theo vị trí)
+  let patchLineNums: number[] | undefined
   if (order.sapSyncStatus === 'synced' && order.sapDocEntry != null) {
     const s = await loadSapSettings(order.sapDatabaseId ?? user.databaseId)
     if (isSapConfigured(s)) {
@@ -350,6 +353,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         )
       }
       patchedInSap = true
+      if (res.lineNums?.length === calcLines.length) patchLineNums = res.lineNums
     }
   }
 
@@ -407,7 +411,8 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
             vatPct: l.vatPct,
             vatAmt: l.vatAmt,
             grandTotal: l.grandTotal,
-            sapLineNum: (l as { dbId?: string }).dbId ? lineNumOf.get((l as { dbId?: string }).dbId as string) ?? null : null,
+            sapLineNum: patchLineNums?.[i]
+              ?? ((l as { dbId?: string }).dbId ? lineNumOf.get((l as { dbId?: string }).dbId as string) ?? null : null),
             isBomChild: l.isBomChild ?? false,
             bomGroupKey: (l.bomGroupKey as string | null | undefined) ?? null,
             bomEditable: l.bomEditable ?? true,

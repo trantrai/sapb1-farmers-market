@@ -22,6 +22,7 @@
 
 import { loadSapSettings, isSapConfigured, sapGet, sapPost, sapPatch, type SapConfig } from './sap-service-layer'
 import { db as prisma } from './db'
+import { freshTemplateGroups, isFreshTplChild, reconcileTemplateBoms, type SapDocLine } from './sap-bom-reconcile'
 
 /** Entity set chứng từ bán hàng trên Service Layer (OData v2) */
 export type SapDocEntitySet =
@@ -65,10 +66,10 @@ export interface SapPushLine {
   batchNumber?: string | null
   /**
    * BOM: dòng cha và các dòng con cùng `bomGroupKey`. Nhóm BOM Template
-   * (con sửa được — bomEditable ≠ false) được đẩy như sau:
-   *  - Dòng cha: TreeType = iNotATree → SAP KHÔNG tự bung lại theo định mức cũ
-   *  - Dòng con: dòng thường với SỐ LƯỢNG NGƯỜI DÙNG đã chỉnh, giá 0,
-   *    U_BOMID = mã mặt hàng cha
+   * (con sửa được — bomEditable ≠ false): SAP LUÔN tự bung công thức khi nhận
+   * dòng cha (TreeType=iNotATree bị bỏ qua — đã xác nhận trên SAP thật), nên
+   * đẩy 2 bước (sap-bom-reconcile.ts): gửi cha → sửa các dòng SAP vừa bung
+   * thành dòng con của người dùng (SL đã chỉnh, giá 0, U_BOMID = mã cha).
    */
   isBomChild?: boolean
   bomGroupKey?: string | null
@@ -527,15 +528,16 @@ export function buildSapLines(
       // Copy-from: liên kết dòng với chứng từ/dòng nguồn trên SAP
       // (BaseType/BaseEntry/BaseLine) — SAP tự trừ OpenQty của nguồn.
       ...(b ? { BaseType: b.baseType, BaseEntry: b.baseEntry, BaseLine: b.baseLine } : {}),
-      // Dòng dịch vụ gửi AccountCode thay vì ItemCode (chuẩn SAP B1)
-      ...(isServiceDoc ? { AccountCode: acct } : { ItemCode: l.itemCode }),
+      // Dòng dịch vụ gửi AccountCode thay vì ItemCode (chuẩn SAP B1).
+      // Dòng cha BOM Template ĐÃ có trên SAP: không gửi lại ItemCode — đặt lại
+      // mã mặt hàng cha có thể làm SAP bung công thức thêm lần nữa.
+      ...(isServiceDoc ? { AccountCode: acct } : typeof ln === 'number' && tplParent && !l.isBomChild ? {} : { ItemCode: l.itemCode }),
       Quantity: l.quantity,
       // Đơn vị tính: chỉ gửi khi có giá trị — rỗng thì SAP dùng mặc định của mặt hàng
       ...(l.uom?.trim() ? { MeasureUnit: l.uom.trim() } : {}),
       UnitPrice: isTplChild ? 0 : l.unitPrice,
       DiscountPercent: isTplChild ? 0 : Number(l.discPct) || 0,
-      // BOM Template: cha không cho SAP bung lại; con mang mã BOM cha
-      ...(tplParent && !l.isBomChild ? { TreeType: 'iNotATree' } : {}),
+      // BOM Template: con mang mã BOM cha
       ...(isTplChild ? { [UDF_BOM_ID]: tplParent } : {}),
       ...(l.taxCode ? { VatGroup: l.taxCode } : {}),
       ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
@@ -637,6 +639,12 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
   const settings = await loadSapSettings(input.databaseId)
   if (!isSapConfigured(settings)) return { status: 'none' }
 
+  // BOM Template: bước 1 chỉ gửi dòng cha (bỏ dòng con) — SAP tự bung,
+  // bước 2 (reconcileTemplateBoms) sửa thành đúng dòng con người dùng nhập.
+  const fresh = freshTemplateGroups(input.lines)
+  const postIdx = input.lines.map((_, i) => i).filter((i) => !isFreshTplChild(input.lines[i], fresh))
+  const postLines = postIdx.map((i) => input.lines[i])
+
   // Idempotency: trước khi POST, kiểm tra SAP đã có chứng từ mang marker
   // localId chưa — tránh tạo trùng khi retry sau timeout/response mất.
   // Nếu SAP chưa định nghĩa UDF → bỏ qua, giữ nguyên hành vi cũ.
@@ -652,7 +660,13 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
       }
     }
     if (existing.supported && existing.doc) {
-      // Chứng từ đã tồn tại → nhận lại, KHÔNG POST nữa
+      // Chứng từ đã tồn tại → nhận lại, KHÔNG POST nữa. Có BOM Template: lần
+      // trước có thể mới xong bước 1 (SAP đã bung định mức gốc) → áp tiếp bước 2.
+      if (fresh.size > 0) {
+        const rec = await reconcileTemplateBoms(settings, input.entitySet, existing.doc.DocEntry, input.lines, postIdx)
+        if (!rec.ok) return { status: 'pending', error: rec.error }
+        return { status: 'synced', docEntry: existing.doc.DocEntry, docNum: existing.doc.DocNum, lineNums: rec.lineNums }
+      }
       const full = await sapGet<SapDocResponse>(
         settings,
         `/${input.entitySet}(${existing.doc.DocEntry})`,
@@ -672,15 +686,32 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
   // Copy-from: tra BaseType/BaseEntry/BaseLine cho các dòng có sourceLineId.
   // Nguồn chưa lên SAP (thiếu sapDocEntry) → CHẶN đẩy, trả lỗi rõ ràng
   // (không lặng lẽ bỏ qua — sẽ lệch OpenQty trên SAP).
-  const baseRes = await resolveCopyFromBases(input.entitySet, input.lines)
+  const baseRes = await resolveCopyFromBases(input.entitySet, postLines)
   if (!baseRes.ok) {
     return { status: 'error', blocked: true, error: baseRes.error }
   }
 
-  const payload = buildSapDocPayload(input, withUdf, baseRes.bases)
+  const payload = buildSapDocPayload({ ...input, lines: postLines }, withUdf, baseRes.bases)
   const res = await sapPost<SapDocResponse>(settings, `/${input.entitySet}`, payload)
   if (!res.ok) {
     return { status: 'pending', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }
+  }
+  if (fresh.size > 0) {
+    const docEntry = res.data?.DocEntry
+    const docNum = typeof res.data?.DocNum === 'number' ? res.data.DocNum : undefined
+    if (typeof docEntry !== 'number') return { status: 'pending', error: 'SAP không trả về DocEntry — sẽ thử đẩy lại' }
+    const created = res.data?.DocumentLines
+    const sapLines = (Array.isArray(created) ? created : created?.results ?? []) as SapDocLine[]
+    const rec = await reconcileTemplateBoms(settings, input.entitySet, docEntry, input.lines, postIdx, sapLines)
+    if (!rec.ok) {
+      // Có marker localId → "Đẩy lại" sẽ nhận lại chứng từ này và áp tiếp bước 2.
+      // Không có marker → KHÔNG để pending (đẩy lại sẽ tạo trùng chứng từ): ghi
+      // nhận đã tạo kèm cảnh báo để sửa định mức trực tiếp trên SAP.
+      return withUdf
+        ? { status: 'pending', error: rec.error }
+        : { status: 'synced', docEntry, docNum, error: `${rec.error} — chứng từ đã tạo trên SAP với định mức gốc, cần sửa trực tiếp trên SAP B1.` }
+    }
+    return { status: 'synced', docEntry, docNum, lineNums: rec.lineNums }
   }
   return {
     status: 'synced',
@@ -695,6 +726,11 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
  * KHÔNG bao giờ ném exception. Trả về status 'synced' (OK) hoặc 'error'.
  */
 export async function patchDocumentToSap(settings: SapConfig, input: SapPatchDocumentInput): Promise<SapPushResult> {
+  // Nhóm BOM Template MỚI thêm khi sửa: bước 1 chỉ gửi dòng cha (SAP tự bung),
+  // bước 2 sửa các dòng vừa bung thành dòng con người dùng nhập.
+  const fresh = freshTemplateGroups(input.lines)
+  const sendIdx = input.lines.map((_, i) => i).filter((i) => !isFreshTplChild(input.lines[i], fresh))
+  const sendLines = sendIdx.map((i) => input.lines[i])
   const payload = {
     ...(input.cardCode ? { CardCode: input.cardCode } : {}),
     ...(input.docDate ? { DocDate: onlyDate(input.docDate) } : {}),
@@ -708,8 +744,8 @@ export async function patchDocumentToSap(settings: SapConfig, input: SapPatchDoc
       contactPersonCode: input.contactPersonCode,
     }),
     DocumentLines: buildSapLines(
-      input.lines,
-      input.lines.map((l) => (typeof l.lineNum === 'number' ? l.lineNum : null)),
+      sendLines,
+      sendLines.map((l) => (typeof l.lineNum === 'number' ? l.lineNum : null)),
       undefined,
       input.invoiceDocType,
     ),
@@ -717,6 +753,17 @@ export async function patchDocumentToSap(settings: SapConfig, input: SapPatchDoc
   const res = await sapPatch<SapDocResponse>(settings, `/${input.entitySet}(${input.docEntry})`, payload)
   if (!res.ok) {
     return { status: 'error', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }
+  }
+  if (fresh.size > 0) {
+    // Thứ tự LineNum trên SAP sau bước 1: dòng cũ (theo LineNum) rồi dòng mới theo thứ tự gửi
+    const posted = [
+      ...sendIdx.filter((i) => typeof input.lines[i].lineNum === 'number')
+        .sort((a, b) => (input.lines[a].lineNum as number) - (input.lines[b].lineNum as number)),
+      ...sendIdx.filter((i) => typeof input.lines[i].lineNum !== 'number'),
+    ]
+    const rec = await reconcileTemplateBoms(settings, input.entitySet, input.docEntry, input.lines, posted)
+    if (!rec.ok) return { status: 'error', docEntry: input.docEntry, error: rec.error }
+    return { status: 'synced', docEntry: input.docEntry, lineNums: rec.lineNums }
   }
   return {
     status: 'synced',
