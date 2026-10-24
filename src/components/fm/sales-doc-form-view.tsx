@@ -1320,7 +1320,6 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                   <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${!isChild && l.bomGroupKey ? ' is-bom-parent' : ''}`}>
                     <td data-label="Dòng">
                       <div className="fm-bom-parent-no">
-                        {!isChild && <span className="fm-line-no">{lineNo}</span>}
                         {showToggle && (
                           <BomToggle
                             collapsed={bomCollapsed.has(l.bomGroupKey as string)}
@@ -1329,6 +1328,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                             onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
                           />
                         )}
+                        {!isChild && <span className="fm-line-no">{lineNo}</span>}
                       </div>
                     </td>
                     <td data-label="Mã hàng" data-full className="fm-line-code">

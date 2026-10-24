@@ -2368,6 +2368,14 @@ export default function OrderFormView({
                   <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${!isChild && l.bomGroupKey ? ' is-bom-parent' : ''}${lineIssueClass(issuesByLine.get(l.key))}`}>
                     <td data-label="Dòng">
                       <div className="fm-bom-parent-no">
+                        {showToggle && (
+                          <BomToggle
+                            collapsed={bomCollapsed.has(l.bomGroupKey as string)}
+                            count={childCounts.get(l.bomGroupKey as string) ?? 0}
+                            parentLabel={l.item?.code ?? ''}
+                            onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
+                          />
+                        )}
                         <LineExpandButton
                           expanded={expanded}
                           onToggle={() => expandedLines.toggle(l.key)}
@@ -2378,14 +2386,6 @@ export default function OrderFormView({
                           title="Tồn kho khả dụng (ATP) của dòng"
                         />
                         <LineIssueBadge issues={issuesByLine.get(l.key) ?? []} />
-                        {showToggle && (
-                          <BomToggle
-                            collapsed={bomCollapsed.has(l.bomGroupKey as string)}
-                            count={childCounts.get(l.bomGroupKey as string) ?? 0}
-                            parentLabel={l.item?.code ?? ''}
-                            onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
-                          />
-                        )}
                       </div>
                     </td>
                     <td data-label="Mã hàng" data-full className="fm-line-code">
