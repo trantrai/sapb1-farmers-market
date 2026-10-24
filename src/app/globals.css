@@ -1426,6 +1426,13 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-basket__foot .fm-btn { margin-left: 0; min-height: 40px; }
 }
 
+/* ---------- Gợi ý ngày giao + kho theo thói quen giao hàng ---------- */
+.fm-delivery-hint { margin-top: 4px; font-size: 11.5px; line-height: 1.5; color: var(--fm-text-2); }
+.fm-delivery-hint svg { display: inline; vertical-align: -2px; margin-right: 4px; color: var(--fm-gold-ink); }
+.fm-delivery-hint b { color: var(--fm-navy); white-space: nowrap; }
+.fm-delivery-hint .fm-link { margin-left: 6px; font-size: 11.5px; font-weight: 700; }
+.fm-delivery-hint__ok { margin-left: 6px; font-size: 11px; color: var(--fm-text-3); white-space: nowrap; }
+
 /* ---------- Kiểm tra trước khi lưu ---------- */
 .fm-modal.fm-precheck { max-width: 560px; text-align: left; }
 .fm-precheck .fm-modal__title { display: flex; align-items: center; gap: 8px; }

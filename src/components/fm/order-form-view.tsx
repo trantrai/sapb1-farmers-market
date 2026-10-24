@@ -19,6 +19,7 @@ import PrecheckDialog from './precheck-dialog'
 import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import CustomerBasket from './customer-basket'
+import DeliveryHint from './delivery-hint'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
@@ -2134,6 +2135,20 @@ export default function OrderFormView({
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-doc-due-date">Ngày giao hàng <span className="fm-label__req">*</span></label>
             <input id="fm-doc-due-date" type="date" className="fm-datepicker" value={docDueDate} onChange={(e) => setDocDueDate(e.target.value)} disabled={saving} />
+            {!isEdit && (
+              <DeliveryHint
+                cardCode={partner?.code}
+                docDate={docDate}
+                docDueDate={docDueDate}
+                headerWh={headerWh}
+                warehouseCodes={warehouses.map((w) => w.warehouseCode)}
+                disabled={saving}
+                onApply={(due, wh) => {
+                  setDocDueDate(due)
+                  if (wh && wh !== headerWh) applyHeaderWarehouse(wh)
+                }}
+              />
+            )}
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-header-wh" title="Kho hàng xuất bán (OWHS) — mặc định áp dụng cho toàn bộ dòng hàng ở Bước 2">Kho hàng xuất bán</label>
