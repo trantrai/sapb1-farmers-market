@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   }
 
   // B1: cách ly DB (giống /api/stats) — kèm chứng từ NULL sapDatabaseId
-  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: "" }] } : {}
+  const dbScope = user.databaseId ? { OR: [{ sapDatabaseId: user.databaseId }, { sapDatabaseId: "" }, { sapDatabaseId: null }] } : {}
 
   try {
     // Map ĐKTT: paymentGroupCode → số ngày (PaymentTerm.code unique toàn cục)
