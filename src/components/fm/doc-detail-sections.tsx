@@ -351,7 +351,6 @@ export function DocLinesCard({ lines, totals, defaultWarehouse, title = 'Hàng h
                   <th scope="row">
                     {isChild && <span className="fm-bom-branch" aria-hidden>└─ </span>}
                     <b>{l.itemCode || '—'}</b>
-                    {isParent && <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>}
                   </th>
                   <td>{l.itemName}</td>
                   <td className="fm-detail-barcode">{l.barcode || '—'}</td>
@@ -393,7 +392,7 @@ export function DocLinesCard({ lines, totals, defaultWarehouse, title = 'Hàng h
                 <div className="fm-lcard__head">
                   <span className="fm-lcard__num">{stt.get(l)}</span>
                   <div>
-                    <div className="fm-lcard__name">{l.itemName}{isParent && <span className="fm-chip fm-chip--bom">BOM</span>}</div>
+                    <div className="fm-lcard__name">{l.itemName}</div>
                     <div className="fm-lcard__code">
                       {[l.itemCode, l.barcode, l.uom, `Kho ${l.warehouseCode || defaultWarehouse || '—'}`].filter(Boolean).join(' · ')}
                     </div>

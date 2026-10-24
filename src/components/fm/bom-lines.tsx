@@ -200,7 +200,7 @@ export function BomToggle({ collapsed, count, onToggle, parentLabel }: {
   )
 }
 
-/** Ô mặt hàng của dòng con: mã, tên, định mức và mã BOM cha (U_BOMID) */
+/** Ô mặt hàng của dòng con (gọn 1 dòng): mã · định mức/1 cha · nút hoán đổi. Tên hàng nằm ở cột riêng. */
 export function BomChildCell({ code, name, qtyPerParent, uom, parentCode, onSwap, disabled }: {
   code?: string
   name?: string
@@ -211,31 +211,29 @@ export function BomChildCell({ code, name, qtyPerParent, uom, parentCode, onSwap
   onSwap?: () => void
   disabled?: boolean
 }) {
+  const norm = `${formatNum(qtyPerParent ?? 0)}${uom ? ` ${uom}` : ''}/1 cha`
   return (
-    <div className="fm-bom-child-cell">
-      <span className="fm-bom-child-cell__branch" aria-hidden>└─</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="fm-bom-child-cell__top">
-          <b>{code}</b>
-          {onSwap && (
-            <button
-              type="button"
-              className="fm-bom-swap-btn"
-              title="Hoán đổi thành phần với mặt hàng khác"
-              aria-label={`Hoán đổi thành phần ${code ?? ''}`}
-              onClick={onSwap}
-              disabled={disabled}
-            >
-              <ArrowLeftRight size={13} aria-hidden /> Hoán đổi
-            </button>
-          )}
-        </div>
-        <div className="fm-bom-child-cell__name">{name}</div>
-        <div className="fm-bom-child-cell__meta">
-          Định mức: <span className="fm-num-inline">{formatNum(qtyPerParent ?? 0)}</span>{uom ? ` ${uom}` : ''} / 1 cha
-          {parentCode ? <> · BOM: {parentCode}</> : null}
-        </div>
-      </div>
+    <div
+      className="fm-bom-child-cell"
+      title={[name, `Định mức: ${norm}`, parentCode && `Thành phần BOM của ${parentCode}`].filter(Boolean).join(' — ')}
+    >
+      <span className="fm-bom-child-cell__branch" aria-hidden>└</span>
+      <b className="fm-bom-child-cell__code">{code}</b>
+      <span className="fm-bom-child-cell__meta">
+        <span className="fm-sr-only">Định mức: </span>×<span className="fm-num-inline">{formatNum(qtyPerParent ?? 0)}</span>
+      </span>
+      {onSwap && (
+        <button
+          type="button"
+          className="fm-bom-swap-btn"
+          title="Hoán đổi thành phần với mặt hàng khác"
+          aria-label={`Hoán đổi thành phần ${code ?? ''}`}
+          onClick={onSwap}
+          disabled={disabled}
+        >
+          <ArrowLeftRight size={12} aria-hidden />
+        </button>
+      )}
     </div>
   )
 }

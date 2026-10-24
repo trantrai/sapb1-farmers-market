@@ -707,7 +707,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                     </div>
                   )}
                 </td>
-                <td data-label="Tên hàng" className="fm-line-name">{l.item?.name || '—'}</td>
+                <td data-label="Tên hàng" className="fm-line-name" title={l.item?.name || undefined}>{l.item?.name || '—'}</td>
                 <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                 <td data-label="Số lượng" className="fm-num">
                   <input

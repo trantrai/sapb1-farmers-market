@@ -718,21 +718,27 @@
 .fm-bom-toggle:focus-visible { outline: 2px solid var(--fm-navy); outline-offset: 1px; }
 .fm-bom-toggle[aria-expanded="false"] { background: var(--fm-gold-faint); border-color: var(--fm-gold); }
 .fm-bom-parent-no { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-/* Ô mặt hàng của dòng con: thụt lề + định mức + mã BOM cha */
-.fm-bom-child-cell { display: flex; gap: 6px; padding-left: 14px; }
+/* Ô mặt hàng của dòng con — gọn 1 dòng: └ mã ×định mức [hoán đổi] */
+.fm-bom-child-cell { display: flex; align-items: center; gap: 4px; padding-left: 4px; min-width: 0; white-space: nowrap; }
 .fm-bom-child-cell__branch { color: var(--fm-text-3); }
-.fm-bom-child-cell__name { font-size: 11px; color: var(--fm-text-2); }
-.fm-bom-child-cell__meta { font-size: 11px; color: var(--fm-navy); margin-top: 2px; }
+.fm-bom-child-cell__code { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fm-bom-child-cell__meta { font-size: 11px; color: var(--fm-text-2); }
 .fm-num-inline { font-variant-numeric: tabular-nums; font-weight: 600; }
-.fm-bom-child-cell__top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fm-bom-swap-btn {
-  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 2px 8px;
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: auto; padding: 0; flex: none;
   border: 1px solid var(--fm-line); border-radius: var(--fm-r-sm); background: var(--fm-surface);
-  color: var(--fm-navy); font-size: 11px; font-weight: 700; cursor: pointer;
+  color: var(--fm-navy); cursor: pointer;
 }
 .fm-bom-swap-btn:hover:not(:disabled) { background: var(--fm-navy-soft); border-color: var(--fm-navy); }
 .fm-bom-swap-btn:focus-visible { outline: 2px solid var(--fm-navy); outline-offset: 1px; }
 .fm-bom-swap-btn:disabled { opacity: .5; cursor: not-allowed; }
+/* Dòng con BOM gọn: giảm đệm dọc + cỡ chữ (desktop; mobile dạng thẻ giữ nguyên) */
+@media (min-width: 641px) {
+  /* .fm-table.fm-table: đủ độ ưu tiên để thắng luật padding-top 20px của lưới có autocomplete */
+  .fm-table.fm-table tbody tr.is-bom-child > td, .fm-table.fm-table tbody tr.is-bom-child > th { padding-top: 3px; padding-bottom: 3px; font-size: 12px; vertical-align: middle; }
+  .fm-table tbody tr.is-bom-child .fm-line-input, .fm-table tbody tr.is-bom-child .fm-line-select { padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
+  .fm-table tbody tr.is-bom-child td.fm-line-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
 /* Popup hoán đổi thành phần BOM */
 .fm-modal.fm-bom-swap { max-width: 720px; width: 100%; }
 .fm-bom-swap__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -781,8 +787,11 @@
 @media (max-width: 640px) {
   .fm-bom-toggle { min-height: 40px; min-width: 40px; justify-content: center; }
   .fm-bom-child-cell { padding-left: 0; }
+  .fm-bom-swap-btn { width: 40px; height: 40px; }
+  /* Thẻ dòng con BOM gọn: ẩn các ô luôn = 0 / không thao tác được (giá con BOM luôn 0đ) */
+  .fm-stack-table--form tbody tr.is-bom-child > td:is([data-label="Barcode"], [data-label="Đơn giá"], [data-label="CK (%)"],
+    [data-label="Sau chiết khấu"], [data-label="Thuế"], [data-label="Tiền thuế"], [data-label="Tiền dòng (sau thuế)"], [data-label="Xóa dòng"]) { display: none; }
 }
-.fm-chip--bom { background: var(--fm-gold); color: var(--fm-gold-ink); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--fm-r-sm); margin-left: 8px; vertical-align: middle; }
 /* Mobile: khối thành phần BOM lồng trong card cha */
 .fm-lcard__bom { margin: 8px 0 4px; padding: 8px 10px; background: var(--fm-navy-soft); border-left: 3px solid var(--fm-navy); border-radius: 0 8px 8px 0; font-size: 12.5px; }
 .fm-lcard__bom-title { font-weight: 700; color: var(--fm-navy); margin-bottom: 4px; }
@@ -1675,10 +1684,9 @@ button.fm-check-chip { cursor: pointer; }
 .fm-line-no { display: inline-block; min-width: 20px; padding-top: 10px; font-weight: 700; color: var(--fm-navy); font-variant-numeric: tabular-nums; }
 /* Bảng rộng cuộn ngang trong khung: giữ cả phần tử absolute (sr-only) bên trong khung */
 .fm-table-wrap:has(> .fm-line-table) { position: relative; }
-/* Ô Mã hàng: ô chọn + chip BOM */
+/* Ô Mã hàng: ô chọn mặt hàng */
 .fm-line-code__pick { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .fm-line-code__pick > :first-child { width: 100%; min-width: 0; }
-.fm-line-code__pick .fm-chip--bom { margin-left: 0; }
 .fm-line-code__pick .fm-field { margin-bottom: 0; }
 .fm-line-table tbody tr.is-bom-child td.fm-line-name { font-weight: 400; color: var(--fm-text-2); }
 .fm-line-table td.fm-num { white-space: nowrap; }

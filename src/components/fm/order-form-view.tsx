@@ -2412,7 +2412,6 @@ export default function OrderFormView({
                             onChange={(v) => selectItem(l.key, v)}
                             error={invalid ? 'Chưa chọn hàng hóa' : undefined}
                           />
-                          {l.bomGroupKey && <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>}
                         </div>
                       )}
                       {l.item && !expanded && (() => {
@@ -2430,7 +2429,7 @@ export default function OrderFormView({
                         )
                       })()}
                     </td>
-                    <td data-label="Tên hàng" className="fm-line-name">{l.item?.name || '—'}</td>
+                    <td data-label="Tên hàng" className="fm-line-name" title={l.item?.name || undefined}>{l.item?.name || '—'}</td>
                     <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                     <td data-label="Số lượng" className="fm-num">
                       {locked ? (
