@@ -680,10 +680,13 @@
 
 /* Dòng line-item đang nhập dở (form tạo SO) */
 .fm-table tr.is-draft td { background: var(--fm-line-soft); }
-/* Dòng thành phần con BOM (form tạo/sửa SO): nền nhẹ + viền trái để phân biệt */
-.fm-table tr.is-bom-child td { background: var(--fm-navy-soft); }
-.fm-table tr.is-bom-child td:first-child { box-shadow: inset 3px 0 0 var(--fm-navy); }
-.fm-table tr.is-bom-parent td { background: var(--fm-gold-faint); font-weight: 600; }
+/* Dòng thành phần con BOM (form + màn chi tiết): nền nhẹ + viền trái để phân biệt.
+   Gồm cả ô <th scope="row"> (mã hàng ở màn chi tiết) — không thì ô đó mất màu nhóm. */
+.fm-table tbody tr.is-bom-child > td, .fm-table tbody tr.is-bom-child > th { background: var(--fm-navy-soft); }
+.fm-table tbody tr.is-bom-child > :first-child { box-shadow: inset 3px 0 0 var(--fm-navy); }
+.fm-table tbody tr.is-bom-parent > td, .fm-table tbody tr.is-bom-parent > th { background: var(--fm-gold-faint); font-weight: 600; }
+.fm-table tbody tr.is-bom-child > th { font-weight: 400; }
+.fm-bom-branch { color: var(--fm-text-3); }
 /* Nút thu gọn / mở rộng nhóm thành phần BOM (ô # của dòng cha) */
 .fm-bom-toggle {
   display: inline-flex; align-items: center; gap: 2px; min-height: 28px; padding: 2px 6px;

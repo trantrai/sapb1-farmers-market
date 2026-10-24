@@ -24,6 +24,7 @@ import {
   type CopyTarget,
   type DocKindConfig,
   type SalesDoc,
+  type SalesDocLine,
 } from './sales-doc-shared'
 
 interface Props {
@@ -271,6 +272,15 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
   const dl = docLabelFor(config, doc.docType)
   /** Đợt 2 — số cột nhãn trong tfoot (cột Số lô chỉ ở phiếu trả hàng) */
   const footSpan = showBatchNumberCol ? 11 : 10
+  /** BOM: chỉ hiện dòng con của BOM Template (SL sửa được); Production/Assembly
+   *  (bomEditable=false) ẩn như màn đơn hàng. STT chỉ đếm dòng không phải con. */
+  const bomView = (() => {
+    const visible = (doc.lines ?? []).filter((l) => !l.isBomChild || l.bomEditable !== false)
+    const stt = new Map<SalesDocLine, number>()
+    let n = 0
+    for (const l of visible) if (!l.isBomChild) stt.set(l, ++n)
+    return { visible, stt }
+  })()
 
   return (
     <div>
@@ -474,13 +484,21 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
               </tr>
             </thead>
             <tbody>
-              {(doc.lines ?? []).map((line, i) => {
+              {bomView.visible.map((line, i) => {
                 const afterDisc = line.unitPrice * line.quantity * (1 - (line.discPct ?? 0) / 100)
                 const vatAmt = afterDisc * ((line.vatPct ?? 0) / 100)
+                const isChild = Boolean(line.isBomChild)
+                const isBomParent = !isChild && Boolean(line.bomGroupKey)
                 return (
-                  <tr key={line.id || i}>
-                    <td>{i + 1}</td>
-                    <th scope="row"><b>{line.itemCode}</b></th>
+                  <tr key={line.id || i} className={isChild ? 'is-bom-child' : isBomParent ? 'is-bom-parent' : undefined}>
+                    <td>{isChild ? '' : bomView.stt.get(line)}</td>
+                    <th scope="row">
+                      {isChild && <span className="fm-bom-branch" aria-hidden>└─ </span>}
+                      <b>{line.itemCode}</b>
+                      {isBomParent && (
+                        <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>
+                      )}
+                    </th>
                     <td>{line.itemName}</td>
                     <td className="fm-num">{line.quantity}</td>
                     <td>{line.uom || '—'}</td>
@@ -526,15 +544,19 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
           </table>
           {/* Mobile (<=640px): card thay cho bảng 11 cột cuộn ngang */}
           <div className="fm-lcard-list">
-            {(doc.lines ?? []).map((line, i) => {
+            {bomView.visible.filter((l) => !l.isBomChild).map((line, i) => {
               const afterDisc = line.unitPrice * line.quantity * (1 - (line.discPct ?? 0) / 100)
               const vatAmt = afterDisc * ((line.vatPct ?? 0) / 100)
+              const isBomParent = Boolean(line.bomGroupKey)
+              const children = isBomParent ? bomView.visible.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey) : []
               return (
                 <div key={line.id || i} className="fm-lcard">
                   <div className="fm-lcard__head">
                     <span className="fm-lcard__num">{i + 1}</span>
                     <div>
-                      <div className="fm-lcard__name">{line.itemName}</div>
+                      <div className="fm-lcard__name">{line.itemName}
+                        {isBomParent && <span className="fm-chip fm-chip--bom">BOM</span>}
+                      </div>
                       <div className="fm-lcard__code">{line.itemCode} · {line.uom || '—'} · Kho {line.warehouseCode || '—'}{showBatchNumberCol && line.batchNumber ? ` · Lô ${line.batchNumber}` : ''}</div>
                     </div>
                   </div>
@@ -544,6 +566,16 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
                     <div><span className="k">CK</span><span className="v">{line.discPct ?? 0}%</span></div>
                     <div><span className="k">VAT</span><span className="v">{line.vatPct ?? 0}%</span></div>
                   </div>
+                  {children.length > 0 && (
+                    <div className="fm-lcard__bom">
+                      <div className="fm-lcard__bom-title">Thành phần ({children.length}):</div>
+                      {children.map((c, ci) => (
+                        <div key={c.id || ci} className="fm-lcard__bom-row">
+                          <span aria-hidden>└─ </span>{c.itemCode} — {c.itemName} × {c.quantity} {c.uom}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="fm-lcard__total">
                     <span>Thành tiền (sau thuế)</span>
                     <b>{formatVND(afterDisc + vatAmt)}</b>

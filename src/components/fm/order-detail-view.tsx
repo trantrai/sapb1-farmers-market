@@ -769,7 +769,7 @@ actions={
                   <tr key={i} className={isChild ? 'is-bom-child' : isBomParent ? 'is-bom-parent' : ''}>
                     <td>{isChild ? '' : stt}</td>
                     <th scope="row">
-                      {isChild && <span style={{ color: 'var(--fm-text-3)' }} aria-hidden>└─ </span>}
+                      {isChild && <span className="fm-bom-branch" aria-hidden>└─ </span>}
                       <b>{line.itemCode}</b>
                       {isBomParent && (
                         <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>
