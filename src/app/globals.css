@@ -506,12 +506,39 @@
   .fm-pageheader > div:first-child { flex: 1 1 320px; min-width: 0; }
   .fm-pageheader__actions { flex: 0 0 auto; max-width: 100%; justify-content: flex-end; margin-left: auto; }
 }
-@media (min-width: 1100px) {
-  .fm-pageheader__actions { flex-wrap: nowrap; }
-}
+/* KHÔNG ép nowrap ở màn rộng: justify-content:flex-end + nowrap làm cụm nút dài
+   tràn sang TRÁI đè lên sidebar — cho xuống dòng (vẫn canh phải). */
 @media (max-width: 767px) {
   /* Mobile: nút hành động chia đều 1 hàng (tối đa 2/hàng), không xếp chồng dọc */
   .fm-pageheader__actions > .fm-btn { flex: 1 1 calc(50% - 4px); }
+  /* Nhóm "Sao chép sang ▾" chiếm cả hàng để menu đủ rộng */
+  .fm-pageheader__actions > .fm-menu { flex: 1 1 100%; }
+  .fm-pageheader__actions > .fm-menu > .fm-btn { width: 100%; }
+}
+
+/* ---------- Nhóm nút có menu (vd "Sao chép sang ▾") ---------- */
+.fm-menu { position: relative; display: inline-flex; }
+.fm-menu__caret { transition: transform var(--fm-dur-base); }
+.fm-menu__caret.is-open { transform: rotate(180deg); }
+.fm-menu__list {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 60; min-width: 240px;
+  padding: 6px; background: var(--fm-surface); border: 1px solid var(--fm-line); border-radius: var(--fm-r-md);
+  box-shadow: 0 10px 28px rgba(15, 30, 55, .16);
+}
+.fm-menu__item {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px;
+  padding: 8px 12px; border: 0; border-radius: 6px; background: none;
+  font: inherit; font-size: 13px; color: var(--fm-text); text-align: left; cursor: pointer;
+}
+.fm-menu__item:hover, .fm-menu__item:focus-visible { background: var(--fm-navy-soft); outline: none; }
+.fm-menu__item:focus-visible { box-shadow: inset 0 0 0 2px var(--fm-navy); }
+.fm-menu__item[aria-disabled="true"] { color: var(--fm-text-3); cursor: not-allowed; background: none; }
+.fm-menu__icon { display: inline-flex; color: var(--fm-navy); }
+.fm-menu__item[aria-disabled="true"] .fm-menu__icon { color: var(--fm-text-3); }
+.fm-menu__text small { display: block; font-size: 11px; color: var(--fm-text-3); }
+@media (max-width: 767px) {
+  .fm-menu__list { left: 0; right: 0; min-width: 0; }
+  .fm-menu__item { min-height: 44px; }
 }
 
 /* ---------- Tiện ích khoảng cách (thay inline style trên nút) — lưới 4/8px ---------- */

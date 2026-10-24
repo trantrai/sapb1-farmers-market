@@ -9,10 +9,11 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Pencil, Lock, LockOpen, Trash2, Copy, FileText, BadgeCheck } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, LockOpen, Trash2, FileText, BadgeCheck } from 'lucide-react'
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import CopyToMenu, { copyTargetIcon, copyTargetName } from './copy-to-menu'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PaymentHistory from './payment-history'
 import {
@@ -285,13 +286,10 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
   return (
     <div>
       <PageHeader
-        breadcrumb={['Chức năng chính', `Danh sách ${dl}`, `${dl} ${docNumLabel(doc.docNum, doc.isDraft)}`]}
+        breadcrumb={['Chức năng chính', { label: `Danh sách ${dl}`, onNavigate: onBack }, `${dl} ${docNumLabel(doc.docNum, doc.isDraft)}`]}
         title={`${dl} ${docNumLabel(doc.docNum, doc.isDraft)}`}
         actions={
           <>
-            <button className="fm-btn fm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={16} /> Quay lại
-            </button>
             {isDraft && (
               <button className="fm-btn fm-btn--primary" onClick={doFinalize} disabled={!!busyAction}>
                 <BadgeCheck size={16} /> {busyAction === 'finalize' ? 'Đang chuyển…' : 'Chuyển thành chứng từ chính thức'}
@@ -302,17 +300,18 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
                 <Pencil size={16} /> Sửa {docLabel}
               </button>
             )}
-            {isOpen && onCopyTo && copyButtons.map((cb) => (
-              <button
-                key={cb.target}
-                className="fm-btn fm-btn--secondary"
-                onClick={() => onCopyTo(cb.target, doc.id)}
+            {isOpen && onCopyTo && (
+              <CopyToMenu
                 disabled={!!busyAction}
-                title={`Tạo chứng từ mới từ ${docLabel} này`}
-              >
-                <Copy size={16} /> {cb.label}
-              </button>
-            ))}
+                items={copyButtons.map((cb) => ({
+                  key: cb.target,
+                  label: copyTargetName(cb.label),
+                  icon: copyTargetIcon(cb.target),
+                  onSelect: () => onCopyTo(cb.target, doc.id),
+                  hint: `Tạo chứng từ mới từ ${docLabel} này`,
+                }))}
+              />
+            )}
             {isOpen && (
               <button className="fm-btn fm-btn--secondary" onClick={doClose} disabled={!!busyAction}>
                 <Lock size={16} /> {busyAction === 'close' ? 'Đang đóng…' : 'Đóng'}

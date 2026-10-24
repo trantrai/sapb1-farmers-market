@@ -10,6 +10,7 @@ import { ArrowLeft, CloudUpload, Truck, Pencil, Ban, X, Printer, Receipt, Undo2,
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import CopyToMenu from './copy-to-menu'
 import DeliveryPrintView from './delivery-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { type CopyTarget, docNumLabel } from './sales-doc-shared'
@@ -443,25 +444,25 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
   return (
     <div>
       <PageHeader
-        breadcrumb={['Chức năng chính', 'Giao hàng', `Phiếu #${delivery.docNum}`]}
+        breadcrumb={['Chức năng chính', { label: 'Giao hàng', onNavigate: onBack }, `Phiếu #${delivery.docNum}`]}
         title={`Phiếu giao hàng #${delivery.docNum}`}
         actions={
           <>
-            <button className="fm-btn fm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={16} /> Quay lại
-            </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
               <Printer size={16} /> In
             </button>
             {canEdit && (
               <>
-                <button
-                  className="fm-btn fm-btn--secondary"
-                  onClick={() => void openEditModal()}
-                  disabled={actionBusy || editLoading}
-                >
-                  <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa SL'}
-                </button>
+                {/* Có form chỉnh sửa đầy đủ (gồm cả SL) → không lặp nút "Sửa SL" nhanh */}
+                {!(onEdit && canEditDelivery !== false) && (
+                  <button
+                    className="fm-btn fm-btn--secondary"
+                    onClick={() => void openEditModal()}
+                    disabled={actionBusy || editLoading}
+                  >
+                    <Pencil size={16} /> {editLoading ? 'Đang tải…' : 'Sửa SL'}
+                  </button>
+                )}
                 {onEdit && canEditDelivery !== false && (
                   <button
                     className="fm-btn fm-btn--secondary"
@@ -478,24 +479,13 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
               </>
             )}
             {onCopyTo && delivery.status !== 'Cancelled' && (
-              <>
-                <button
-                  className="fm-btn fm-btn--secondary"
-                  onClick={() => onCopyTo('invoice', delivery.id)}
-                  disabled={actionBusy}
-                  title="Tạo hóa đơn bán hàng từ phiếu giao hàng này (wire ở app-shell)"
-                >
-                  <Receipt size={16} /> Sao chép sang hóa đơn bán hàng
-                </button>
-                <button
-                  className="fm-btn fm-btn--secondary"
-                  onClick={() => onCopyTo('return', delivery.id)}
-                  disabled={actionBusy}
-                  title="Tạo phiếu trả hàng bán từ phiếu giao hàng này (wire ở app-shell)"
-                >
-                  <Undo2 size={16} /> Sao chép sang phiếu trả hàng bán
-                </button>
-              </>
+              <CopyToMenu
+                disabled={actionBusy}
+                items={[
+                  { key: 'invoice', label: 'Hóa đơn bán hàng', icon: <Receipt size={16} />, onSelect: () => onCopyTo('invoice', delivery.id), hint: 'Tạo hóa đơn bán hàng từ phiếu giao hàng này' },
+                  { key: 'return', label: 'Phiếu trả hàng bán', icon: <Undo2 size={16} />, onSelect: () => onCopyTo('return', delivery.id), hint: 'Tạo phiếu trả hàng bán từ phiếu giao hàng này' },
+                ]}
+              />
             )}
             {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP */}
             {delivery.isDraft && delivery.status !== 'Cancelled' && (

@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { ArrowLeft, Pencil, Lock, CloudUpload, Printer, X, Mail, Truck, Receipt, HandCoins } from 'lucide-react'
+import { ArrowLeft, Pencil, Lock, LockOpen, CloudUpload, Printer, X, Mail, Truck, Receipt, HandCoins } from 'lucide-react'
 import { formatVND, formatDateVN, isOverdue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import OrderPrintView from './order-print-view'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { type CopyTarget, docNumLabel } from './sales-doc-shared'
+import CopyToMenu from './copy-to-menu'
 
 interface OrderLine {
   id: string
@@ -558,13 +559,10 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
   return (
     <div>
       <PageHeader
-        breadcrumb={['Chức năng chính', 'Danh sách đơn hàng bán', `Đơn hàng bán #${order.docNum}`]}
+        breadcrumb={['Chức năng chính', { label: 'Danh sách đơn hàng bán', onNavigate: onBack }, `Đơn hàng bán #${order.docNum}`]}
         title={`Đơn hàng bán #${order.docNum}`}
-actions={
+        actions={
           <>
-            <button className="fm-btn fm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={16} /> Quay lại
-            </button>
             <button className="fm-btn fm-btn--secondary" onClick={() => setShowPrint(true)}>
               <Printer size={16} /> In đơn hàng bán
             </button>
@@ -577,35 +575,19 @@ actions={
               </button>
             )}
             {order.status === 'Open' && (
-              <button
-                className="fm-btn fm-btn--secondary"
-                onClick={openCopyModal}
-                disabled={copyDisabled}
-                title={totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở'}
-              >
-                <Truck size={16} /> Sao chép sang phiếu giao hàng
-              </button>
-            )}
-            {order.status === 'Open' && onCopyTo && (
-              <button
-                className="fm-btn fm-btn--secondary"
-                onClick={() => onCopyTo('invoice', order.id)}
+              <CopyToMenu
                 disabled={!!busyAction}
-                title="Tạo hóa đơn bán hàng từ đơn hàng này (wire ở app-shell)"
-              >
-                <Receipt size={16} /> Sao chép sang hóa đơn bán hàng
-              </button>
-            )}
-            {/* Phase 2 — tạo hóa đơn đặt cọc từ đơn hàng (wire ở app-shell → /api/down-payments/from-source) */}
-            {order.status === 'Open' && onCopyTo && (
-              <button
-                className="fm-btn fm-btn--secondary"
-                onClick={() => onCopyTo('downPayment', order.id)}
-                disabled={!!busyAction}
-                title="Tạo hóa đơn đặt cọc phải thu từ đơn hàng này (wire ở app-shell)"
-              >
-                <HandCoins size={16} /> Sao chép sang hóa đơn đặt cọc
-              </button>
+                items={[
+                  {
+                    key: 'delivery', label: 'Phiếu giao hàng', icon: <Truck size={16} />, onSelect: openCopyModal,
+                    disabled: copyDisabled, hint: totalOpenQty <= 0 ? 'Đơn đã giao hết' : 'Tạo phiếu giao hàng từ các dòng còn mở',
+                  },
+                  ...(onCopyTo ? [
+                    { key: 'invoice', label: 'Hóa đơn bán hàng', icon: <Receipt size={16} />, onSelect: () => onCopyTo('invoice', order.id) },
+                    { key: 'downPayment', label: 'Hóa đơn đặt cọc', icon: <HandCoins size={16} />, onSelect: () => onCopyTo('downPayment', order.id) },
+                  ] : []),
+                ]}
+              />
             )}
             {order.status === 'Open' && (
               <button className="fm-btn fm-btn--secondary" onClick={() => void doCloseOrder()} disabled={!!busyAction}>
@@ -880,21 +862,28 @@ actions={
           {actionMsg.text}
         </div>
       )}
-      {/* Nút thao tác — chỉ giữ các hành động KHÔNG có trên thanh header:
-          Đóng/Mở đơn và Đẩy SAP. (Sửa/In/Gửi email đã có ở header → không lặp) */}
-      {order.status !== 'Cancelled' && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={!!busyAction}>
-            <Lock size={16} /> {busyAction === 'toggle' ? 'Đang cập nhật…' : order.status === 'Open' ? 'Đóng đơn hàng (Đã đóng)' : 'Mở lại đơn hàng'}
-          </button>
-          {/* Phase 2 — bản nháp KHÔNG hiện nút đẩy SAP */}
-          {!order.isDraft && (
-            <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={!!busyAction}>
-              <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : 'Đẩy sang SAP B1 ngay'}
-            </button>
-          )}
-        </div>
-      )}
+      {/* Nút thao tác — chỉ các hành động KHÔNG có trên thanh header. Đóng đơn đã có
+          ở header (gọi cả SAP) → không lặp nút đóng chỉ-local ở đây. Mở lại chỉ cho đơn
+          chưa lên SAP (SAP không mở lại chứng từ đã đóng); Đẩy SAP chỉ khi chưa đồng bộ. */}
+      {(() => {
+        const canReopen = order.status === 'Closed' && order.sapSyncStatus !== 'synced'
+        const canPush = order.status !== 'Cancelled' && !order.isDraft && order.sapSyncStatus !== 'synced'
+        if (!canReopen && !canPush) return null
+        return (
+          <div className="fm-actions">
+            {canReopen && (
+              <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={!!busyAction}>
+                <LockOpen size={16} /> {busyAction === 'toggle' ? 'Đang cập nhật…' : 'Mở lại đơn hàng'}
+              </button>
+            )}
+            {canPush && (
+              <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={!!busyAction}>
+                <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : 'Đẩy sang SAP B1 ngay'}
+              </button>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Dialog xem trước bản in */}
       {showPrint && (
