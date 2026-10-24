@@ -270,6 +270,8 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
   const isCancelled = doc.status === 'Cancelled'
   /** Phase 2 — bản nháp / loại hóa đơn (Reserve → "Hóa đơn bán hàng dự trữ") */
   const isDraft = doc.isDraft === true
+  /** Chứng từ đọc trực tiếp từ SAP B1 (không có bản trên hệ thống) → chỉ xem */
+  const readOnly = doc.source === 'sap'
   const dl = docLabelFor(config, doc.docType)
   /** Đợt 2 — số cột nhãn trong tfoot (cột Số lô chỉ ở phiếu trả hàng) */
   const footSpan = showBatchNumberCol ? 11 : 10
@@ -288,7 +290,9 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
       <PageHeader
         breadcrumb={['Chức năng chính', { label: `Danh sách ${dl}`, onNavigate: onBack }, `${dl} ${docNumLabel(doc.docNum, doc.isDraft)}`]}
         title={`${dl} ${docNumLabel(doc.docNum, doc.isDraft)}`}
-        actions={
+        actions={readOnly ? (
+          <span className="fm-chip fm-chip--role" title="Chứng từ đọc trực tiếp từ SAP B1 — sửa, đóng, hủy thực hiện trên SAP B1">Chỉ xem · SAP B1</span>
+        ) : (
           <>
             {isDraft && (
               <button className="fm-btn fm-btn--primary" onClick={doFinalize} disabled={!!busyAction}>
@@ -331,9 +335,16 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
               <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
             )}
           </>
-        }
+        )}
       />
       <div className="fm-docnum" style={{ fontSize: 30, margin: '4px 0 16px' }}>{docNumLabel(doc.docNum, doc.isDraft)}</div>
+
+      {readOnly && (
+        <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }} role="note">
+          {docLabel} này đọc trực tiếp từ SAP B1 (không được tạo trên hệ thống này) — chỉ xem. Sửa, đóng, hủy hoặc ghi nhận
+          thanh toán thực hiện trên SAP B1.
+        </div>
+      )}
 
       {isCancelled && (
         <div className="fm-alert fm-alert--info" style={{ marginBottom: 16 }}>
@@ -588,7 +599,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
 
       {/* Đợt 2 — Ghi nhận thanh toán (hóa đơn / ghi có / đặt cọc):
           lịch sử + form ghi nhận qua PaymentHistory */}
-      {showPaymentStatus && doc && (
+      {showPaymentStatus && doc && !readOnly && (
         <PaymentHistory
           docType={config.docKey as 'invoice' | 'creditMemo' | 'downPayment'}
           docId={doc.id}
@@ -630,7 +641,7 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
       )}
 
       {/* Nút thao tác dưới (không lặp lại nút đã có trên header) */}
-      {!isCancelled && (
+      {!isCancelled && !readOnly && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--danger" onClick={doDelete} disabled={!!busyAction}>
             <Trash2 size={16} /> {busyAction === 'delete' ? 'Đang xóa…' : `Xóa ${docLabel}`}

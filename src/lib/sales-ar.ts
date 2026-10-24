@@ -29,6 +29,8 @@ import { pushDocumentToSap, patchDocumentToSap, bomLineFields } from '@/lib/sap-
 // Contract: fetchSapDocuments(entitySet, databaseId?) →
 //   Promise<{ ok: boolean; rows: SapDocRow[]; error?: string }>
 import { fetchSapDocuments, type SapDocRow } from '@/lib/sap-documents'
+import { fetchSapDocDetail } from '@/lib/sap-orders'
+import { attachSapBomGroups } from '@/lib/sap-doc-bom'
 
 /**
  * Lỗi nghiệp vụ có mã HTTP — hooks ném lỗi này để handler trả về
@@ -943,11 +945,14 @@ export async function salesDocCreate(req: NextRequest, cfg: SalesDocConfig) {
 // ==================== GET detail ====================
 
 /**
- * GET chi tiết 1 chứng từ local (kèm lines).
- * Chứng từ SAP live (id 'sap-<DocEntry>'): chi tiết Service Layer do
- * WORKER C bổ sung ở bước tích hợp — hiện tại báo rõ chưa hỗ trợ.
+ * GET chi tiết 1 chứng từ (kèm lines).
+ * id 'sap-<DocEntry>' (dòng danh sách đọc từ SAP):
+ *  - có bản local đã đẩy SAP cùng DocEntry → trả bản local (đủ thao tác sửa/đóng/thanh toán)
+ *  - không có → đọc trực tiếp Service Layer (chỉ xem, source='sap'), dựng lại nhóm
+ *    BOM Template theo U_BOMID
  */
-export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDocConfig) {
+export async function salesDocDetail(req: NextRequest, idParam: string, cfg: SalesDocConfig) {
+  let id = idParam
   try {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -956,10 +961,33 @@ export async function salesDocDetail(req: NextRequest, id: string, cfg: SalesDoc
   }
 
   if (id.startsWith('sap-')) {
-    return NextResponse.json(
-      { error: `Chưa hỗ trợ xem chi tiết ${cfg.short} từ SAP B1 — sẽ bổ sung ở bước tích hợp Service Layer` },
-      { status: 400 },
-    )
+    const docEntry = Number(id.slice(4))
+    if (!Number.isInteger(docEntry) || docEntry <= 0) {
+      return NextResponse.json({ error: `Mã ${cfg.short} SAP không hợp lệ` }, { status: 400 })
+    }
+    const s = await loadSapSettings(user.databaseId)
+    const dbId = s?.dbId ?? null
+    const local = await cfg.model.findFirst({
+      where: {
+        sapDocEntry: docEntry,
+        sapSyncStatus: 'synced',
+        ...(dbId ? { OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: '' }] } : {}),
+      },
+      select: { id: true },
+    })
+    if (local) {
+      id = local.id
+    } else {
+      if (!isSapConfigured(s)) {
+        return NextResponse.json({ error: 'Chưa cấu hình kết nối SAP B1 cho database đang đăng nhập' }, { status: 400 })
+      }
+      const det = await fetchSapDocDetail(s, cfg.entitySet, docEntry, cfg.short)
+      if (!det.ok || !det.order) {
+        return NextResponse.json({ error: det.error ?? `Không đọc được ${cfg.short} từ SAP B1` }, { status: 502 })
+      }
+      const doc = { ...det.order, id, source: 'sap' as const, lines: attachSapBomGroups(det.order.lines) }
+      return NextResponse.json({ ok: true, [cfg.resultKey]: doc })
+    }
   }
 
   const doc = await cfg.model.findUnique({
