@@ -96,13 +96,19 @@ export interface InsightQuery {
   excludeOrderId: string | null
 }
 
-export async function loadOrderInsights(dbId: string | null, q: InsightQuery, now: Date = new Date()): Promise<OrderInsights> {
+/** needs: phần nào cần tải (theo thiết lập bật/tắt cảnh báo) — phần tắt trả rỗng, không truy vấn */
+export async function loadOrderInsights(
+  dbId: string | null,
+  q: InsightQuery,
+  now: Date = new Date(),
+  needs: { duplicates: boolean; items: boolean } = { duplicates: true, items: true },
+): Promise<OrderInsights> {
   const dbScope = dbId ? { OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: '' }, { sapDatabaseId: null }] } : {}
   const notSelf = q.excludeOrderId ? { id: { not: q.excludeOrderId } } : {}
   const codes = [...new Set(q.itemCodes)].slice(0, INSIGHT_LIMITS.maxItemCodes)
 
   let duplicates: DuplicateOrderHit[] = []
-  if (q.docDueDate) {
+  if (needs.duplicates && q.docDueDate) {
     const dayStart = new Date(`${q.docDueDate}T00:00:00.000Z`)
     const dayEnd = new Date(dayStart.getTime() + 86_400_000)
     const createdFrom = new Date(now.getTime() - INSIGHT_LIMITS.dupLookbackDays * 86_400_000)
@@ -122,7 +128,7 @@ export async function loadOrderInsights(dbId: string | null, q: InsightQuery, no
   }
 
   let items: Record<string, ItemHistoryStat> = {}
-  if (codes.length > 0) {
+  if (needs.items && codes.length > 0) {
     const from = new Date(now.getTime() - INSIGHT_LIMITS.historyDays * 86_400_000)
     const history = await prisma.salesOrder.findMany({
       where: {

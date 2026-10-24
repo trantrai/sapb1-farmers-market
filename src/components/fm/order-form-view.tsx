@@ -18,6 +18,7 @@ import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
 import { CheckNotices, CheckStatusChip, LineIssueBadge, OrderCheckPanel, focusLineByKey, revealCheckPanel, type CheckNotice } from './order-check-panel'
 import { precheckOrder, type OrderInsights, type PrecheckIssue } from '@/lib/order-precheck'
+import { DEFAULT_ORDER_CHECK_CONFIG, historyNeeds, isIssueEnabled, parseOrderCheckConfig, type OrderCheckConfig } from '@/lib/order-check-config'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import CustomerBasket from './customer-basket'
 import DeliveryHint from './delivery-hint'
@@ -1849,10 +1850,22 @@ export default function OrderFormView({
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
   const [notices, setNotices] = useState<CheckNotice[]>([])
   const noticedRef = useRef<Set<string>>(new Set())
+  /** Thiết lập bật/tắt cảnh báo (Cài đặt) — mặc định bật hết tới khi tải xong */
+  const [checkCfg, setCheckCfg] = useState<OrderCheckConfig>(DEFAULT_ORDER_CHECK_CONFIG)
+  useEffect(() => {
+    const ctrl = new AbortController()
+    api('/api/orders/check-config', { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.ok) setCheckCfg(parseOrderCheckConfig(j.config)) })
+      .catch(() => { /* giữ mặc định */ })
+    return () => ctrl.abort()
+  }, [])
+  const needHistory = historyNeeds(checkCfg)
+  const historyOn = needHistory.duplicates || needHistory.items
   const insightCodesKey = [...new Set(lines.filter((l) => l.item && !l.isBomChild).map((l) => l.item!.code))].sort().join('|')
   useEffect(() => {
     const cardCode = partner?.code
-    if (!cardCode) return
+    if (!cardCode || !historyOn) return
     const ctrl = new AbortController()
     const t = window.setTimeout(async () => {
       setInsightsLoading(true)
@@ -1873,7 +1886,7 @@ export default function OrderFormView({
       finally { if (!ctrl.signal.aborted) setInsightsLoading(false) }
     }, 600)
     return () => { ctrl.abort(); window.clearTimeout(t) }
-  }, [partner?.code, docDueDate, insightCodesKey, isEdit, editOrder?.id])
+  }, [partner?.code, docDueDate, insightCodesKey, isEdit, editOrder?.id, historyOn])
 
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
   const save = async (asDraft = false) => {
@@ -2061,14 +2074,15 @@ export default function OrderFormView({
       atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
     })),
   })
-  const visibleIssues = checkIssues.filter((i) => i.level === 'error' || !dismissed.has(i.key))
-  const dismissedCount = checkIssues.length - visibleIssues.length
+  const enabledIssues = checkIssues.filter((i) => isIssueEnabled(checkCfg, i))
+  const visibleIssues = enabledIssues.filter((i) => i.level === 'error' || !dismissed.has(i.key))
+  const dismissedCount = enabledIssues.length - visibleIssues.length
   const issuesByLine = new Map<number, PrecheckIssue[]>()
   for (const i of visibleIssues) if (i.lineKey != null) issuesByLine.set(i.lineKey, [...(issuesByLine.get(i.lineKey) ?? []), i])
   const errorCount = visibleIssues.filter((i) => i.level === 'error').length
   // Thông báo nổi: chỉ cảnh báo lịch sử khách VỪA xuất hiện (mỗi khóa 1 lần), tự ẩn sau 8s.
   // Chờ form đứng yên 1,2s và lịch sử đã tải xong → không báo khi đang gõ SL/giá.
-  const noticeIssues = visibleIssues.filter((i) => NOTICE_CODES.has(i.code))
+  const noticeIssues = checkCfg.notices ? visibleIssues.filter((i) => NOTICE_CODES.has(i.code)) : []
   const noticeSig = noticeIssues.map((i) => i.key).join('§')
   const announceNotices = useEffectEvent(() => {
     const fresh = noticeIssues.filter((i) => !noticedRef.current.has(i.key))
@@ -2729,7 +2743,8 @@ export default function OrderFormView({
         <OrderCheckPanel
           issues={visibleIssues}
           dismissedCount={dismissedCount}
-          checking={insightsLoading && Boolean(partner)}
+          checking={insightsLoading && historyOn && Boolean(partner)}
+          warningsOff={!checkCfg.enabled}
           onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
           onRestore={() => setDismissed(new Set())}
           onOpenOrder={onOpenOrder}

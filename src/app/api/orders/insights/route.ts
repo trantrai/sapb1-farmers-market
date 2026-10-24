@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings } from '@/lib/sap-service-layer'
 import { INSIGHT_LIMITS, loadOrderInsights } from '@/lib/order-insights'
+import { db as prisma } from '@/lib/db'
+import { historyNeeds, parseOrderCheckConfig } from '@/lib/order-check-config'
 
 // ---------- POST /api/orders/insights ----------
 // Body: { cardCode, docDueDate (yyyy-mm-dd), itemCodes[], excludeOrderId? }
@@ -29,7 +31,11 @@ export async function POST(req: NextRequest) {
   const ex = typeof body?.excludeOrderId === 'string' ? body.excludeOrderId.trim() : ''
   const excludeOrderId = ex && ex.length <= 64 ? ex : null
 
+  // Cảnh báo lịch sử bị tắt trong Cài đặt → không truy vấn phần đó
+  const app = await prisma.appSettings.findUnique({ where: { id: 'main' }, select: { orderCheckConfig: true } })
+  const needs = historyNeeds(parseOrderCheckConfig(app?.orderCheckConfig ?? ''))
+  if (!needs.duplicates && !needs.items) return NextResponse.json({ ok: true, duplicates: [], items: {} })
   const s = await loadSapSettings(user.databaseId)
-  const data = await loadOrderInsights(s?.dbId ?? null, { cardCode, docDueDate, itemCodes, excludeOrderId })
+  const data = await loadOrderInsights(s?.dbId ?? null, { cardCode, docDueDate, itemCodes, excludeOrderId }, new Date(), needs)
   return NextResponse.json({ ok: true, ...data })
 }

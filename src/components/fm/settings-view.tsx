@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X } from 'lucide-react'
+import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X, ClipboardCheck } from 'lucide-react'
 import AssistantSettingsCard from './assistant-settings-card'
 import { api } from '@/lib/fm-client'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PageHeader from './page-header'
+import { ORDER_CHECK_RULES, type OrderCheckConfig } from '@/lib/order-check-config'
 
 interface SettingsData {
   suggestHistoryDays: number
   suggestMaxItems: number
+  /** Kiểm tra đơn hàng trước khi lưu — bật/tắt cảnh báo */
+  orderCheck: OrderCheckConfig
   smtpHost: string
   smtpPort: number
   smtpUser: string
@@ -434,6 +437,65 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
             />
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
+            <Save size={16} />
+            {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
+        </div>
+      </div>
+
+      {/* Kiểm tra đơn hàng trước khi lưu — bật/tắt cảnh báo (lỗi bắt buộc luôn kiểm) */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ClipboardCheck size={18} /> Kiểm tra đơn hàng trước khi lưu
+        </h2>
+        <p className="fm-hint" style={{ marginTop: 0, fontSize: 13 }}>
+          Cảnh báo hiện ở vùng "Kiểm tra đơn" trên form đơn hàng bán, không chặn lưu. Lỗi bắt buộc (thiếu khách, số lượng ≤ 0,
+          ngày giao trước ngày chứng từ, mặt hàng không có trong danh mục…) luôn được kiểm tra.
+        </p>
+        <fieldset className="fm-ordercheck-cfg" disabled={!canEdit}>
+          <legend className="fm-sr-only">Bật/tắt cảnh báo kiểm tra đơn</legend>
+          <label className="fm-check">
+            <input
+              type="checkbox"
+              checked={s.orderCheck.enabled}
+              onChange={(e) => update({ orderCheck: { ...s.orderCheck, enabled: e.target.checked } })}
+            />
+            <b>Bật cảnh báo trước khi lưu</b>
+          </label>
+          {([
+            ['Trên đơn đang nhập', ORDER_CHECK_RULES.filter((r) => !('history' in r))],
+            ['Theo lịch sử khách hàng', ORDER_CHECK_RULES.filter((r) => 'history' in r)],
+          ] as const).map(([title, rules]) => (
+            <div key={title} className="fm-ordercheck-cfg__group" aria-disabled={!s.orderCheck.enabled}>
+              <span className="fm-ordercheck-cfg__title">{title}</span>
+              {rules.map((r) => (
+                <label key={r.key} className="fm-check">
+                  <input
+                    type="checkbox"
+                    checked={s.orderCheck.rules[r.key]}
+                    disabled={!s.orderCheck.enabled}
+                    onChange={(e) => update({ orderCheck: { ...s.orderCheck, rules: { ...s.orderCheck.rules, [r.key]: e.target.checked } } })}
+                  />
+                  {r.label}
+                </label>
+              ))}
+              {rules.some((r) => 'history' in r) && (
+                <label className="fm-check">
+                  <input
+                    type="checkbox"
+                    checked={s.orderCheck.notices}
+                    disabled={!s.orderCheck.enabled}
+                    onChange={(e) => update({ orderCheck: { ...s.orderCheck, notices: e.target.checked } })}
+                  />
+                  Hiện thông báo nổi khi vừa phát hiện
+                </label>
+              )}
+            </div>
+          ))}
+        </fieldset>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
             <Save size={16} />

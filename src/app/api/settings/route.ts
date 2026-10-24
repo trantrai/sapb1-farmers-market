@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { encryptSecret } from '@/lib/fm-crypto'
+import { parseOrderCheckConfig } from '@/lib/order-check-config'
 
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
@@ -16,10 +17,11 @@ export async function GET(req: NextRequest) {
   }
   // Che mật khẩu SMTP và Base token. Kết nối SAP B1 giờ quản lý theo database riêng
   // ở /api/sap-databases — các field SAP singleton cũ không còn dùng.
-  const { serviceLayerUrl: _u, companyDb: _d, sapUser: _su, sapPassword: _sp, sslSkipVerify: _sv, connected: _c, lastSyncAt: _ls, baseTokenEnc: _bt, ...rest } = s
+  const { serviceLayerUrl: _u, companyDb: _d, sapUser: _su, sapPassword: _sp, sslSkipVerify: _sv, connected: _c, lastSyncAt: _ls, baseTokenEnc: _bt, orderCheckConfig: _oc, ...rest } = s
   return NextResponse.json({
     settings: {
       ...rest,
+      orderCheck: parseOrderCheckConfig(s.orderCheckConfig),
       smtpPass: s.smtpPass ? '••••••••' : '',
       baseToken: s.baseTokenEnc ? '••••••••' : '',
     },
@@ -48,11 +50,15 @@ export async function PUT(req: NextRequest) {
       return Number.isFinite(n) ? Math.min(50, Math.max(1, Math.round(n))) : fallback
     }
     // Lưu ý: kết nối SAP B1 quản lý theo database riêng ở /api/sap-databases;
-    // PUT này chỉ nhận gợi ý mặt hàng + SMTP (bỏ qua mọi field SAP nếu client cũ gửi lên).
+    // PUT này chỉ nhận gợi ý mặt hàng + kiểm tra đơn + SMTP (bỏ qua mọi field SAP nếu client cũ gửi lên).
     const data = {
       // Gợi ý mặt hàng theo lịch sử đơn hàng
       suggestHistoryDays: clampDays(body.suggestHistoryDays, existing?.suggestHistoryDays ?? 90),
       suggestMaxItems: clampMax(body.suggestMaxItems, existing?.suggestMaxItems ?? 10),
+      // Kiểm tra đơn hàng trước khi lưu (bật/tắt cảnh báo) — chuẩn hóa, chỉ giữ khóa đã biết
+      orderCheckConfig: body.orderCheck !== undefined
+        ? JSON.stringify(parseOrderCheckConfig(body.orderCheck))
+        : existing?.orderCheckConfig ?? '',
       // Cấu hình Email (SMTP)
       smtpHost: (body.smtpHost as string | undefined) ?? existing?.smtpHost ?? '',
       smtpPort: (() => {
@@ -79,11 +85,12 @@ export async function PUT(req: NextRequest) {
       create: { id: 'main', ...data },
     })
 
-    const { serviceLayerUrl: _u2, companyDb: _d2, sapUser: _su2, sapPassword: _sp2, sslSkipVerify: _sv2, connected: _c2, lastSyncAt: _ls2, baseTokenEnc: _bt2, ...savedRest } = saved
+    const { serviceLayerUrl: _u2, companyDb: _d2, sapUser: _su2, sapPassword: _sp2, sslSkipVerify: _sv2, connected: _c2, lastSyncAt: _ls2, baseTokenEnc: _bt2, orderCheckConfig: _oc2, ...savedRest } = saved
     return NextResponse.json({
       ok: true,
       settings: {
         ...savedRest,
+        orderCheck: parseOrderCheckConfig(saved.orderCheckConfig),
         smtpPass: saved.smtpPass ? '••••••••' : '',
         baseToken: saved.baseTokenEnc ? '••••••••' : '',
       },

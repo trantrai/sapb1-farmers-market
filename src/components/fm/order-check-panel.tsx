@@ -39,12 +39,14 @@ export function revealCheckPanel(issueKey?: string) {
 const Icon = ({ level, size = 15 }: { level: PrecheckIssue['level']; size?: number }) =>
   level === 'error' ? <AlertOctagon size={size} aria-hidden /> : <AlertTriangle size={size} aria-hidden />
 
-export function OrderCheckPanel({ issues, dismissedCount, checking, onDismiss, onRestore, onOpenOrder }: {
+export function OrderCheckPanel({ issues, dismissedCount, checking, warningsOff, onDismiss, onRestore, onOpenOrder }: {
   /** Đã lọc bỏ cảnh báo người dùng bỏ qua */
   issues: PrecheckIssue[]
   dismissedCount: number
   /** Đang tải lịch sử khách (đơn trùng, SL, giá) */
   checking: boolean
+  /** Cảnh báo bị tắt hết trong Cài đặt — chỉ còn kiểm lỗi */
+  warningsOff?: boolean
   onDismiss: (key: string) => void
   onRestore: () => void
   onOpenOrder?: (orderId: string) => void
@@ -67,7 +69,7 @@ export function OrderCheckPanel({ issues, dismissedCount, checking, onDismiss, o
         </span>
       </header>
       {issues.length === 0 ? (
-        <p className="fm-ordercheck__ok"><CheckCircle2 size={15} aria-hidden /> Đơn hợp lệ — không có lỗi hay cảnh báo</p>
+        <p className="fm-ordercheck__ok"><CheckCircle2 size={15} aria-hidden /> {warningsOff ? 'Không có lỗi (cảnh báo đang tắt trong Cài đặt)' : 'Đơn hợp lệ — không có lỗi hay cảnh báo'}</p>
       ) : (
         <ul className="fm-ordercheck__list">
           {issues.map((i) => (

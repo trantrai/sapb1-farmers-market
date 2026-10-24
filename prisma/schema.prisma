@@ -346,6 +346,8 @@ model AppSettings {
   // --- Gợi ý mặt hàng theo lịch sử đơn hàng ---
   suggestHistoryDays Int    @default(90) // Khoảng thời gian lịch sử (ngày)
   suggestMaxItems    Int    @default(10) // Số mặt hàng gợi ý tối đa
+  // --- Kiểm tra đơn hàng trước khi lưu: JSON bật/tắt cảnh báo (src/lib/order-check-config.ts); rỗng = bật hết ---
+  orderCheckConfig   String @default("")
   // --- Cấu hình Email (SMTP) ---
   smtpHost      String    @default("") // vd: smtp.gmail.com
   smtpPort      Int       @default(587)

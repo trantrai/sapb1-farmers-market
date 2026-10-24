@@ -1610,6 +1610,12 @@ button.fm-check-chip { cursor: pointer; }
 @keyframes fm-notice-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (max-width: 640px) { .fm-check-notices { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; } .fm-check-notice:nth-child(n+2) { display: none; } }
 @media (prefers-reduced-motion: reduce) { .fm-check-notice { animation: none; } }
+/* Cài đặt → Kiểm tra đơn hàng trước khi lưu */
+.fm-ordercheck-cfg { margin: 0 0 8px; padding: 0; border: 0; min-width: 0; }
+.fm-ordercheck-cfg__group { display: flex; flex-direction: column; margin: 8px 0 0 26px; }
+.fm-ordercheck-cfg__group[aria-disabled="true"] { opacity: .55; }
+.fm-ordercheck-cfg__title { font-size: var(--fm-fs-xs); font-weight: 700; color: var(--fm-text-3); text-transform: uppercase; letter-spacing: .04em; }
+@media (max-width: 640px) { .fm-ordercheck-cfg__group { margin-left: 12px; } }
 .fm-line-table tr.is-flash td { background: var(--fm-gold-soft); transition: background .3s; }
 
 /* ---------- 15.4c Dòng hàng gọn: chi tiết mở theo dòng + ô thêm dòng nhanh ---------- */
