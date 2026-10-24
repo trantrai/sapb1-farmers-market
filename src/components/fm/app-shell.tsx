@@ -56,7 +56,8 @@ const DownPaymentDetailView = dynamic(() => import('./down-payment-detail-view')
 const SalesReportView = dynamic(() => import('./sales-report-view'), { ssr: false, loading: ViewLoading })
 const ArAgingReportView = dynamic(() => import('./ar-aging-report-view'), { ssr: false, loading: ViewLoading })
 const SearchPalette = dynamic(() => import('./search-palette'), { ssr: false })
-import type { EditOrderData } from './order-form-view'
+import type { AssistantOrderDraft, EditOrderData } from './order-form-view'
+import AssistantChat from './assistant-chat'
 import { toEditData } from './order-form-view'
 import type { CopyTarget } from './sales-doc-shared'
 
@@ -153,6 +154,8 @@ export default function AppShell({ user, onLogout }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
+  // Nháp đơn từ Trợ lý sale admin → form tạo đơn (nonce đổi mỗi lần mở)
+  const [assistantDraft, setAssistantDraft] = useState<AssistantOrderDraft | null>(null)
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null)
   const [detailDeliveryId, setDetailDeliveryId] = useState<string | null>(null)
   /** Id chi tiết từng loại chứng từ Phase 1 Sales A/R */
@@ -609,6 +612,8 @@ export default function AppShell({ user, onLogout }: Props) {
               <OrderFormView
                 editOrder={editOrder}
                 userId={user.id}
+                prefill={editOrder ? null : assistantDraft}
+                onPrefillApplied={() => setAssistantDraft(null)}
                 onCancel={() => { setEditOrder(null); go('orders') }}
                 onSaved={({ id: orderId, docNum, sapStatus, sapDocNum, sapError }) => {
                   const wasEdit = Boolean(editOrder)
@@ -777,6 +782,16 @@ export default function AppShell({ user, onLogout }: Props) {
             {view === 'bomImport' && <BomImportView user={user} />}
           </div>
         </main>
+        {(user.permissions.orders?.view || user.permissions.ordersNew?.create) && (
+          <AssistantChat
+            onOpenDraft={(d) => {
+              if (!user.permissions.ordersNew?.create) return
+              setEditOrder(null)
+              setAssistantDraft({ ...d, nonce: Date.now() })
+              go('ordersNew')
+            }}
+          />
+        )}
       </div>
 
       {/* ===== Bottom tab bar (mobile) ===== */}

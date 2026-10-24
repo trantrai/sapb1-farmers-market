@@ -355,6 +355,11 @@ model AppSettings {
   smtpFromName  String    @default("") // vd: Farmers Market
   // --- Base Workflow API (module Import BOM) ---
   baseTokenEnc  String    @default("") // Access Token v2 Base.vn, mã hóa AES-256-GCM (fm-crypto)
+  // --- Trợ lý sale admin (LLM on-premise, API chuẩn OpenAI /chat/completions) ---
+  assistantEnabled Boolean @default(false)
+  assistantBaseUrl String  @default("") // vd: http://10.0.0.5:8000/v1 (vLLM / Ollama / llama.cpp nội bộ)
+  assistantModel   String  @default("") // Tên model trên máy chủ nội bộ, vd glm-…
+  assistantKeyEnc  String  @default("") // API key máy chủ nội bộ (nếu có), mã hóa AES-256-GCM
   updatedAt     DateTime  @updatedAt
 }
 

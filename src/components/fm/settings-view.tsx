@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
 import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X } from 'lucide-react'
+import AssistantSettingsCard from './assistant-settings-card'
 import { api } from '@/lib/fm-client'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PageHeader from './page-header'
@@ -573,6 +574,9 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           </div>
         </div>
       </div>
+
+      {/* Trợ lý sale admin — máy chủ LLM nội bộ */}
+      <AssistantSettingsCard canEdit={canEdit} />
 
       {/* Dialog xác nhận chung thay window.confirm() */}
       {confirmCfg && (

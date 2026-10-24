@@ -20,8 +20,12 @@ import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import CustomerBasket from './customer-basket'
 import DeliveryHint from './delivery-hint'
+import type { OrderDraft as AssistantDraftData } from '@/lib/assistant/agent'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
+
+/** Nháp đơn từ Trợ lý sale admin + nonce (đổi nonce để áp dụng lại) */
+export type AssistantOrderDraft = AssistantDraftData & { nonce: number }
 
 interface DraftLine {
   key: number
@@ -671,6 +675,8 @@ export default function OrderFormView({
   editOrder,
   onCancel,
   userId,
+  prefill,
+  onPrefillApplied,
 }: {
   onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
   /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
@@ -679,6 +685,10 @@ export default function OrderFormView({
   onCancel?: () => void
   /** Id user đăng nhập — dùng làm key nháp form (fm-order-draft-<userId>-...) */
   userId?: string
+  /** Nháp đơn từ Trợ lý sale admin — đổi nonce để áp dụng lại */
+  prefill?: AssistantOrderDraft | null
+  /** Đã đổ nháp trợ lý vào form → cha xoá để mở lại form không áp dụng lại */
+  onPrefillApplied?: () => void
 }) {
   const [partner, setPartner] = useState<ACOption | null>(null)
   const [partnerErr, setPartnerErr] = useState('')
@@ -1360,6 +1370,33 @@ export default function OrderFormView({
       for (const l of restored) if (l.item) void checkAtp(l.key, l.item.code, l.warehouseCode)
     } catch { /* nháp hỏng → bỏ qua */ }
   }, [draftKey])
+
+  // Nháp đơn từ Trợ lý sale admin: chọn khách trước, đợi partner cập nhật
+  // rồi mới đổ dòng (để giá đặc biệt theo KH được giải đúng). Khai báo SAU
+  // effect restore nháp local để nháp của trợ lý thắng.
+  const [pendingPrefill, setPendingPrefill] = useState<AssistantOrderDraft | null>(null)
+  const startPrefill = useEffectEvent((p: AssistantOrderDraft) => {
+    if (partner?.code !== p.cardCode) {
+      party.requestDefaults()
+      setPartner({ code: p.cardCode, name: p.cardName } as ACOption)
+    }
+    setPendingPrefill(p)
+  })
+  useEffect(() => {
+    if (prefill && !isEdit) startPrefill(prefill)
+  }, [prefill?.nonce])
+  const finishPrefill = useEffectEvent(() => {
+    const p = pendingPrefill
+    if (!p || partner?.code !== p.cardCode) return
+    setPendingPrefill(null)
+    addItemsBatch(p.lines.map((l) => ({
+      item: recentLineToOption({ ...l, available: true, warehouseCode: null }),
+      quantity: l.quantity,
+    })), 'replace')
+    onPrefillApplied?.()
+    setTplMsg({ type: 'success', text: `Trợ lý đã đổ ${p.lines.length} dòng cho ${p.cardCode} — ${p.cardName}. Kiểm tra giá, tồn kho rồi bấm Lưu.` })
+  })
+  useEffect(() => { finishPrefill() }, [partner?.code, pendingPrefill])
 
   // Tự lưu nháp (debounce 800ms) — đổi view giữa chừng vẫn kịp lưu
   useEffect(() => {
