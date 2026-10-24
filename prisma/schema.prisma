@@ -135,6 +135,11 @@ model SalesOrder {
   sapSyncError    String?          // Lỗi lần đẩy gần nhất (nếu có)
   sapSyncedAt     DateTime?        // Thời điểm đẩy thành công
   sapDatabaseId   String?          // DB SAP đích của đơn (đẩy/retry luôn dùng DB này)
+  // --- Tự thử lại & chống trùng khi đẩy SAP (src/lib/sap-sync-retry.ts) ---
+  sapSyncErrorKind String?         // safe | unknown | reconcile | business (null = không lỗi)
+  sapSyncAttempts  Int     @default(0) // số lần job nền đã tự thử lại
+  sapNextRetryAt   DateTime?       // lần tự thử kế tiếp (null = không tự thử)
+  sapSyncLastAt    DateTime?       // lần đẩy gần nhất (thành công hay thất bại)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   lines           SalesOrderLine[]
@@ -144,6 +149,7 @@ model SalesOrder {
   @@index([sapDatabaseId, status])
   @@index([cardCode, docDate])
   @@index([sapSyncStatus, sapDocEntry])
+  @@index([sapSyncStatus, sapNextRetryAt])
   @@index([docNum])
 }
 
@@ -348,6 +354,8 @@ model AppSettings {
   suggestMaxItems    Int    @default(10) // Số mặt hàng gợi ý tối đa
   // --- Kiểm tra đơn hàng trước khi lưu: JSON bật/tắt cảnh báo (src/lib/order-check-config.ts); rỗng = bật hết ---
   orderCheckConfig   String @default("")
+  // --- Tự thử lại đơn chưa đẩy được sang SAP (job nền mỗi 2 phút, src/lib/order-sap-retry-worker.ts) ---
+  sapAutoRetry       Boolean @default(true)
   // --- Cấu hình Email (SMTP) ---
   smtpHost      String    @default("") // vd: smtp.gmail.com
   smtpPort      Int       @default(587)

@@ -14,6 +14,7 @@ import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { Network } from 'lucide-react'
 import RelMapModal from './relmap-modal'
 import { useFocusTrap } from './use-focus-trap'
+import SapReconcileDialog, { sapSyncHint } from './sap-reconcile-dialog'
 
 interface Line {
   id: string
@@ -56,6 +57,10 @@ interface Order {
   sapSyncStatus?: string // none | pending | synced
   sapSyncError?: string | null
   sapSyncedAt?: string | null
+  /** Chống trùng & tự thử lại (Đợt 2): loại lỗi, số lần tự thử, lần thử kế tiếp */
+  sapSyncErrorKind?: string | null
+  sapSyncAttempts?: number | null
+  sapNextRetryAt?: string | null
   /** 'sap' = lấy trực tiếp từ SAP B1 (không xóa/đóng được), 'local' = đơn local */
   source?: string
   /** Phase 2 — Nháp: true = bản nháp chưa có hiệu lực (API: ?isDraft=) */
@@ -105,19 +110,21 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
       </span>
     )
   }
-  if (o.sapSyncStatus === 'pending') {
+  if (o.sapSyncStatus === 'pending' || o.sapSyncStatus === 'error') {
+    const reconcile = o.sapSyncErrorKind === 'reconcile'
+    const hint = sapSyncHint(o) || 'Chưa đẩy được sang SAP B1'
     if (!canSync) {
       return (
-        <span className="fm-chip fm-chip--pending" title={o.sapSyncError ?? 'Chưa đẩy được sang SAP B1'}>
-          Chưa đẩy
+        <span className={`fm-chip ${reconcile ? 'fm-chip--warn' : 'fm-chip--pending'}`} title={hint}>
+          {reconcile ? 'Cần đối chiếu' : 'Chưa đẩy'}
         </span>
       )
     }
     return (
       <button
         type="button"
-        className="fm-chip fm-chip--pending fm-chip--btn"
-        title={o.sapSyncError ? `Đẩy lại sang SAP B1 — lỗi trước đó: ${o.sapSyncError}` : 'Đẩy lại sang SAP B1'}
+        className={`fm-chip ${reconcile ? 'fm-chip--warn' : 'fm-chip--pending'} fm-chip--btn`}
+        title={reconcile ? `Đối chiếu với SAP B1 trước khi đẩy lại — ${hint}` : `Đẩy lại sang SAP B1 — ${hint}`}
         disabled={syncing}
         onClick={(e) => {
           e.stopPropagation()
@@ -127,7 +134,7 @@ function sapChip(o: Order, canSync: boolean, syncing: boolean, onSync: () => voi
         onKeyDown={(e) => e.stopPropagation()}
       >
         <RefreshCw size={14} style={{ flex: 'none' }} />
-        {syncing ? 'Đang đẩy…' : 'Đẩy lại'}
+        {syncing ? 'Đang đẩy…' : reconcile ? 'Đối chiếu' : o.sapNextRetryAt ? 'Chờ tự đẩy' : 'Đẩy lại'}
       </button>
     )
   }
@@ -424,6 +431,8 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   const canDelete = user.permissions.orders?.delete
   const canCreate = user.permissions.ordersNew?.create
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  /** Đơn đang mở dialog đối chiếu SAP (lỗi "không rõ" khi DB chưa có UDF) */
+  const [reconcileId, setReconcileId] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; order: Order } | null>(null)
   const [relMapOrder, setRelMapOrder] = useState<{ id: string; docNum: number } | null>(null)
   /** Bottom-sheet thao tác trên card mobile (#8) */
@@ -490,7 +499,9 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
     try {
       const res = await api(`/api/orders/${o.id}/sync`, { method: 'POST' })
       const json = await res.json().catch(() => ({}))
-      if (!res.ok || !json.ok) {
+      if (json.code === 'NEEDS_RECONCILE') {
+        setReconcileId(o.id)
+      } else if (!res.ok || !json.ok) {
         setAlert({ type: 'error', msg: json.error ?? json.sap?.error ?? 'Không thể đẩy đơn sang SAP B1' })
       } else {
         setAlert({ type: 'success', msg: `Đã đẩy đơn #${o.docNum} sang SAP B1 — DocNum ${json.order?.sapDocNum}` })
@@ -502,6 +513,11 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
   }
 
   const askSync = (o: Order) => {
+    // Không rõ SAP đã nhận chưa (không UDF) → đối chiếu trước, không đẩy thẳng
+    if (o.sapSyncErrorKind === 'reconcile') {
+      setReconcileId(o.id)
+      return
+    }
     setConfirmCfg({
       title: 'Đẩy lại đơn sang SAP B1',
       message: `Đẩy lại đơn hàng bán #${o.docNum} sang SAP B1?\nThao tác tạo chứng từ thật trên SAP và không thể hoàn tác tự động.`,
@@ -856,6 +872,18 @@ export default function OrdersListView({ user, onGoCreate, onGoEdit, onGoDuplica
         onGoOrder={(id) => onGoDetail(id)}
         onGoDelivery={(id) => onGoDelivery?.(id)}
       />
+
+      {reconcileId && (
+        <SapReconcileDialog
+          orderId={reconcileId}
+          onClose={() => setReconcileId(null)}
+          onDone={(type, msg) => {
+            setReconcileId(null)
+            setAlert({ type, msg })
+            load()
+          }}
+        />
+      )}
 
       {/* Dialog xác nhận chung thay window.confirm() */}
       {confirmCfg && (

@@ -9,6 +9,7 @@ import {
 import { formatVND, formatDateVN, isOverdue, isDueSoon, daysOverdue, daysUntilDue } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
+import SapSyncQueueCard from './sap-sync-queue-card'
 
 interface RecentOrder {
   id: string
@@ -275,6 +276,9 @@ export default function DashboardView({ onGoOrders, onGoCreate, onGoOrderDetail 
           </>
         )}
       </div>
+
+      {/* Đợt 2 — đơn đã lưu nhưng chưa lên SAP B1 (ẩn khi không có) */}
+      <SapSyncQueueCard onGoOrderDetail={onGoOrderDetail} />
 
       {/* Đơn cần chú ý: quá hạn / sắp đến hạn */}
       <div className="fm-card">

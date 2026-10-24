@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
-import { pushOrderToSap } from '@/lib/sap-push-order'
-import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
-import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
+import { syncOrderToSap } from '@/lib/order-sap-sync'
 
 type Ctx = { params: Promise<{ id: string }> }
 
 // ---------- POST /api/orders/[id]/sync : đẩy lại đơn sang SAP B1 ----------
 // Dành cho đơn đang ở trạng thái 'pending' (lần đẩy trước thất bại do
 // SAP mất kết nối / từ chối dữ liệu). Đơn đã 'synced' không đẩy lại.
+// Đơn "Cần đối chiếu" (không rõ SAP đã ghi, không có UDF) bị chặn — trừ khi
+// body { force: true } sau khi người dùng đã đối chiếu và xác nhận SAP chưa có đơn.
 export async function POST(req: NextRequest, ctx: Ctx) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -18,85 +17,31 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params
-  const order = await prisma.salesOrder.findUnique({
-    where: { id },
-    include: { lines: { orderBy: { lineNum: 'asc' } } },
-  })
-  if (!order) return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
-  if (order.status === 'Cancelled') {
-    return NextResponse.json({ error: 'Không thể đẩy đơn đã hủy sang SAP B1' }, { status: 400 })
-  }
-  if (order.sapSyncStatus === 'synced') {
-    return NextResponse.json(
-      { error: `Đơn này đã được đẩy sang SAP B1 (DocNum ${order.sapDocNum ?? '?'})` },
-      { status: 400 },
-    )
-  }
-  // Khóa chống đẩy song song: 2 request cùng lúc không thể tạo trùng chứng từ SAP
-  if (!acquireOrderPushLock(id)) {
-    return NextResponse.json(
-      { error: 'Đơn này đang được đẩy sang SAP B1 ở một phiên khác — vui lòng đợi xong rồi thử lại.' },
-      { status: 409 },
-    )
-  }
-
-  try {
-    const push = await pushOrderToSap({
-      // Đơn ghi nhận DB đích khi tạo — retry luôn dùng đúng DB đó
-      databaseId: order.sapDatabaseId ?? user.databaseId,
-      cardCode: order.cardCode,
-      docDate: order.docDate.toISOString(),
-      docDueDate: order.docDueDate.toISOString(),
-      comments: order.remarks,
-      localId: order.id,
-      // B2B / SAP B1 (Đợt 2+3): các trường header đã lưu trên DB — tầng push
-      // (buildSapDocPayload → sapDocHeaderExtras) chỉ gửi khi có giá trị
-      ...headerExtrasFromRecord(order),
-      lines: order.lines.map((l) => ({
-        itemCode: l.itemCode,
-        ...bomLineFields(l),
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        discPct: l.discPct,
-        uom: l.uom,
-        taxCode: l.taxCode,
-        warehouseCode: l.warehouseCode,
-        // Đơn tạo từ báo giá (from-quotation): giữ sourceLineId để đẩy lại
-        // vẫn gắn BaseType/BaseEntry/BaseLine chuẩn copy-to SAP B1
-        sourceLineId: l.sourceLineId,
-      })),
-    })
-
-    // Chỉ công nhận 'synced' khi SAP trả về DocEntry hợp lệ
-    const syncedOk = push.status === 'synced' && typeof push.docEntry === 'number'
-    const finalStatus = !syncedOk && push.status === 'synced' ? 'pending' : push.status
-    const finalError = !syncedOk && push.status === 'synced'
-      ? 'SAP không trả về DocEntry — sẽ thử đẩy lại'
-      : (push.error ?? null)
-
-    // Lưu LineNum do SAP cấp cho từng dòng — cần khi SỬA đơn (PATCH /Orders)
-    if (syncedOk && push.lineNums?.length) {
-      const dbLines = [...order.lines].sort((a, b) => a.lineNum - b.lineNum)
-      await prisma.$transaction(
-        dbLines.map((l, i) =>
-          prisma.salesOrderLine.update({ where: { id: l.id }, data: { sapLineNum: push.lineNums?.[i] ?? null } }),
-        ),
+  const body = await req.json().catch(() => null)
+  const r = await syncOrderToSap(id, { force: body?.force === true, fallbackDatabaseId: user.databaseId })
+  switch (r.kind) {
+    case 'not_found':
+      return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 })
+    case 'cancelled':
+      return NextResponse.json({ error: 'Không thể đẩy đơn đã hủy sang SAP B1' }, { status: 400 })
+    case 'draft':
+      return NextResponse.json({ error: 'Đơn nháp chưa duyệt — không đẩy sang SAP B1' }, { status: 400 })
+    case 'already_synced':
+      return NextResponse.json({ error: `Đơn này đã được đẩy sang SAP B1 (DocNum ${r.sapDocNum ?? '?'})` }, { status: 400 })
+    case 'locked':
+      return NextResponse.json(
+        { error: 'Đơn này đang được đẩy sang SAP B1 ở một phiên khác — vui lòng đợi xong rồi thử lại.' },
+        { status: 409 },
       )
-    }
-
-    const updated = await prisma.salesOrder.update({
-      where: { id: order.id },
-      data: {
-        sapSyncStatus: finalStatus,
-        sapSyncError: finalError,
-        ...(syncedOk
-          ? { sapDocEntry: push.docEntry ?? null, sapDocNum: push.docNum ?? null, sapSyncedAt: new Date() }
-          : {}),
-      },
-    })
-
-    return NextResponse.json({ ok: syncedOk, order: updated, sap: { ...push, status: finalStatus, error: finalError ?? push.error } })
-  } finally {
-    releaseOrderPushLock(id)
+    case 'needs_reconcile':
+      return NextResponse.json(
+        {
+          error: 'Lần đẩy trước không rõ SAP đã nhận hay chưa — hãy đối chiếu trên SAP trước khi đẩy lại để tránh tạo trùng đơn.',
+          code: 'NEEDS_RECONCILE',
+        },
+        { status: 409 },
+      )
+    case 'done':
+      return NextResponse.json({ ok: r.ok, order: r.order, sap: { ...r.push, status: r.status, error: r.error ?? r.push.error } })
   }
 }

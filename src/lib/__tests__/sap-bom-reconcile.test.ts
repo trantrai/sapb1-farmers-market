@@ -139,7 +139,7 @@ describe('pushDocumentToSap / patchDocumentToSap — gọi Service Layer', () =>
         { LineNum: 1, Quantity: 1, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB },
       ],
     })
-    expect(r).toEqual({ status: 'synced', docEntry: 77, docNum: 1001, lineNums: [0, 2, 1] })
+    expect(r).toEqual({ status: 'synced', udf: true, docEntry: 77, docNum: 1001, lineNums: [0, 2, 1] })
   })
 
   it('bước 2 lỗi + có marker localId → pending (Đẩy lại sẽ nhận lại chứng từ và áp tiếp)', async () => {

@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings } from '@/lib/sap-service-layer'
-import { pushOrderToSap } from '@/lib/sap-push-order'
+import { pushOrderToSap, type SapPushResult } from '@/lib/sap-push-order'
 import { headerExtrasFromRecord, bomLineFields } from '@/lib/sap-push-document'
 import { acquireOrderPushLock, releaseOrderPushLock } from '@/lib/order-push-lock'
+import { recordOrderPush } from '@/lib/order-sap-sync'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -87,7 +88,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   // ---- Đẩy đơn sang SAP B1 (POST /Orders) như khi tạo mới ----
   const orderSap = await loadSapSettings(user.databaseId)
   const orderDbId = orderSap?.dbId ?? null
-  let push: { status: string; docEntry?: number | null; docNum?: number | null; error?: string | null; lineNums?: (number | null)[] }
+  let push: SapPushResult
   if (acquireOrderPushLock(finalized.id)) {
     try {
       push = await pushOrderToSap({
@@ -116,28 +117,12 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       releaseOrderPushLock(finalized.id)
     }
   } else {
-    push = { status: 'pending', error: 'Đơn đang được đẩy sang SAP ở một phiên khác — hãy bấm "Đẩy lại" sau.' }
+    push = { status: 'pending', errorKind: 'safe', error: 'Đơn đang được đẩy sang SAP ở một phiên khác — hãy bấm "Đẩy lại" sau.' }
   }
-  const syncedOk = push.status === 'synced' && typeof push.docEntry === 'number'
-  const finalStatus = !syncedOk && push.status === 'synced' ? 'pending' : push.status
-  const finalError = !syncedOk && push.status === 'synced' ? 'SAP không trả về DocEntry — sẽ thử đẩy lại' : (push.error ?? null)
-  if (syncedOk && push.lineNums?.length) {
-    const dbLines = [...finalized.lines].sort((a, b) => a.lineNum - b.lineNum)
-    await prisma.$transaction(
-      dbLines.map((l, i) =>
-        prisma.salesOrderLine.update({ where: { id: l.id }, data: { sapLineNum: push.lineNums?.[i] ?? null } }),
-      ),
-    )
-  }
+  const { status: finalStatus, error: finalError, data: syncData } = await recordOrderPush(push, finalized.lines)
   const updated = await prisma.salesOrder.update({
     where: { id: finalized.id },
-    data: {
-      sapSyncStatus: finalStatus,
-      sapSyncError: finalError,
-      ...(syncedOk
-        ? { sapDocEntry: push.docEntry ?? null, sapDocNum: push.docNum ?? null, sapSyncedAt: new Date() }
-        : {}),
-    },
+    data: syncData,
     include: { lines: { orderBy: { lineNum: 'asc' } } },
   })
 

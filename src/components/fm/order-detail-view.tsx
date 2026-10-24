@@ -11,6 +11,7 @@ import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import { type CopyTarget, docNumLabel } from './sales-doc-shared'
 import CopyToMenu from './copy-to-menu'
 import { DocInfoCards, DocLinesCard, useDocParty } from './doc-detail-sections'
+import SapReconcileDialog, { sapSyncHint } from './sap-reconcile-dialog'
 
 interface OrderLine {
   id: string
@@ -63,6 +64,9 @@ interface Order {
   sapSyncStatus?: string
   sapSyncedAt?: string | null
   sapSyncError?: string | null
+  sapSyncErrorKind?: string | null
+  sapSyncAttempts?: number | null
+  sapNextRetryAt?: string | null
   contactPersonCode?: number | null
   lines: OrderLine[]
   deliveries?: Array<{ id: string; docNum: number; docDate: string; status: string; grandTotal: number; sapSyncStatus: string; lines?: OrderDeliveryLine[] }>
@@ -114,6 +118,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
   const [emailResult, setEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: ReactNode } | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null) // action đang chạy: 'toggle' | 'cancel' | 'close' | 'sync' — chống bấm đúp + hiện text Đang…
+  const [showReconcile, setShowReconcile] = useState(false) // dialog đối chiếu SAP (lỗi "không rõ", DB chưa có UDF)
 
   // Dialog xác nhận thay window.confirm() — 1 state dùng chung cho mọi action
   const [confirmCfg, setConfirmCfg] = useState<{
@@ -426,6 +431,11 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
   // Đẩy đơn sang SAP B1 ngay
   const syncNow = () => {
     if (!order || busyAction) return
+    // Không rõ SAP đã nhận chưa (DB chưa có UDF) → đối chiếu trước, không đẩy thẳng
+    if (order.sapSyncErrorKind === 'reconcile') {
+      setShowReconcile(true)
+      return
+    }
     // Đẩy SAP tạo chứng từ THẬT — xác nhận trước 1-click
     const run = async () => {
       setConfirmCfg(null)
@@ -433,12 +443,17 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
       try {
         const res = await api(`/api/orders/${order.id}/sync`, { method: 'POST' })
         const json = await res.json().catch(() => ({}))
+        if (json.code === 'NEEDS_RECONCILE') {
+          setShowReconcile(true)
+          return
+        }
+        // loadOrder xoá actionMsg → tải lại trước, đặt thông báo sau
+        await loadOrder({ cancelled: false })
         if (!res.ok || !json.ok) {
           setActionMsg({ type: 'error', text: json.error ?? json.sap?.error ?? 'Không thể đẩy đơn sang SAP B1' })
           return
         }
         setActionMsg({ type: 'success', text: `Đã đẩy đơn #${order.docNum} sang SAP B1 — DocNum ${json.order?.sapDocNum ?? json.sap?.DocNum ?? '?'}.` })
-        await loadOrder({ cancelled: false })
       } catch {
         setActionMsg({ type: 'error', text: 'Không thể kết nối máy chủ' })
       } finally {
@@ -616,8 +631,13 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
         const canReopen = order.status === 'Closed' && order.sapSyncStatus !== 'synced'
         const canPush = order.status !== 'Cancelled' && !order.isDraft && order.sapSyncStatus !== 'synced'
         if (!canReopen && !canPush) return null
+        const syncHint = canPush && (order.sapSyncStatus === 'pending' || order.sapSyncStatus === 'error') ? sapSyncHint(order) : ''
+        const reconcile = order.sapSyncErrorKind === 'reconcile'
         return (
-          <div className="fm-actions">
+          <div className="fm-actions" style={{ flexWrap: 'wrap' }}>
+            {syncHint && (
+              <p className="fm-hint" role="status" style={{ flexBasis: '100%', margin: 0 }}>Đồng bộ SAP: {syncHint}</p>
+            )}
             {canReopen && (
               <button className="fm-btn fm-btn--secondary" onClick={toggleClose} disabled={!!busyAction}>
                 <LockOpen size={16} /> {busyAction === 'toggle' ? 'Đang cập nhật…' : 'Mở lại đơn hàng'}
@@ -625,7 +645,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
             )}
             {canPush && (
               <button className="fm-btn fm-btn--secondary" onClick={syncNow} disabled={!!busyAction}>
-                <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : 'Đẩy sang SAP B1 ngay'}
+                <CloudUpload size={16} /> {busyAction === 'sync' ? 'Đang đẩy…' : reconcile ? 'Đối chiếu với SAP B1' : 'Đẩy sang SAP B1 ngay'}
               </button>
             )}
           </div>
@@ -838,6 +858,16 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
             </div>
           </div>
         </div>
+      )}
+      {showReconcile && (
+        <SapReconcileDialog
+          orderId={order.id}
+          onClose={() => setShowReconcile(false)}
+          onDone={(type, text) => {
+            setShowReconcile(false)
+            void loadOrder({ cancelled: false }).then(() => setActionMsg({ type, text }))
+          }}
+        />
       )}
       {/* Dialog xác nhận chung thay window.confirm() */}
       {confirmCfg && (

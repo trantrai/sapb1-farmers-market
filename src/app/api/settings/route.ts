@@ -59,6 +59,8 @@ export async function PUT(req: NextRequest) {
       orderCheckConfig: body.orderCheck !== undefined
         ? JSON.stringify(parseOrderCheckConfig(body.orderCheck))
         : existing?.orderCheckConfig ?? '',
+      // Tự thử lại đơn chưa đẩy được sang SAP (job nền)
+      sapAutoRetry: typeof body.sapAutoRetry === 'boolean' ? body.sapAutoRetry : existing?.sapAutoRetry ?? true,
       // Cấu hình Email (SMTP)
       smtpHost: (body.smtpHost as string | undefined) ?? existing?.smtpHost ?? '',
       smtpPort: (() => {

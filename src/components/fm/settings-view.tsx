@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X, ClipboardCheck } from 'lucide-react'
+import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X, ClipboardCheck, ShieldCheck, RefreshCw } from 'lucide-react'
 import AssistantSettingsCard from './assistant-settings-card'
 import { api } from '@/lib/fm-client'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
@@ -14,6 +14,8 @@ interface SettingsData {
   suggestMaxItems: number
   /** Kiểm tra đơn hàng trước khi lưu — bật/tắt cảnh báo */
   orderCheck: OrderCheckConfig
+  /** Tự thử lại đơn chưa đẩy được sang SAP (job nền) */
+  sapAutoRetry: boolean
   smtpHost: string
   smtpPort: number
   smtpUser: string
@@ -205,6 +207,21 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
     }
   }
 
+  // Kiểm tra (CHỈ ĐỌC) DB SAP đã có UDF chống trùng U_FM_LocalId chưa — không tạo UDF
+  const checkUdf = async (d: SapDb) => {
+    setDbBusy(d.id)
+    setMsg(null)
+    try {
+      const res = await api(`/api/sap-databases/${d.id}/udf-check`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) setMsg({ type: 'error', text: json.error ?? 'Không kiểm tra được UDF' })
+      else if (json.supported) setMsg({ type: 'success', text: `${d.label}: đã có UDF ${json.field} trên Đơn bán hàng — chống trùng & tự thử lại an toàn đang hoạt động.` })
+      else setMsg({ type: 'info', text: `${d.label}: chưa có UDF ${json.field}. Tạo trong SAP B1 (Tools → Customization Tools → User-Defined Fields - Management → Marketing Documents → Title, tên FM_LocalId, kiểu Alphanumeric 50) để bật chống trùng tự động.` })
+    } finally {
+      setDbBusy(null)
+    }
+  }
+
   const setDefault = async (d: SapDb) => {
     setDbBusy(d.id)
     try {
@@ -311,6 +328,9 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                         <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => testDb(d)} disabled={dbBusy !== null} title="Kiểm tra kết nối Service Layer">
                           <PlugZap size={14} />
                           {dbBusy === d.id ? 'Đang kiểm tra…' : 'Kiểm tra'}
+                        </button>
+                        <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => checkUdf(d)} disabled={dbBusy !== null} title="Kiểm tra UDF chống trùng U_FM_LocalId (chỉ đọc)">
+                          <ShieldCheck size={14} /> Kiểm tra UDF
                         </button>
                         <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => openEdit(d)} disabled={dbBusy !== null} aria-label={`Sửa ${d.label}`}>
                           <Pencil size={14} /> Sửa
@@ -497,6 +517,29 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           ))}
         </fieldset>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
+            <Save size={16} />
+            {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
+        </div>
+      </div>
+
+      {/* Đợt 2 — tự thử lại đơn chưa đẩy được sang SAP */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <RefreshCw size={18} /> Đồng bộ đơn hàng sang SAP B1
+        </h2>
+        <label className="fm-check">
+          <input type="checkbox" checked={s.sapAutoRetry} disabled={!canEdit} onChange={(e) => update({ sapAutoRetry: e.target.checked })} />
+          <b>Tự thử lại đơn chưa đẩy được sang SAP</b>
+        </label>
+        <p className="fm-hint" style={{ fontSize: 13 }}>
+          Job nền thử lại sau 2, 5, 15, 60, 240 phút (tối đa 5 lần) — chỉ với lỗi chắc chắn chưa tới SAP, hoặc lỗi không rõ khi DB đã có
+          UDF <code>U_FM_LocalId</code> (lần đẩy sau tra UDF trước nên không tạo trùng). Lỗi không rõ khi DB chưa có UDF → đơn chuyển
+          &quot;Cần đối chiếu&quot;, không tự đẩy. Dùng nút &quot;Kiểm tra UDF&quot; ở danh sách database để biết DB đã có UDF chưa.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
             <Save size={16} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
