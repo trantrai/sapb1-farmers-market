@@ -6,7 +6,8 @@ import {
   LogOut, Menu as MenuIcon, X as CloseIcon, Sprout, LayoutGrid, History, Boxes,
   Percent, Contact, Bell, Search, Home, FileSpreadsheet, Truck, FileUp,
   FileText, Receipt, FileMinus2, Undo2, HandCoins, BarChart3, FileClock,
-  UserCheck, CalendarClock, ArrowLeftRight, ArrowRight, Database,
+  UserCheck, CalendarClock, ArrowRight, Database,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { SessionUser, ModuleKey } from '@/lib/fm-shared'
@@ -162,6 +163,17 @@ export default function AppShell({ user, onLogout }: Props) {
     action?: { label: string; onClick: () => void }
   }[]>([])
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // Thu gọn sidebar thành icon-rail (desktop); nhớ lựa chọn theo trình duyệt
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try { return localStorage.getItem('fm.sidebarCollapsed') === '1' } catch { return false }
+  })
+  const toggleSidebar = () => {
+    setCollapsed((c) => {
+      try { localStorage.setItem('fm.sidebarCollapsed', c ? '0' : '1') } catch { /* private mode */ }
+      return !c
+    })
+  }
   /** Đơn đang SỬA (chế độ cập nhật của form tạo đơn) */
   const [editOrder, setEditOrder] = useState<EditOrderData | null>(null)
   // Nháp đơn từ Trợ lý sale admin → form tạo đơn (nonce đổi mỗi lần mở)
@@ -401,15 +413,24 @@ export default function AppShell({ user, onLogout }: Props) {
     <div className="fm-layout fm-app-root">
       <a href="#fm-main" className="fm-skip-link">Bỏ qua tới nội dung chính</a>
       {/* ===== Sidebar ===== */}
-      <aside className={`fm-sidebar${drawerOpen ? ' is-open' : ''}`}>
+      <aside className={`fm-sidebar${drawerOpen ? ' is-open' : ''}${collapsed ? ' is-collapsed' : ''}`}>
         <div className="fm-logo" style={{ justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="fm-logo__badge">F</div>
             <div className="fm-logo__name">
               FARMERS MARKET
-              <small>SAP B1 • v1.1 Demo</small>
             </div>
           </div>
+          <button
+            type="button"
+            className="fm-sidebar-toggle"
+            aria-label={collapsed ? 'Mở rộng menu' : 'Thu nhỏ menu'}
+            aria-pressed={collapsed}
+            title={collapsed ? 'Mở rộng menu' : 'Thu nhỏ menu'}
+            onClick={toggleSidebar}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
           <button
             className="fm-burger fm-burger--on-dark"
             aria-label="Đóng menu"
@@ -417,18 +438,6 @@ export default function AppShell({ user, onLogout }: Props) {
           >
             <CloseIcon size={16} />
           </button>
-        </div>
-
-        {/* Box trạng thái SAP Service Layer */}
-        <div className="fm-sap-status">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="fm-sap-status__icon"><ArrowLeftRight size={16} aria-hidden /></span>
-            <span>SAP Service Layer</span>
-          </div>
-          <span className="fm-sap-status__live" style={sapStatus === 'none' ? { opacity: 0.6 } : sapStatus === 'error' ? { color: 'var(--fm-coral-deep)' } : undefined}>
-            <span className="fm-sap-status__dot" style={sapStatus === 'none' ? { background: 'var(--fm-muted-line)' } : sapStatus === 'error' ? { background: 'var(--fm-coral)' } : undefined} />
-            {sapStatus === 'ok' ? 'Đang kết nối' : sapStatus === 'none' ? 'Chưa cấu hình' : 'Lỗi'}
-          </span>
         </div>
 
         {mainMenu.length > 0 && <div className="fm-menu-group">Chức năng chính</div>}
@@ -453,10 +462,6 @@ export default function AppShell({ user, onLogout }: Props) {
         )}
 
         <div style={{ marginTop: 'auto', paddingTop: 12 }}>
-          <div style={{ padding: '4px 12px 8px', fontSize: 11, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>
-            <div style={{ fontWeight: 600, color: 'rgba(255,255,255,.8)' }}>Phiên làm việc</div>
-            <div>{sapStatus === 'ok' ? 'SAP Service — Live' : sapStatus === 'none' ? 'SAP Service — Chưa cấu hình' : 'SAP Service — Lỗi'}</div>
-          </div>
           <div
             className="fm-menu-item"
             role="button"
