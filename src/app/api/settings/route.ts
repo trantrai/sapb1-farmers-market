@@ -61,6 +61,10 @@ export async function PUT(req: NextRequest) {
         : existing?.orderCheckConfig ?? '',
       // Tự thử lại đơn chưa đẩy được sang SAP (job nền)
       sapAutoRetry: typeof body.sapAutoRetry === 'boolean' ? body.sapAutoRetry : existing?.sapAutoRetry ?? true,
+      // Hiện thành phần con BOM Production/Assembly (SL con luôn khóa)
+      showBomProductionChildren: typeof body.showBomProductionChildren === 'boolean'
+        ? body.showBomProductionChildren
+        : existing?.showBomProductionChildren ?? false,
       // Cấu hình Email (SMTP)
       smtpHost: (body.smtpHost as string | undefined) ?? existing?.smtpHost ?? '',
       smtpPort: (() => {

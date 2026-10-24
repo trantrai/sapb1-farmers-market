@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X, ClipboardCheck, ShieldCheck, RefreshCw } from 'lucide-react'
+import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X, ClipboardCheck, ShieldCheck, RefreshCw, Layers } from 'lucide-react'
+import { resetShowLockedBomChildrenCache } from './bom-lines'
 import AssistantSettingsCard from './assistant-settings-card'
 import { api } from '@/lib/fm-client'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
@@ -16,6 +17,7 @@ interface SettingsData {
   orderCheck: OrderCheckConfig
   /** Tự thử lại đơn chưa đẩy được sang SAP (job nền) */
   sapAutoRetry: boolean
+  showBomProductionChildren: boolean
   smtpHost: string
   smtpPort: number
   smtpUser: string
@@ -138,6 +140,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       const saved: SettingsData = { ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass), baseToken: '', hasBaseToken: Boolean(json.hasBaseToken) }
       setS(saved)
       setSSaved(saved)
+      resetShowLockedBomChildrenCache(Boolean(json.settings.showBomProductionChildren))
       setMsg({ type: 'success', text: 'Đã lưu cài đặt' })
     } finally {
       setBusy(false)
@@ -517,6 +520,35 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           ))}
         </fieldset>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
+            <Save size={16} />
+            {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
+        </div>
+      </div>
+
+      {/* Hiển thị thành phần con BOM Production/Assembly */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Layers size={18} /> Hiển thị BOM trên chứng từ
+        </h2>
+        <label className="fm-check">
+          <input
+            type="checkbox"
+            checked={Boolean(s.showBomProductionChildren)}
+            disabled={!canEdit}
+            onChange={(e) => update({ showBomProductionChildren: e.target.checked })}
+          />
+          <b>Hiện thành phần con BOM Production / Assembly</b>
+        </label>
+        <p className="fm-hint" style={{ fontSize: 13 }}>
+          Bật: form đơn hàng, chứng từ bán hàng, màn chi tiết và bản in hiện các dòng con của BOM Production/Assembly. Số lượng
+          thành phần con <b>luôn bị khóa</b> theo công thức (SL con = SL cha × định mức) — muốn đổi thì đổi số lượng dòng cha; máy
+          chủ cũng từ chối mọi số lượng con sai công thức. Tắt: ẩn các dòng con này (vẫn lưu và đẩy SAP bình thường). Con BOM
+          Template luôn hiện và sửa được.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
             <Save size={16} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}

@@ -17,6 +17,8 @@ import {
   inferBomTypes,
   removeWithBom,
   visibleBomLines,
+  bomParentTypes,
+  isLockedBomChild,
   type BomLineFields,
 } from '@/components/fm/bom-lines'
 
@@ -129,6 +131,22 @@ describe('bom-lines — thao tác dòng trên form', () => {
     expect(visibleBomLines(lines, new Set([gk])).map((l) => l.code)).toEqual(['GIO', 'RAU'])
     const prod = lines.map((l) => (l.key === 1 ? { ...l, bomType: 'production' as const } : l))
     expect(visibleBomLines(prod, new Set()).map((l) => l.code)).toEqual(['GIO', 'RAU'])
+  })
+
+  it('thiết lập hiện con Production → hiện nhưng luôn khóa SL; thu gọn vẫn ẩn', () => {
+    const { lines } = explodeBom(base, 1, def, make)
+    const gk = lines[0].bomGroupKey!
+    for (const t of ['production', 'assembly'] as const) {
+      const prod = lines.map((l) => (l.key === 1 ? { ...l, bomType: t } : l))
+      expect(visibleBomLines(prod, new Set(), true).length).toBe(4)
+      expect(visibleBomLines(prod, new Set([gk]), true).map((l) => l.code)).toEqual(['GIO', 'RAU'])
+      const pt = bomParentTypes(prod)
+      // Khóa theo loại BOM của cha, kể cả khi dòng con lưu bomEditable=true (dữ liệu cũ)
+      expect(prod.filter((l) => l.isBomChild).every((l) => isLockedBomChild({ ...l, bomEditable: true }, pt))).toBe(true)
+      expect(isLockedBomChild(prod[0], pt)).toBe(false)
+    }
+    // Template: không khóa
+    expect(lines.filter((l) => l.isBomChild).some((l) => isLockedBomChild(l, bomParentTypes(lines)))).toBe(false)
   })
 
   it('nạp chứng từ đã lưu → suy lại loại BOM của dòng cha', () => {

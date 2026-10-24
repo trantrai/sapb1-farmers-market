@@ -13,7 +13,7 @@ import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
-import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
+import { BomChildCell, BomToggle, bomChildCounts, bomParentTypes, isLockedBomChild, useShowLockedBomChildren, visibleBomLines } from './bom-lines'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
 import { CheckNotices, CheckStatusChip, LineIssueBadge, OrderCheckPanel, focusLineByKey, revealCheckPanel, type CheckNotice } from './order-check-panel'
@@ -1631,6 +1631,8 @@ export default function OrderFormView({
 
   /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
   const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  /** Cài đặt: hiện con BOM Production/Assembly (SL luôn khóa) */
+  const showLockedBom = useShowLockedBomChildren()
   const toggleBomGroup = (gk: string) =>
     setBomCollapsed((cur) => {
       const next = new Set(cur)
@@ -2319,10 +2321,11 @@ export default function OrderFormView({
             </thead>
             <tbody>
               {(() => {
-                // Chỉ vẽ dòng con của BOM Template (Production/Assembly ẩn — vẫn
-                // giữ trong data để submit/validate) và nhóm đang mở rộng.
-                const vis = visibleBomLines(lines, bomCollapsed)
+                // Dòng con BOM Template luôn vẽ; con Production/Assembly chỉ vẽ khi
+                // bật thiết lập (vẫn giữ trong data để submit/validate); bỏ nhóm thu gọn.
+                const vis = visibleBomLines(lines, bomCollapsed, showLockedBom)
                 const childCounts = bomChildCounts(lines)
+                const parentTypes = bomParentTypes(lines)
                 const parentCodes = new Map(
                   lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
                 )
@@ -2337,9 +2340,11 @@ export default function OrderFormView({
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
                 const isChild = Boolean(l.isBomChild)
+                /** Con BOM Production/Assembly: SL luôn khóa theo công thức */
+                const locked = isLockedBomChild(l, parentTypes)
                 if (!isChild) stt += 1
-                /** Dòng cha BOM Template có thành phần hiển thị → nút thu gọn/mở rộng */
-                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
+                /** Dòng cha BOM có thành phần hiển thị → nút thu gọn/mở rộng */
+                const showToggle = !isChild && (l.bomType === 'template' || (showLockedBom && Boolean(l.bomType))) && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
                 const detailId = `fm-line-detail-${l.key}`
                 const expanded = expandedLines.isOpen(l.key)
                 const atpLow = (() => {
@@ -2380,7 +2385,7 @@ export default function OrderFormView({
                           qtyPerParent={l.bomQtyPerParent}
                           uom={l.uom || l.item?.uom}
                           parentCode={parentCodes.get(l.bomGroupKey as string)}
-                          onSwap={canSwapBom && l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          onSwap={canSwapBom && !locked ? () => setSwapKey(l.key) : undefined}
                           disabled={saving}
                         />
                       ) : (
@@ -2430,9 +2435,10 @@ export default function OrderFormView({
                         className="fm-line-input"
                         style={{ ...(qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : {}) }}
                         value={l.quantity || ''}
-                        disabled={saving || (l.isBomChild && l.bomEditable === false)}
-                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
-                        onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
+                        disabled={saving || locked}
+                        readOnly={locked}
+                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : locked ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
+                        onChange={(e) => { if (!locked) updateLine(l.key, { quantity: Number(e.target.value) || 0 }) }}
                       />
                       {qtyInvalid && (
                         <span id={`fm-line-${l.key}-qty-err`} className="fm-sr-only">

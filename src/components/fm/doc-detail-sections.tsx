@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useEffect, useState, type ReactNode } from 'react'
+import { useShowLockedBomChildren } from './bom-lines'
 import { api } from '@/lib/fm-client'
 import { formatDateVN, formatVND } from '@/lib/fm-shared'
 import { bpB2BInfoFromRow, EMPTY_BP_B2B_INFO, type BpB2BInfo } from '@/lib/bp-b2b'
@@ -271,15 +272,15 @@ export function computeDocTotals(lines: DocLine[], headerDiscPct = 0, grandTotal
   }
 }
 
-/** BOM: chỉ hiện con của BOM Template; Production/Assembly (con khóa) ẩn. STT chỉ đếm dòng không phải con. */
-function visibleWithStt(lines: DocLine[]) {
+/** BOM: hiện con của BOM Template; con Production/Assembly (khóa) chỉ hiện khi bật thiết lập. STT chỉ đếm dòng không phải con. */
+function visibleWithStt(lines: DocLine[], showLocked: boolean) {
   const parentType = new Map(lines.filter((l) => !l.isBomChild && l.bomGroupKey).map((l) => [l.bomGroupKey as string, l.bomType ?? 'none']))
   const visible = lines.filter((l) => {
     if (!l.isBomChild) return true
     const pt = parentType.get(l.bomGroupKey as string)
-    if (pt === 'production' || pt === 'assembly') return false
+    if (pt === 'production' || pt === 'assembly') return showLocked
     if (pt === 'template') return true
-    return l.bomEditable !== false
+    return showLocked || l.bomEditable !== false
   })
   const stt = new Map<DocLine, number>()
   let n = 0
@@ -301,7 +302,8 @@ export function DocLinesCard({ lines, totals, defaultWarehouse, title = 'Hàng h
   /** Dòng tổng bổ sung trong tfoot (vd khấu trừ đặt cọc) */
   footerExtra?: ReactNode
 }) {
-  const { visible, stt } = visibleWithStt(lines)
+  const showLockedBom = useShowLockedBomChildren()
+  const { visible, stt } = visibleWithStt(lines, showLockedBom)
   const showBatch = lines.some((l) => l.batchNumber)
   const showAccount = lines.some((l) => l.accountCode)
   const colCount = 13 + (showBatch ? 1 : 0) + (showAccount ? 1 : 0)

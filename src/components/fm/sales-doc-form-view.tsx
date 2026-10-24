@@ -27,6 +27,7 @@ import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpa
 import {
   BomChildCell, BomToggle, applyParentQty, bomChildCounts, explodeBom, fetchBomDef,
   inferBomTypes, removeWithBom, roundQty, visibleBomLines, type BomKind,
+  bomParentTypes, isLockedBomChild, useShowLockedBomChildren,
 } from './bom-lines'
 import type { B2BPartySelection } from '@/lib/bp-b2b'
 
@@ -539,6 +540,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
 
   /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
   const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  /** Cài đặt: hiện con BOM Production/Assembly (SL luôn khóa) */
+  const showLockedBom = useShowLockedBomChildren()
   const toggleBomGroup = (gk: string) =>
     setBomCollapsed((cur) => {
       const next = new Set(cur)
@@ -1280,8 +1283,9 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
             </thead>
             <tbody>
               {(() => {
-                const vis = visibleBomLines(lines, bomCollapsed)
+                const vis = visibleBomLines(lines, bomCollapsed, showLockedBom)
                 const childCounts = bomChildCounts(lines)
+                const parentTypes = bomParentTypes(lines)
                 const parentCodes = new Map(
                   lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
                 )
@@ -1289,10 +1293,12 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                 let stt = 0
                 return vis.map((l) => {
                 const isChild = Boolean(l.isBomChild)
+                /** Con BOM Production/Assembly: SL luôn khóa theo công thức */
+                const locked = isLockedBomChild(l, parentTypes)
                 if (!isChild) stt += 1
                 const idx = stt - 1
                 const lineNo = stt
-                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
+                const showToggle = !isChild && (l.bomType === 'template' || (showLockedBom && Boolean(l.bomType))) && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
                 const invalid = Boolean(fieldErr[l.key])
                 const qtyInvalid = Boolean(l.item) && l.quantity <= 0
                 const priceInvalid = l.unitPrice < 0
@@ -1329,7 +1335,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                           qtyPerParent={l.bomQtyPerParent}
                           uom={uomText}
                           parentCode={parentCodes.get(l.bomGroupKey as string)}
-                          onSwap={canSwapBom && l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          onSwap={canSwapBom && !locked ? () => setSwapKey(l.key) : undefined}
                           disabled={saving}
                         />
                       ) : (
@@ -1380,9 +1386,10 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
                         className="fm-line-input"
                         style={qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : undefined}
                         value={l.quantity || ''}
-                        disabled={saving || (isChild && l.bomEditable === false)}
-                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : isChild ? 'BOM Template: được chỉnh số lượng thành phần — SL này được đẩy lên SAP' : undefined}
-                        onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
+                        disabled={saving || locked}
+                        readOnly={locked}
+                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : locked ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : isChild ? 'BOM Template: được chỉnh số lượng thành phần — SL này được đẩy lên SAP' : undefined}
+                        onChange={(e) => { if (!locked) updateLine(l.key, { quantity: Number(e.target.value) || 0 }) }}
                       />
                     </td>
                     <td data-label="Đơn giá (₫)" className="fm-num">

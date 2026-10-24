@@ -356,6 +356,8 @@ model AppSettings {
   orderCheckConfig   String @default("")
   // --- Tự thử lại đơn chưa đẩy được sang SAP (job nền mỗi 2 phút, src/lib/order-sap-retry-worker.ts) ---
   sapAutoRetry       Boolean @default(true)
+  // --- Hiện thành phần con BOM Production/Assembly trên form/chi tiết (SL con luôn khóa theo công thức) ---
+  showBomProductionChildren Boolean @default(false)
   // --- Cấu hình Email (SMTP) ---
   smtpHost      String    @default("") // vd: smtp.gmail.com
   smtpPort      Int       @default(587)

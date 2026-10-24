@@ -11,6 +11,7 @@
 // buildSapLines: cha TreeType=iNotATree, con U_BOMID = mã cha).
 // ============================================================
 
+import { useEffect, useState } from 'react'
 import { ArrowLeftRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { formatNum } from '@/lib/fm-shared'
@@ -123,20 +124,58 @@ export function bomChildCounts(lines: BomLineFields[]): Map<string, number> {
   return m
 }
 
+/** Loại BOM của dòng cha theo nhóm (bomGroupKey → bomType) */
+export function bomParentTypes(lines: BomLineFields[]): Map<string, BomKind | undefined> {
+  return new Map(lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.bomType]))
+}
+
+/** Dòng con khóa SL theo công thức: con của BOM Production/Assembly (hoặc đã đánh dấu bomEditable=false) */
+export function isLockedBomChild(l: BomLineFields, parentTypes: Map<string, BomKind | undefined>): boolean {
+  if (!l.isBomChild) return false
+  const pt = parentTypes.get(l.bomGroupKey as string)
+  return pt === 'production' || pt === 'assembly' || (pt !== 'template' && l.bomEditable === false)
+}
+
 /**
- * Dòng hiển thị trên bảng: ẩn con của BOM Production/Assembly (khóa theo
- * công thức, vẫn giữ trong data để lưu) và con của nhóm đang thu gọn.
+ * Dòng hiển thị trên bảng: ẩn con của nhóm đang thu gọn; con của BOM
+ * Production/Assembly (khóa theo công thức, vẫn giữ trong data để lưu) chỉ
+ * hiện khi bật thiết lập "Hiện thành phần con BOM Production" (showLocked).
  */
-export function visibleBomLines<T extends BomLineFields>(lines: T[], collapsed: ReadonlySet<string>): T[] {
-  const pType = new Map(lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.bomType]))
+export function visibleBomLines<T extends BomLineFields>(lines: T[], collapsed: ReadonlySet<string>, showLocked = false): T[] {
+  const pType = bomParentTypes(lines)
   return lines.filter((x) => {
     if (!x.isBomChild) return true
-    const gk = x.bomGroupKey as string
-    if (collapsed.has(gk)) return false
-    const pt = pType.get(gk)
-    if (pt === 'production' || pt === 'assembly') return false
-    return pt === 'template' || x.bomEditable !== false
+    if (collapsed.has(x.bomGroupKey as string)) return false
+    return showLocked || !isLockedBomChild(x, pType)
   })
+}
+
+let showLockedCache: boolean | null = null
+let showLockedReq: Promise<boolean> | null = null
+
+/**
+ * Thiết lập Cài đặt → "Hiện thành phần con BOM Production" (GET /api/app-config,
+ * mọi người dùng đã đăng nhập). Cache theo phiên tab; mặc định false (ẩn).
+ */
+export function useShowLockedBomChildren(): boolean {
+  const [v, setV] = useState<boolean>(showLockedCache ?? false)
+  useEffect(() => {
+    if (showLockedCache !== null) return
+    let alive = true
+    showLockedReq ??= api('/api/app-config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => Boolean(j?.showBomProductionChildren))
+      .catch(() => false)
+      .then((b) => { showLockedCache = b; showLockedReq = null; return b })
+    showLockedReq.then((b) => { if (alive) setV(b) })
+    return () => { alive = false }
+  }, [])
+  return v
+}
+
+/** Gọi sau khi lưu Cài đặt để form mở sau đó đọc lại thiết lập */
+export function resetShowLockedBomChildrenCache(next?: boolean): void {
+  showLockedCache = next ?? null
 }
 
 /** Nút thu gọn / mở rộng nhóm thành phần con (đặt ở ô # của dòng cha) */
