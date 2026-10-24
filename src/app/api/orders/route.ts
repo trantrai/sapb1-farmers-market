@@ -10,6 +10,7 @@ import { fetchSapOrders, fetchSapOrderDetail, clearSapOrdersCache, type SapOrder
 import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
 import { normalizeBomLines } from '@/lib/order-bom'
 import { checkOrderSourceLines } from '@/lib/order-source-lines'
+import { checkOrderDates, checkOrderItems } from '@/lib/order-server-check'
 
 // ============================================================
 // B2B / SAP B1 (Đợt 2+3): whitelist + chuẩn hóa các trường header
@@ -307,6 +308,10 @@ export async function POST(req: NextRequest) {
     if (!docDate || !docDueDate) {
       return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
     }
+    const dateError = checkOrderDates(docDate, docDueDate)
+    if (dateError) {
+      return NextResponse.json({ error: dateError }, { status: 400 })
+    }
     // B2B / SAP B1 (Đợt 2+3): whitelist + validate các trường header mới
     const { data: b2b, error: b2bError } = parseB2BHeader(body as Record<string, unknown>)
     if (b2bError) {
@@ -322,6 +327,11 @@ export async function POST(req: NextRequest) {
     const { lines: validLines, error: linesError } = validateOrderLines(lines)
     if (linesError) {
       return NextResponse.json({ error: linesError }, { status: 400 })
+    }
+    // Mặt hàng (dòng chính) phải có trong danh mục đồng bộ của DB đơn
+    const itemError = await checkOrderItems(orderDbId, validLines.filter((l) => !l.isBomChild).map((l) => l.itemCode))
+    if (itemError) {
+      return NextResponse.json({ error: itemError }, { status: 400 })
     }
     // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
     const { lines: bomLines, error: bomError } = await normalizeBomLines(orderDbId, validLines, {

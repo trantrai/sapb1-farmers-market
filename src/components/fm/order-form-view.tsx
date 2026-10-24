@@ -16,8 +16,8 @@ import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
-import PrecheckDialog from './precheck-dialog'
-import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
+import { CheckNotices, CheckStatusChip, LineIssueBadge, OrderCheckPanel, focusLineByKey, revealCheckPanel, type CheckNotice } from './order-check-panel'
+import { precheckOrder, type OrderInsights, type PrecheckIssue } from '@/lib/order-precheck'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import CustomerBasket from './customer-basket'
 import DeliveryHint from './delivery-hint'
@@ -671,6 +671,13 @@ const clampPct = (n: number) => Math.min(100, Math.max(0, Number.isFinite(n) ? n
 let keyCounter = 0
 const nextKey = () => ++keyCounter
 
+/** Viền trái dòng hàng theo mức vấn đề nặng nhất */
+const lineIssueClass = (list?: PrecheckIssue[]) =>
+  !list?.length ? '' : list.some((i) => i.level === 'error') ? ' has-error' : ' has-warning'
+
+/** Cảnh báo từ lịch sử khách — hiện thông báo nổi khi vừa phát hiện */
+const NOTICE_CODES = new Set<PrecheckIssue['code']>(['dup-order', 'qty-anomaly', 'price-change'])
+
 export default function OrderFormView({
   onSaved,
   editOrder,
@@ -678,8 +685,9 @@ export default function OrderFormView({
   userId,
   prefill,
   onPrefillApplied,
+  onOpenOrder,
 }: {
-  onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
+  onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null; warningsIgnored?: number }) => void
   /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
   editOrder?: EditOrderData | null
   /** Nút hủy ở chế độ sửa → quay lại danh sách */
@@ -690,6 +698,8 @@ export default function OrderFormView({
   prefill?: AssistantOrderDraft | null
   /** Đã đổ nháp trợ lý vào form → cha xoá để mở lại form không áp dụng lại */
   onPrefillApplied?: () => void
+  /** Mở chi tiết 1 đơn khác (đơn trùng ở vùng Kiểm tra đơn) — form vẫn giữ nháp */
+  onOpenOrder?: (orderId: string) => void
 }) {
   const [partner, setPartner] = useState<ACOption | null>(null)
   const [partnerErr, setPartnerErr] = useState('')
@@ -1831,32 +1841,56 @@ export default function OrderFormView({
     disabled: saving,
   })
 
-  /** Kiểm tra trước khi lưu: danh sách lỗi + cảnh báo đang hiển thị (null = đóng) */
-  const [precheck, setPrecheck] = useState<PrecheckIssue[] | null>(null)
+  // ---- Kiểm tra đơn trực tiếp (vùng "Kiểm tra đơn" — không hộp xác nhận) ----
+  /** Lịch sử khách (đơn trùng, SL, giá) — gắn cardCode + ngày giao để bỏ kết quả cũ khi đổi */
+  const [insights, setInsights] = useState<{ cardCode: string; docDueDate: string; data: OrderInsights } | null>(null)
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  /** Cảnh báo người dùng đã "Bỏ qua" (khóa đổi khi SL/giá/ngày đổi → hiện lại) */
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
+  const [notices, setNotices] = useState<CheckNotice[]>([])
+  const noticedRef = useRef<Set<string>>(new Set())
+  const insightCodesKey = [...new Set(lines.filter((l) => l.item && !l.isBomChild).map((l) => l.item!.code))].sort().join('|')
+  useEffect(() => {
+    const cardCode = partner?.code
+    if (!cardCode) return
+    const ctrl = new AbortController()
+    const t = window.setTimeout(async () => {
+      setInsightsLoading(true)
+      try {
+        const res = await api('/api/orders/insights', {
+          method: 'POST',
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            cardCode,
+            docDueDate,
+            itemCodes: insightCodesKey ? insightCodesKey.split('|') : [],
+            excludeOrderId: isEdit ? editOrder?.id ?? null : null,
+          }),
+        })
+        const json = await res.json().catch(() => null)
+        if (res.ok && json?.ok) setInsights({ cardCode, docDueDate, data: { duplicates: json.duplicates ?? [], items: json.items ?? {} } })
+      } catch { /* lỗi mạng/hủy → bỏ qua, chỉ mất cảnh báo lịch sử */ }
+      finally { if (!ctrl.signal.aborted) setInsightsLoading(false) }
+    }, 600)
+    return () => { ctrl.abort(); window.clearTimeout(t) }
+  }, [partner?.code, docDueDate, insightCodesKey, isEdit, editOrder?.id])
 
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
-  const save = async (asDraft = false, opts?: { skipPrecheck?: boolean }) => {
-    // Lưu chính thức: gom mọi lỗi/cảnh báo 1 lần trước khi gửi (nháp thì bỏ qua)
-    if (!asDraft && !opts?.skipPrecheck) {
-      const issues = precheckOrder({
-        hasPartner: Boolean(partner),
-        docDate,
-        docDueDate,
-        today: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
-        lines: lines.filter((l) => l.item).map((l) => ({
-          key: l.key,
-          itemCode: l.item!.code,
-          itemName: l.item!.name,
-          quantity: l.quantity,
-          unitPrice: l.isBomChild ? 0 : l.unitPrice,
-          refPrice: l.refPrice,
-          priceSource: l.priceSource,
-          isBomChild: l.isBomChild,
-          warehouseCode: l.warehouseCode || headerWh || null,
-          atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
-        })),
-      })
-      if (issues.length > 0) { setPrecheck(issues); return }
+  const save = async (asDraft = false) => {
+    // Lưu chính thức: còn lỗi → đưa người dùng tới lỗi đầu tiên, không lưu.
+    // Cảnh báo không chặn (đã hiển thị trực tiếp ở vùng Kiểm tra đơn).
+    let warningsIgnored = 0
+    if (!asDraft) {
+      const firstError = visibleIssues.find((i) => i.level === 'error')
+      if (firstError) {
+        if (firstError.lineKey != null) focusLineByKey(firstError.lineKey)
+        else {
+          revealCheckPanel(firstError.key)
+          if (firstError.code === 'due-before-doc') document.getElementById('fm-doc-due-date')?.focus({ preventScroll: true })
+        }
+        return
+      }
+      warningsIgnored = visibleIssues.length
     }
     setError('')
     setVersionConflict(false)
@@ -1936,6 +1970,7 @@ export default function OrderFormView({
         sapStatus: o.sapSyncStatus ?? 'none',
         sapDocNum: o.sapDocNum ?? null,
         sapError: o.sapSyncError ?? null,
+        warningsIgnored,
       })
     } catch {
       setError('Không thể kết nối máy chủ')
@@ -2006,6 +2041,51 @@ export default function OrderFormView({
       ? { warehouseCode: '', ...info.totals }
       : info.warehouses?.[0] ?? null
   }
+  const checkIssues: PrecheckIssue[] = precheckOrder({
+    hasPartner: Boolean(partner),
+    docDate,
+    docDueDate,
+    today: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
+    insights: partner && insights?.cardCode === partner.code && insights.docDueDate === docDueDate ? insights.data : null,
+    lines: lines.filter((l) => l.item).map((l) => ({
+      key: l.key,
+      itemCode: l.item!.code,
+      itemName: l.item!.name,
+      quantity: l.quantity,
+      unitPrice: l.isBomChild ? 0 : l.unitPrice,
+      refPrice: l.refPrice,
+      priceSource: l.priceSource,
+      isBomChild: l.isBomChild,
+      uom: l.uom?.trim() || l.item!.uom?.trim() || null,
+      warehouseCode: l.warehouseCode || headerWh || null,
+      atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
+    })),
+  })
+  const visibleIssues = checkIssues.filter((i) => i.level === 'error' || !dismissed.has(i.key))
+  const dismissedCount = checkIssues.length - visibleIssues.length
+  const issuesByLine = new Map<number, PrecheckIssue[]>()
+  for (const i of visibleIssues) if (i.lineKey != null) issuesByLine.set(i.lineKey, [...(issuesByLine.get(i.lineKey) ?? []), i])
+  const errorCount = visibleIssues.filter((i) => i.level === 'error').length
+  // Thông báo nổi: chỉ cảnh báo lịch sử khách VỪA xuất hiện (mỗi khóa 1 lần), tự ẩn sau 8s.
+  // Chờ form đứng yên 1,2s và lịch sử đã tải xong → không báo khi đang gõ SL/giá.
+  const noticeIssues = visibleIssues.filter((i) => NOTICE_CODES.has(i.code))
+  const noticeSig = noticeIssues.map((i) => i.key).join('§')
+  const announceNotices = useEffectEvent(() => {
+    const fresh = noticeIssues.filter((i) => !noticedRef.current.has(i.key))
+    if (fresh.length === 0) return
+    for (const i of fresh) noticedRef.current.add(i.key)
+    const keys = new Set(fresh.map((i) => i.key))
+    setNotices((prev) => [
+      ...fresh.map((i) => ({ key: i.key, message: i.message, lineKey: i.lineKey })),
+      ...prev.filter((n) => !keys.has(n.key)),
+    ].slice(0, 3))
+    window.setTimeout(() => setNotices((prev) => prev.filter((n) => !keys.has(n.key))), 8000)
+  })
+  useEffect(() => {
+    if (!noticeSig || insightsLoading) return
+    const t = window.setTimeout(announceNotices, 1200)
+    return () => window.clearTimeout(t)
+  }, [noticeSig, insightsLoading])
   const atpTooltip = (info: AtpState | undefined, row: StockRow): string => {
     const perWh = (info?.warehouses ?? []).map(
       (w) => `Kho ${w.warehouseCode || '(local)'}: Tồn ${formatNum(w.inStock)} · Cam kết ${formatNum(w.committed)} · Đang về ${formatNum(w.onOrder)} → ATP ${formatNum(w.available)}`,
@@ -2319,7 +2399,7 @@ export default function OrderFormView({
                 })()
                 return (
                   <Fragment key={l.key}>
-                  <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                  <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}${lineIssueClass(issuesByLine.get(l.key))}`}>
                     <td data-label="Dòng">
                       <div className="fm-bom-parent-no">
                         <LineExpandButton
@@ -2330,6 +2410,7 @@ export default function OrderFormView({
                           hideNo={isChild}
                           hasIssue={Boolean(l.vatOverridden) || atpLow}
                         />
+                        <LineIssueBadge issues={issuesByLine.get(l.key) ?? []} />
                         {showToggle && (
                           <BomToggle
                             collapsed={bomCollapsed.has(l.bomGroupKey as string)}
@@ -2586,13 +2667,6 @@ export default function OrderFormView({
           </table>
         </div>
 
-        {precheck && (
-          <PrecheckDialog
-            issues={precheck}
-            onClose={() => setPrecheck(null)}
-            onProceed={() => { setPrecheck(null); void save(isEdit && Boolean(editOrder?.isDraft), { skipPrecheck: true }) }}
-          />
-        )}
         <LineQuickAdd
           onAdd={quickAddLine}
           onAddMany={(entries) => {
@@ -2651,6 +2725,15 @@ export default function OrderFormView({
         <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <BadgeCheck size={18} /> Bước 3 — Tổng kết
         </h2>
+
+        <OrderCheckPanel
+          issues={visibleIssues}
+          dismissedCount={dismissedCount}
+          checking={insightsLoading && Boolean(partner)}
+          onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
+          onRestore={() => setDismissed(new Set())}
+          onOpenOrder={onOpenOrder}
+        />
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
           <div style={{ flex: '1 1 220px', minWidth: 220 }}>
@@ -2747,6 +2830,7 @@ export default function OrderFormView({
         )}
         {/* Phase 2 — Lưu nháp: gọi API với ?draft=true (chỉ khi tạo mới; khi sửa
             bản nháp, nút Lưu chính đã giữ trạng thái nháp) */}
+        <span className="fm-check-chip-slot"><CheckStatusChip errors={errorCount} warnings={visibleIssues.length - errorCount} /></span>
         <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         {!isEdit && (
           <button className="fm-btn fm-btn--secondary" onClick={() => save(true)} disabled={saving}>
@@ -2757,8 +2841,10 @@ export default function OrderFormView({
         <button className="fm-btn fm-btn--primary" onClick={() => save(isEdit && Boolean(editOrder?.isDraft))} disabled={saving}>
           <Save size={16} />
           {saving ? 'Đang lưu…' : isEdit ? (editOrder?.isDraft ? 'Lưu bản nháp' : 'Lưu thay đổi') : 'Lưu đơn hàng bán'}
+          {!saving && errorCount > 0 && ` (${errorCount} lỗi)`}
         </button>
       </div>
+      <CheckNotices notices={notices} onClose={(k) => setNotices((prev) => prev.filter((n) => n.key !== k))} />
 
       {/* Modal lưu thành mẫu đơn hàng */}
       {tplModal && (

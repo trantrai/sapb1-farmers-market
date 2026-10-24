@@ -6,6 +6,7 @@ import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { patchOrderToSap } from '@/lib/sap-push-order'
 import { fetchSapOrderDetail, clearSapOrdersCache } from '@/lib/sap-orders'
 import { calcOrderLines, orderTotals, validateOrderLines, cleanBarcode } from '@/lib/order-calc'
+import { checkOrderDates, checkOrderItems } from '@/lib/order-server-check'
 import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { parseB2BHeader } from '../route'
 import { checkOrderSourceLines } from '@/lib/order-source-lines'
@@ -148,6 +149,10 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   if (!docDate || !docDueDate) {
     return NextResponse.json({ error: 'Vui lòng chọn ngày chứng từ và ngày giao hàng' }, { status: 400 })
   }
+  const dateError = checkOrderDates(docDate, docDueDate)
+  if (dateError) {
+    return NextResponse.json({ error: dateError }, { status: 400 })
+  }
   // B2B / SAP B1 (Đợt 2+3): whitelist + validate các trường header mới
   // (đơn 'sap-*' sửa thẳng trên SL — không có bản ghi local nên các trường này
   //  chỉ áp dụng cho nhánh đơn local bên dưới)
@@ -160,18 +165,29 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     ? null
     : await prisma.salesOrder.findUnique({
         where: { id },
-        select: { sapDatabaseId: true, lines: { where: { isBomChild: true }, select: { bomGroupKey: true, itemCode: true } } },
+        select: { sapDatabaseId: true, lines: { select: { bomGroupKey: true, itemCode: true, isBomChild: true } } },
       })
   const bomDbId = orderDbHint?.sapDatabaseId ?? user.databaseId ?? null
   const { lines: validLines, error: linesError } = validateOrderLines(lines)
   if (linesError) {
     return NextResponse.json({ error: linesError }, { status: 400 })
   }
+  // Mặt hàng MỚI thêm (dòng chính) phải có trong danh mục đồng bộ; đơn 'sap-*' (chưa có local) bỏ qua
+  if (orderDbHint) {
+    const itemError = await checkOrderItems(
+      bomDbId,
+      validLines.filter((l) => !l.isBomChild).map((l) => l.itemCode),
+      orderDbHint.lines.map((l) => l.itemCode),
+    )
+    if (itemError) {
+      return NextResponse.json({ error: itemError }, { status: 400 })
+    }
+  }
   // Validate nhóm BOM: Production phải đúng công thức, Template kiểm tra mã con
   const { lines: bomLines, error: bomError } = await normalizeBomLines(bomDbId, validLines, {
     allowSwap: Boolean(user.permissions.bomSwap?.edit),
     // Dòng con đã lưu của đơn: giữ nguyên khi sửa (BOM bị xóa khỏi mirror / đã hoán đổi trước đó)
-    existingChildren: new Set((orderDbHint?.lines ?? []).map((l) => bomChildKey(l.bomGroupKey, l.itemCode))),
+    existingChildren: new Set((orderDbHint?.lines ?? []).filter((l) => l.isBomChild).map((l) => bomChildKey(l.bomGroupKey, l.itemCode))),
   })
   if (bomError) {
     return NextResponse.json({ error: bomError }, { status: 400 })

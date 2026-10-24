@@ -631,7 +631,8 @@ export default function AppShell({ user, onLogout }: Props) {
                 prefill={editOrder ? null : assistantDraft}
                 onPrefillApplied={() => setAssistantDraft(null)}
                 onCancel={() => { setEditOrder(null); go('orders') }}
-                onSaved={({ id: orderId, docNum, sapStatus, sapDocNum, sapError }) => {
+                onOpenOrder={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
+                onSaved={({ id: orderId, docNum, sapStatus, sapDocNum, sapError, warningsIgnored }) => {
                   const wasEdit = Boolean(editOrder)
                   setEditOrder(null)
                   let msg = wasEdit
@@ -643,6 +644,7 @@ export default function AppShell({ user, onLogout }: Props) {
                   else if (sapStatus === 'pending')
                     msg += ` Chưa đẩy được sang SAP B1${sapError ? `: ${sapError}` : ''} — bấm "Đẩy lại" trong danh sách đơn.`
                   else if (!wasEdit) msg += ' (chưa cấu hình SAP B1 — đơn chỉ lưu trên hệ thống này)'
+                  if (warningsIgnored) msg += ` Đã lưu kèm ${warningsIgnored} cảnh báo chưa xử lý.`
                   showToast(
                     msg,
                     'success',
