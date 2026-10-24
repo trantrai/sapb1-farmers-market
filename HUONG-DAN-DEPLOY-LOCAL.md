@@ -1,7 +1,10 @@
 # 🖥️ Hướng dẫn Deploy Website Local — SAP B1 Sale Order System (Farmers Market)
 
-> Stack: Next.js 16 (App Router) · TypeScript · Tailwind 4 · Prisma + SQLite · Bun
+> Stack: Next.js 16 (App Router) · TypeScript · Tailwind 4 · Prisma + SQLite · Node.js (Bun tùy chọn)
 > Database là **SQLite** (1 file duy nhất) — **không cần cài SQL Server / MySQL**.
+> Ứng dụng chạy **on-premise** (máy chủ nội bộ / máy trạm) theo kiểu Next.js standalone — **không deploy lên Cloudflare** (xem mục cuối).
+>
+> 🔄 Đã cài bản cũ, chỉ muốn cập nhật? Xem **Bước 6b — Cập nhật lên phiên bản mới**.
 
 ---
 
@@ -25,12 +28,19 @@ curl -fsSL https://bun.sh/install | bash
 
 ## Bước 1 — Nhận mã nguồn
 
-Copy toàn bộ thư mục dự án về máy (bao gồm `src/`, `prisma/`, `public/`,
-`package.json`, `next.config.ts`, `tsconfig.json`, `postcss.config.mjs`,
+Cách khuyến nghị — clone từ GitHub (nhánh `main`):
+
+```bash
+git clone https://github.com/trantrai/sapb1-farmers-market.git
+cd sapb1-farmers-market
+```
+
+Hoặc copy toàn bộ thư mục dự án về máy (bao gồm `src/`, `prisma/`, `public/`, `scripts/`,
+`package.json`, `package-lock.json`, `next.config.ts`, `tsconfig.json`, `postcss.config.mjs`,
 `eslint.config.mjs`, `components.json`, `bun.lock`), ví dụ:
 
-- Windows: `D:\sapb1-so-system`
-- macOS/Linux: `~/sapb1-so-system`
+- Windows: `D:\sapb1-farmers-market`
+- macOS/Linux: `~/sapb1-farmers-market`
 
 Mở terminal / PowerShell tại thư mục dự án.
 
@@ -39,22 +49,40 @@ Mở terminal / PowerShell tại thư mục dự án.
 ## Bước 2 — Cài thư viện
 
 ```bash
-bun install        # khuyến nghị (dự án có bun.lock)
+npm install        # khuyến nghị (package-lock.json là bản khóa phiên bản chuẩn)
 # hoặc
-npm install
+bun install
 ```
+
+> ⚠️ `bun.lock` hiện có thể lệch phiên bản Prisma so với `package-lock.json` — nếu `bun install` báo lỗi Prisma, dùng `npm install`.
 
 ---
 
 ## Bước 3 — File `.env`
 
-**File `.env` đã kèm sẵn** ở thư mục gốc với đường dẫn TƯƠNG ĐỐI — chạy được trên mọi máy / mọi hệ điều hành, không cần sửa:
+Tạo file `.env` ở thư mục gốc từ mẫu `.env.example` (mẫu **không chứa giá trị thật**):
 
-```dotenv
-DATABASE_URL="file:../db/custom.db"
+```bash
+cp .env.example .env        # Windows: copy .env.example .env
 ```
 
-> ⚠️ Prisma tính đường dẫn `file:` **từ thư mục `prisma/`** — nên `../db/custom.db` chính là `db/custom.db` ngang hàng `package.json`. **Đừng đổi** sang đường dẫn tuyệt đối kiểu `file:/home/tenban/...` trừ khi bạn di chuyển file db (bản zip cũ từng dính đường dẫn tuyệt đối của máy build gây lỗi `P1003` — không mở được database — bản này đã sửa).
+Các biến cần có:
+
+| Biến | Bắt buộc | Ý nghĩa |
+|---|---|---|
+| `DATABASE_URL` | Có | Đường dẫn SQLite, mặc định `file:../db/custom.db` |
+| `FM_SESSION_SECRET` | **Có ở production** (≥ 16 ký tự) | Khóa ký phiên đăng nhập. Thiếu → mỗi lần restart server mọi người bị đăng xuất |
+| `FM_DATA_KEY` | **Có ở production** (≥ 16 ký tự) | Khóa mã hóa AES-256-GCM cho mật khẩu SAP B1 / API key LLM lưu trong DB. Thiếu → production **từ chối khởi động** |
+
+Sinh chuỗi ngẫu nhiên cho 2 khóa (chạy 2 lần, mỗi khóa một chuỗi khác nhau):
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+> ⚠️ Prisma tính đường dẫn `file:` **từ thư mục `prisma/`** — nên `../db/custom.db` chính là `db/custom.db` ngang hàng `package.json`. **Đừng đổi** sang đường dẫn tuyệt đối kiểu `file:/home/tenban/...` trừ khi bạn di chuyển file db (đường dẫn tuyệt đối của máy khác gây lỗi `P1003` — không mở được database).
+>
+> 🔒 **Không commit `.env`** (đã có trong `.gitignore`), không gửi file này qua chat/email. **Giữ nguyên `FM_DATA_KEY`** khi chuyển máy/nâng cấp — đổi khóa thì mật khẩu SAP đã lưu không giải mã được nữa, phải nhập lại ở **Cài đặt SAP B1**.
 
 ---
 
@@ -74,7 +102,9 @@ npx prisma db push
 npx tsx prisma/seed.ts    # tùy chọn
 ```
 
-> 💡 **Cách nhanh nhất:** chạy 1 lệnh `bun run setup` = generate + db push + seed luôn. Ngoài ra lệnh `bun run dev` **tự động `prisma db push`** trước khi start server — nhờ vậy không bao giờ gặp lỗi `no such table` khi mang db sang máy khác hoặc đổi schema.
+> 💡 **Cách nhanh nhất:** chạy 1 lệnh `bun run setup` = generate + db push + seed luôn. Ngoài ra lệnh `npm run dev` **tự động `prisma generate` + `prisma db push`** trước khi start server — nhờ vậy không bao giờ gặp lỗi `no such table` khi mang db sang máy khác hoặc đổi schema.
+>
+> ⚠️ **Đừng dùng `npm run db:push` trên DB đang có dữ liệu thật** — script này kèm cờ `--accept-data-loss` (có thể xóa cột/bảng). Luôn dùng `npx prisma db push` (không cờ): nếu thay đổi có nguy cơ mất dữ liệu, Prisma sẽ dừng lại và báo trước. Seed (`prisma/seed.ts`) **xóa sạch dữ liệu** trước khi tạo dữ liệu mẫu — chỉ chạy trên DB mới.
 
 > 💡 **Lưu ý:** Từ phiên bản hiện tại, khách hàng & mặt hàng được lấy **TRỰC TIẾP từ SAP B1 Service Layer** (xem Bước 8), nên seed chỉ dùng khi muốn xem thử hệ thống với dữ liệu mẫu. Muốn xóa dữ liệu demo sau đó: `bun scripts/clear-demo-data.ts` (giữ nguyên users/roles).
 
@@ -83,42 +113,77 @@ npx tsx prisma/seed.ts    # tùy chọn
 ## Bước 5 — Chạy chế độ Dev (thử nhanh)
 
 ```bash
-bun run dev
+npm run dev        # hoặc: bun run dev
 ```
 
 Mở trình duyệt: **http://localhost:3000**
 
-> Windows CMD không có `tee`? Chạy trực tiếp: `npx next dev -p 3000`
+> `npm run dev` chạy `scripts/dev.js` — dùng được cả Windows/macOS/Linux, log vừa hiện trên console vừa ghi vào `dev.log`.
 
 ---
 
 ## Bước 6 — Chạy chế độ Production
 
 ```bash
-bun run build       # build standalone + copy static/public
-bun run start       # chạy server production tại cổng 3000
+npm run build       # prisma generate + build standalone + copy static/public
+npm run start       # chạy server production tại cổng 3000 (scripts/start.js)
 ```
 
 Mở: **http://localhost:3000**
 
 Ghi chú:
 
+- **Luôn khởi động bằng `npm run start`** (= `node scripts/start.js`), không gọi thẳng `.next/standalone/server.js`: `start.js` chốt đường dẫn DB tuyệt đối (tránh mở nhầm DB → lỗi đăng nhập “Yêu cầu không hợp lệ”), chạy `prisma db push` an toàn rồi ghi log ra `server.log`.
+- `start.js` chỉ tự đọc `DATABASE_URL` từ `.env`. **`FM_SESSION_SECRET` và `FM_DATA_KEY` phải có trong biến môi trường** của tiến trình: dùng `EnvironmentFile=` của systemd (mục *Chạy service thường trực*), hoặc nạp tay trước khi start:
+  - Linux/macOS: `set -a; . ./.env; set +a; npm run start`
+  - Windows PowerShell: `Get-Content .env | ? { $_ -match '^\s*[A-Z_]+=' } | % { $k,$v = $_ -split '=',2; [Environment]::SetEnvironmentVariable($k.Trim(), $v.Trim().Trim('"')) }; npm run start`
+- Muốn đổi cổng: `PORT=4000 npm run start` (Windows CMD: `set PORT=4000&& npm run start`).
 - Cấu hình `next.config.ts` đã đặt `output: "standalone"`.
-- Muốn đổi cổng: `PORT=4000 bun .next/standalone/server.js`
-- Windows CMD: `set NODE_ENV=production&& bun .next/standalone/server.js`
+
+---
+
+## Bước 6b — Cập nhật lên phiên bản mới
+
+Mỗi lần có bản mới trên nhánh `main`:
+
+```bash
+git pull origin main
+npm install
+npx prisma generate
+npx prisma db push          # KHÔNG thêm --accept-data-loss
+npm run build
+# rồi khởi động lại: systemd → sudo systemctl restart sapb1-so ; chạy tay → npm run start
+```
+
+> 💾 **Sao lưu `db/custom.db` trước khi cập nhật** (copy file sang chỗ khác) — SQLite chỉ là 1 file, khôi phục = chép đè lại.
+
+Các thay đổi schema gần đây (đều **chỉ thêm** cột/bảng, `prisma db push` không mất dữ liệu):
+
+| Thay đổi | Dùng cho |
+|---|---|
+| Cột barcode trên dòng chứng từ | Cột/ô tìm Barcode trong lưới hàng hóa (chỉ lưu local) |
+| Người liên hệ, địa chỉ giao/ghi hóa đơn của khách hàng (`contactsJson`, `shipToDefault`, `billToDefault`…) | Chọn người liên hệ + địa chỉ trên chứng từ → gửi SAP `ContactPersonCode`, `ShipToCode`, `BillToCode` |
+| `AppSettings.assistant*` | Cấu hình trợ lý sale admin (Bước 14) |
+| Bảng `UserSalesPerson` | Gắn người dùng ↔ nhân viên kinh doanh theo từng DB SAP (Bước 15) |
+
+Sau khi cập nhật lần đầu lên bản có người liên hệ/địa chỉ: vào **Đồng bộ dữ liệu › Đối tác kinh doanh** bấm đồng bộ lại để có danh sách người liên hệ và địa chỉ.
 
 ---
 
 ## Bước 7 — Đăng nhập & tài khoản demo
 
-| Tài khoản | Mật khẩu | Quyền |
-|---|---|---|
-| `admin` | `admin123` | Toàn quyền: Đơn hàng, Quản lý User, Phân quyền, Settings |
-| `ketoan` | `ketoan123` | Đơn hàng (không xoá) + xem Settings |
-| `nhanvien` | `nhanvien123` | Tạo/sửa đơn hàng |
-| `kiemke` | `kiemke123` | Chỉ xem đơn hàng |
+Seed tạo 4 tài khoản với **mật khẩu ngẫu nhiên mạnh, sinh mới mỗi lần seed** — mật khẩu chỉ **in ra console 1 lần** khi chạy seed (không ghi vào file nào), hãy lưu lại ngay. **Lần đăng nhập đầu bắt buộc đổi mật khẩu.**
 
-Session sống 12 giờ (cookie `fm_session`, httpOnly).
+| Tài khoản | Vai trò | Quyền mặc định |
+|---|---|---|
+| `admin` | Admin | Toàn quyền: chứng từ, Quản lý người dùng, Ủy quyền, Cài đặt SAP B1 |
+| `ketoan` | Kế toán | Chứng từ (không xóa) + xem/đồng bộ danh mục |
+| `nhanvien` | Nhân viên bán hàng | Tạo/sửa đơn hàng |
+| `kiemke` | Nhân viên bán hàng | Tạo/sửa đơn hàng (đổi vai trò tùy nhu cầu) |
+
+Quên mật khẩu admin khi chưa có dữ liệu thật → chạy lại seed. Đã có dữ liệu thật → **không chạy seed** (seed xóa sạch DB); nhờ một Admin khác đặt lại mật khẩu ở **Quản lý người dùng**.
+
+Khi có nhiều cơ sở dữ liệu SAP (Bước 8), màn đăng nhập cho chọn **Cơ sở dữ liệu** làm việc. Phiên sống 12 giờ (cookie `fm_session`, httpOnly).
 
 ---
 
@@ -126,12 +191,12 @@ Session sống 12 giờ (cookie `fm_session`, httpOnly).
 
 Từ phiên bản hiện tại, **khách hàng & mặt hàng lấy TRỰC TIẾP từ SAP B1** qua Service Layer (OData v2), không dùng dữ liệu cứng local:
 
-1. Đăng nhập `admin` → menu **Cài đặt SAP B1**
-2. Nhập thông tin:
-   - **Service Layer URL**: `https://<server-sap>:50000/b1s/v1` (kết thúc bằng `/b1s/v1`)
+1. Đăng nhập `admin` → menu **Quản trị & hệ thống › Cài đặt SAP B1**
+2. Thêm cơ sở dữ liệu SAP (có thể thêm **nhiều DB/công ty**, đánh dấu 1 DB **mặc định**):
+   - **Service Layer URL**: `https://<server-sap>:50000/b1s/v1` (hoặc `/b1s/v2` tùy phiên bản Service Layer)
    - **Company DB**: tên CSDL công ty (VD: `FM_LIVE`)
-   - **SAP User / Password**: tài khoản B1 (thường là `manager`)
-3. Bấm **Lưu cài đặt** → bấm **Kiểm tra kết nối** — hệ thống đăng nhập thử vào Service Layer
+   - **SAP User / Password**: **tài khoản dịch vụ riêng, quyền tối thiểu** cho CompanyDB đó — **không dùng `manager`**. Mật khẩu được mã hóa AES-256-GCM trong DB (khóa `FM_DATA_KEY`)
+3. Bấm **Lưu** → bấm **Kiểm tra kết nối** — hệ thống đăng nhập thử vào Service Layer. Trạng thái kết nối hiện ở ô **Cơ sở dữ liệu** trên thanh đầu trang (chấm xanh = đang kết nối)
 4. Kết nối thành công → mở **Tạo đơn hàng**:
    - **Khách hàng**: bấm vào ô → dropdown tải **TOÀN BỘ danh sách** từ SAP B1 (tự phân trang gom đủ dù SL giới hạn số bản ghi/trang), gõ để lọc ngay trên máy khách — **không phân biệt hoa/thường và dấu tiếng Việt** (VD: gõ `ca chua` vẫn ra “Cà Chua Bi Đà Lạt”).
    - **Hàng hóa (nâng cấp — tìm trực tiếp)**: dropdown KHÔNG tải sẵn danh mục nữa — chỉ khi bạn gõ **tối thiểu 2 ký tự**, app mới truy vấn SAP B1 theo mã và theo tên (chỉ lấy mặt hàng **SalesItem** bán được), debounce 300ms, giới hạn 30 kết quả. Danh mục hàng chục nghìn dòng trên SL thật không còn phải tải cả trăm giây nữa.
@@ -177,15 +242,20 @@ Kiến trúc bảo mật: thông tin đăng nhập SAP chỉ nằm ở **máy ch
 
 ---
 
-## Bước 8b — Đồng bộ dữ liệu chủ: Mặt hàng · Nhóm thuế · Khách hàng
+## Bước 8b — Đồng bộ dữ liệu chủ (nhóm menu **Đồng bộ dữ liệu**)
 
-Sau khi kết nối Service Layer (Bước 8), nên đồng bộ 3 danh mục chủ về database local — menu **Quản trị**:
+Sau khi kết nối Service Layer (Bước 8), đồng bộ các danh mục chủ về database local — theo thứ tự trên menu:
 
-| Màn hình | Đồng bộ từ SAP B1 | Ghi chú |
+| Menu | Đồng bộ từ SAP B1 | Ghi chú |
 |---|---|---|
-| **Đồng bộ Mặt hàng** | `GET /Items` (chỉ hàng bán được `SalesItem = tYES`) + giá Price List 1 | Dự phòng autocomplete khi SL gián đoạn |
-| **Đồng bộ Nhóm thuế** | `GET /VatGroups` — **%VAT lấy trường `Rate` trong mảng con `VatGroups_Lines` (VTG1)** trả kèm từng nhóm; dự phòng gọi `/VatGroups('MÃ')/VatGroups_Lines`, sau mới tới cột `Rate` trên OVTG | Giữ cả nhóm **Bán (S)** / **Mua (P)**; thuế suất lưu là suất **hiệu lực hôm nay** (theo DateFrom/DateTo của từng mốc) |
-| **Đồng bộ Khách hàng** | `GET /BusinessPartners` (`CardType = 'C'`) | Không kéo Nhà cung cấp |
+| **Đối tác kinh doanh** | `GET /BusinessPartners` (`CardType = 'C'`) | Kèm người liên hệ (`ContactEmployees`), địa chỉ giao/ghi hóa đơn (`BPAddresses`), điều khoản thanh toán. Không kéo Nhà cung cấp |
+| **Mặt hàng** | `GET /Items` (chỉ hàng bán được `SalesItem = tYES`) + giá Price List 1 | Dự phòng autocomplete khi SL gián đoạn |
+| **Nhóm thuế** | `GET /VatGroups` — **%VAT lấy trường `Rate` trong mảng con `VatGroups_Lines` (VTG1)** trả kèm từng nhóm; dự phòng gọi `/VatGroups('MÃ')/VatGroups_Lines`, sau mới tới cột `Rate` trên OVTG | Giữ cả nhóm **Bán (S)** / **Mua (P)**; thuế suất lưu là suất **hiệu lực hôm nay** (theo DateFrom/DateTo của từng mốc) |
+| **Nhân viên bán hàng** | `GET /SalesPersons` (OSLP) | Dropdown NVBH trên chứng từ + gắn NVKD cho người dùng (Bước 15) |
+| **Điều khoản thanh toán** | `GET /PaymentTermsTypes` (OCTG) | Dropdown ĐKTT trên chứng từ |
+| **Import BOM/Combo** | Nhập công thức BOM/Combo từ Base Workflow | Cần quyền **Import BOM** |
+
+Danh mục lưu **theo từng cơ sở dữ liệu SAP** — đổi DB khi đăng nhập thì cần đồng bộ cho DB đó.
 
 Cách dùng mỗi màn: bấm **Đồng bộ ngay từ SAP B1** → tác vụ **chạy nền trên máy chủ** (bấm xong có thể chuyển sang trang khác, quay lại vẫn thấy tiến trình) với **thanh tiến trình** theo từng giai đoạn: kết nối → lấy danh mục từ SAP → lưu vào CSDL (hiển thị % theo số dòng đã ghi) → hoàn tất; xong hiện thông báo kết quả và danh mục tự tải lại. Dữ liệu mirror toàn bộ về local (tải đủ dù SL trả nhiều trang), bảng hiển thị đầy đủ kèm tìm kiếm **không phân biệt hoa/thường và dấu tiếng Việt**; **Xóa dữ liệu** để dọn sạch khi muốn đồng bộ lại từ đầu. Chip trạng thái cho biết: kết nối SL / số dòng local / lần đồng bộ cuối; nhóm thuế có thêm chip lọc **Tất cả / Bán (S) / Mua (P)** và cảnh báo “N nhóm chưa rõ suất” nếu bản SL không trả được thuế suất.
 
@@ -238,7 +308,7 @@ Khi đã cấu hình Service Layer, trang **Danh sách đơn hàng SO** truy v�
 - **Chứng từ gốc SAP** (kể cả đơn tạo từ SAP ngoài, không phải từ app này): hiển thị đầy đủ mã KH, ngày, trạng thái (`O`→Open, `C`→Closed), Tổng tiền (`DocTotal`) — cột **Người tạo** ghi “SAP B1 (chứng từ gốc)”, **không cho xóa/đóng/mở** từ app (muốn thao tác phải làm trên SAP B1).
 - **Đơn local chưa đẩy** (chip 🟡 Chưa đẩy hoặc ⚪ chưa cấu hình): vẫn hiển thị bình thường, đẩy lại được như Bước 9.
 - **Đơn local đã synced**: bị ẩn khỏi danh sách nếu SAP đã có chứng từ cùng DocEntry (tránh trùng); nếu chứng từ trên SAP bị xóa thì đơn local hiện lại (không bao giờ mất đơn).
-- **Chi tiết chứng từ SAP**: bấm vào dòng → modal tự tải `DocumentLines` (RDR1) kèm tên hàng, đơn vị tính, CK%, VAT%, tổng theo dòng.
+- **Chi tiết chứng từ SAP**: bấm vào dòng → màn chi tiết tự tải `DocumentLines` (RDR1) kèm tên hàng, đơn vị tính, CK%, VAT%, tổng theo dòng (bố cục giống màn tạo/sửa — xem Bước 16).
 - **Bộ lọc** chạy trên SAP bằng `$filter` OData: số chứng từ (`DocNum`), mã/tên KH, trạng thái, khoảng ngày chứng từ.
 - **SAP lỗi khi mở trang**: danh sách tự chuyển sang dữ liệu local kèm dòng cảnh báo đỏ phía trên bảng — không treo màn hình.
 
@@ -299,7 +369,7 @@ Nút **Retry** trên mỗi dòng gửi lại lệnh gốc lên Service Layer:
 
 ## Bước 13 — Sửa đơn hàng đang Open
 
-Mở **Danh sách đơn hàng** → bấm vào 1 đơn **Open** → modal chi tiết có nút **“Sửa đơn hàng”** (nút vàng). Yêu cầu quyền **Sửa** module Đơn hàng và đơn phải còn **Open**:
+Mở **Danh sách đơn hàng bán** → bấm vào 1 đơn **Open** → màn chi tiết có nút **“Sửa”**. Yêu cầu quyền **Sửa** module Đơn hàng và đơn phải còn **Open**:
 
 - Form sửa điền sẵn khách hàng, ngày, ghi chú, kho, **chiết khấu đầu chứng từ (%)** và toàn bộ dòng hàng (số lượng, đơn giá, CK%, VAT%, mã thuế, kho từng dòng) — **giữ nguyên số liệu gốc**, không tự giải lại giá.
 - Sửa được: đổi khách hàng, ngày, ghi chú, kho header/dòng, thêm/xóa/sửa dòng hàng. Cột ATP vẫn tự kiểm tra như khi tạo mới.
@@ -379,6 +449,44 @@ Thay thế Ollama: **LM Studio** (cổng 1234, có giao diện), **llama.cpp ser
 
 ---
 
+## Bước 15 — Gắn nhân viên kinh doanh cho người dùng
+
+Menu **Quản trị & hệ thống › Quản lý người dùng** (Admin):
+
+- Bảng người dùng có cột **Nhân viên kinh doanh** (hoặc “Chưa gắn”), bộ lọc theo **vai trò / trạng thái / Đã gắn – Chưa gắn**, thẻ thống kê **Đã gắn NV kinh doanh**.
+- Bấm ✎ trên một người dùng → hộp thoại gồm 2 phần:
+  - **Tài khoản**: tên đăng nhập, họ tên, vai trò, đặt lại mật khẩu.
+  - **Gắn nhân viên kinh doanh**: mỗi **cơ sở dữ liệu SAP** một ô chọn (mã NVKD — `SlpCode` — khác nhau giữa các công ty nên gắn riêng từng DB). Danh sách lấy từ **Đồng bộ dữ liệu › Nhân viên bán hàng** — chưa đồng bộ thì làm bước đó trước.
+- Nhân viên đã gắn cho người khác → hiện cảnh báo nhưng vẫn cho lưu (nhiều người dùng chung 1 NVKD).
+- **Tác dụng:** khi người dùng tạo **đơn hàng, báo giá, hóa đơn, ghi có, trả hàng, đặt cọc** mới, ô **Nhân viên bán hàng** tự điền NVKD đã gắn với DB đang làm việc (vẫn đổi được). Chứng từ sao chép từ chứng từ khác giữ NVBH của chứng từ gốc. NVKD bị ngừng hoạt động trên SAP → không tự điền.
+- Danh mục NVBH (chỉ mã + tên) đọc được bởi mọi vai trò có quyền tạo/sửa chứng từ bán hàng.
+
+---
+
+## Bước 16 — Chứng từ bán hàng & tiện ích lên đơn nhanh
+
+**Menu bên trái** sắp theo luồng bán hàng SAP B1: Tổng quan → Báo giá → Đơn hàng bán → Giao hàng → Trả hàng → Đặt cọc → Hóa đơn → Ghi có → Báo cáo bán hàng → Công nợ → Mẫu Excel. Nút **⇤** cạnh logo thu nhỏ menu thành dải icon (desktop; nhớ theo trình duyệt). Tạo đơn mới bằng nút **Tạo đơn hàng bán** ở danh sách đơn / Tổng quan.
+
+**Chứng từ** (đơn hàng, giao hàng, báo giá, hóa đơn, ghi có, trả hàng, đặt cọc):
+
+- Người liên hệ + địa chỉ giao/ghi hóa đơn lấy theo khách hàng, sửa được, gửi SAP `ContactPersonCode` / `ShipToCode` / `BillToCode`.
+- Màn **chi tiết** hiển thị đủ thông tin như màn tạo/sửa, cùng bố cục cho cả 7 loại. Chứng từ chỉ có trên SAP (tạo ngoài app) mở ở chế độ **chỉ xem**.
+- **Sao chép sang…** gom vào 1 nút menu (copy-from đúng `BaseType` / `BaseEntry` / `BaseLine` của SAP).
+- **BOM Template**: thành phần hiển thị theo SL/1 cha, nhân theo SL cha, xóa theo nhóm, thu gọn/mở rộng, đổi thành phần (quyền **Đổi thành phần BOM**). Khi đẩy SAP, app đẩy **2 bước** (POST dòng cha → đọc lại dòng SAP tự bung → PATCH thành phần người dùng nhập) để **không bị nhân đôi công thức** — xem log trong **Service Layer Audit**.
+
+**Tiện ích lên đơn nhanh** (form tạo đơn hàng bán):
+
+| Tiện ích | Cách dùng |
+|---|---|
+| **Đặt lại đơn gần nhất** | Chọn khách → chọn 1 đơn gần đây → thay hoặc nối thêm toàn bộ dòng |
+| **Dán danh sách** | Dán mã/barcode/tên + số lượng từ Excel, Zalo, email vào ô thêm dòng (hoặc Ctrl+V nhiều dòng) |
+| **Phím tắt** | `Alt+K` ô khách hàng · `Alt+N` ô thêm dòng · `Ctrl+Enter` lưu · `Ctrl+Shift+Enter` lưu nháp · `Ctrl+Delete` xóa dòng · `?` bảng phím tắt |
+| **Kiểm tra trước khi lưu** | Cảnh báo giá 0, số lượng bất thường, trùng mặt hàng, thiếu tồn… trước khi ghi |
+| **Giỏ hàng quen của khách** | Lưới mặt hàng khách hay mua (90 ngày) + SL lần trước / trung bình → điền nhanh |
+| **Gợi ý ngày giao & kho** | Theo lịch sử đơn của khách (thứ trong tuần, số ngày giao, kho hay dùng) → bấm **Áp dụng** |
+
+---
+
 ## 🔧 Xử lý lỗi thường gặp
 
 | Lỗi | Nguyên nhân & cách xử lý |
@@ -388,11 +496,17 @@ Thay thế Ollama: **LM Studio** (cổng 1234, có giao diện), **llama.cpp ser
 | `no such table` / thiếu bảng khi chạy | Chạy `bunx prisma db push` — bản này `bun run dev` cũng **tự push** trước khi start |
 | Lỗi `Unknown argument …` (PrismaClientValidationError) sau khi cập nhật schema | Dev server đang giữ Prisma client cũ — chạy `bash scripts/restart-dev.sh` |
 | Lỗi `P1003` / không tìm thấy file db | Đường dẫn trong `.env` sai — kiểm tra `file:` trỏ đúng tới `db/custom.db` |
-| Đăng nhập không được sau khi seed lại | Xóa cookie cũ: F12 → Application → Cookies → xóa `fm_session` |
+| Đăng nhập không được sau khi seed lại | Seed sinh mật khẩu mới (in ra console) — dùng mật khẩu đó; xóa cookie cũ: F12 → Application → Cookies → xóa `fm_session` |
+| Restart server xong mọi người bị đăng xuất | Chưa đặt `FM_SESSION_SECRET` (≥ 16 ký tự) trong `.env` |
+| Production không khởi động: `[fm-crypto] FM_DATA_KEY chưa đặt` | Đặt `FM_DATA_KEY` (≥ 16 ký tự) trong `.env`, rồi nhập lại mật khẩu SAP ở **Cài đặt SAP B1** nếu trước đó chạy không có khóa |
+| Lỗi CSS `Parsing CSS source code failed` sau khi cập nhật | Đang chạy bản cũ có lỗi comment CSS — `git pull origin main` lên bản mới; dev vẫn báo lỗi thì dừng server, xóa thư mục `.next` rồi chạy lại |
+| Đẩy chứng từ có BOM Template bị nhân đôi thành phần trên SAP | Bản cũ — cập nhật bản mới (đẩy 2 bước, Bước 16). Chứng từ đã lỡ nhân đôi: sửa trên app rồi lưu lại để PATCH đúng dòng |
+| Dropdown Nhân viên bán hàng trống / không tự điền | Chưa đồng bộ **Đồng bộ dữ liệu › Nhân viên bán hàng** cho DB đang làm việc, hoặc người dùng chưa được gắn NVKD (Bước 15) |
+| PR trên GitHub có check đỏ **Workers Builds** của Cloudflare | Không liên quan code — xem mục **Không deploy lên Cloudflare** bên dưới |
 | `bun: command not found` | Cài Bun lại (`npm i -g bun`) hoặc dùng `npm`/`npx` thay thế |
-| Seed báo lỗi kiểu dữ liệu | Chạy lại `bunx prisma db push --accept-data-loss` trước khi seed |
+| Seed báo lỗi kiểu dữ liệu | Chỉ với DB demo/mới: `npx prisma db push --accept-data-loss` rồi seed lại. **Không làm trên DB có dữ liệu thật** (cờ này có thể xóa cột/bảng) |
 | Build lỗi TypeScript | Đã bật `ignoreBuildErrors` — nếu vẫn lỗi, kiểm tra phiên bản Node ≥ 20 |
-| “Kiểm tra kết nối” báo lỗi | Kiểm tra: URL kết thúc `/b1s/v1`, server SAP chìa cổng 50000, firewall/HTTPS cert, đúng CompanyDB + user/password |
+| “Kiểm tra kết nối” báo lỗi | Kiểm tra: URL kết thúc `/b1s/v1` hoặc `/b1s/v2`, server SAP mở cổng 50000, firewall/HTTPS cert, đúng CompanyDB + user/password |
 | Autocomplete báo lỗi SAP | Xem thông báo trên dropdown — thường do sai mật khẩu SAP hoặc Service Layer không truy cập được |
 | Tìm kiếm/tạo đơn báo 400 `the value 'true' of property ')' is invalid` | Bản SL thật **không hỗ trợ ngoặc tròn trong $filter**. Bản mới đã loại hoàn toàn ngoặc: tìm kiếm được tách thành nhiều lượt truy vấn `and`-only rồi gộp kết quả (đơn hàng, khách hàng, mặt hàng). Nếu vẫn thấy lỗi này → **bạn đang chạy bản zip cũ, cần deploy lại bản mới nhất** |
 | Audit báo 400 `/InventoryItems?$filter=itemCode…` (viết thường) | OData phân biệt hoa/thường — SL chỉ nhận `ItemCode`. Bản cũ dùng chữ thường; **bản mới đã viết đúng hoa** — deploy lại bản zip mới nhất |
@@ -407,16 +521,21 @@ Thay thế Ollama: **LM Studio** (cổng 1234, có giao diện), **llama.cpp ser
 ## 📁 Cấu trúc quan trọng
 
 ```
-sapb1-so-system/
-├── .env                     # DATABASE_URL (tự tạo)
-├── db/custom.db             # SQLite database
+sapb1-farmers-market/
+├── .env                     # DATABASE_URL, FM_SESSION_SECRET, FM_DATA_KEY (tự tạo từ .env.example, không commit)
+├── db/custom.db             # SQLite database (sao lưu file này trước khi cập nhật)
 ├── prisma/
-│   ├── schema.prisma        # Models: User, Role, SalesOrder, ...
-│   └── seed.ts              # Dữ liệu demo
+│   ├── schema.prisma        # Models: User, Role, UserSalesPerson, SapDatabase, SalesOrder, Delivery, Quotation, ArInvoice…
+│   └── seed.ts              # Dữ liệu demo (XÓA SẠCH DB trước khi tạo)
+├── scripts/                 # dev.js / start.js, mock-sap-server.ts, clear-demo-data.ts, script bảo trì
 ├── src/
-│   ├── app/api/             # REST API (auth, orders, users, roles, settings + test, warehouses, items + sync/stock/price, vatgroups/sync, bpartners/sync, sap-audit)
-│   ├── components/fm/       # Giao diện Farmers Market (orders, users, roles, settings, sap-audit, 3 màn đồng bộ danh mục)
-│   └── lib/                 # fm-auth (đăng nhập), db (Prisma), order-calc (CK đầu chứng từ + VAT theo dòng), sap-service-layer (tích hợp B1), sap-orders, sap-push-order, fm-items, fm-master (danh mục chủ), sap-audit (nhật ký SL)
+│   ├── app/api/             # REST API nội bộ: auth, orders, deliveries, quotations, invoices, credit-memos, returns,
+│   │                        # down-payments, users, roles, sap-databases, sales-persons, payment-terms, items, partners,
+│   │                        # vatgroups, warehouses, bom/bom-import, assistant, reports, sap-audit…
+│   ├── components/fm/       # Giao diện: app-shell (menu), form/chi tiết chứng từ, users, settings, màn đồng bộ, trợ lý
+│   └── lib/                 # sap-service-layer (client B1 duy nhất), fm-auth, fm-crypto (mã hóa secret), sap-push-document,
+│                            # sap-bom-reconcile (đẩy BOM 2 bước), order-calc, user-sales-person, assistant/…
+├── HUONG-DAN-DEPLOY-LOCAL.md
 └── public/                  # Logo, tĩnh
 ```
 
@@ -433,9 +552,11 @@ Description=SAP B1 SO System
 After=network.target
 
 [Service]
-WorkingDirectory=/home/tenban/sapb1-so-system
-ExecStart=/usr/local/bin/bun .next/standalone/server.js
+WorkingDirectory=/home/tenban/sapb1-farmers-market
+# Nạp DATABASE_URL, FM_SESSION_SECRET, FM_DATA_KEY từ .env (chmod 600 .env)
+EnvironmentFile=/home/tenban/sapb1-farmers-market/.env
 Environment=NODE_ENV=production
+ExecStart=/usr/bin/node scripts/start.js
 Restart=always
 
 [Install]
@@ -446,5 +567,18 @@ WantedBy=multi-user.target
 sudo systemctl enable --now sapb1-so
 ```
 
-**Docker (tuỳ chọn):** build image từ Node 20, chạy `bun install && bun run build`,
-mount volume cho `db/` để giữ dữ liệu giữa các lần khởi động.
+Xem log: `journalctl -u sapb1-so -f` (hoặc file `server.log` trong thư mục dự án).
+
+**Docker (tuỳ chọn):** build image từ Node 22, chạy `npm ci && npm run build`, khởi động bằng `node scripts/start.js`,
+truyền `FM_SESSION_SECRET` / `FM_DATA_KEY` qua biến môi trường (không bake vào image), mount volume cho `db/` để giữ dữ liệu giữa các lần khởi động.
+
+---
+
+## ☁️ Không deploy lên Cloudflare
+
+Ứng dụng dùng **SQLite + Prisma + Next.js standalone (Node.js)** và kết nối Service Layer trong mạng nội bộ — **không chạy được trên Cloudflare Workers/Pages**. Repo **không có** cấu hình Cloudflare (`wrangler`, OpenNext…); nếu PR trên GitHub vẫn hiện check đỏ **“Workers Builds: sapb1-farmers-market”** hoặc bot bình luận *Deploying Preview to Cloudflare*, đó là tích hợp bật từ phía Cloudflare. Tắt bằng một trong các cách:
+
+1. **Cloudflare dashboard** → **Workers & Pages** → `sapb1-farmers-market` → **Settings → Build** → **Disconnect** repository (hoặc **Delete** worker nếu không dùng).
+2. **GitHub** → **Settings → Applications → Installed GitHub Apps → Cloudflare Workers and Pages → Configure** → bỏ repo `sapb1-farmers-market` (hoặc **Uninstall**).
+
+Deploy chuẩn: theo **Bước 6 / 6b** + mục **Chạy service thường trực** ở trên.
