@@ -70,6 +70,8 @@ interface ReportData {
   invoices?: DocRow[]
   downPayments: DownPaymentRow[]
   unappliedTotal: number
+  /** SAP B1 không đọc được → số liệu chỉ từ ứng dụng */
+  sapWarning?: string
 }
 
 const BUCKET_COLORS: Record<string, string> = {
@@ -140,6 +142,12 @@ export default function ArAgingReportView() {
           </button>
         }
       />
+
+      {data?.sapWarning && (
+        <div className="fm-alert fm-alert--warning" role="status" style={{ marginBottom: 12 }}>
+          {data.sapWarning}
+        </div>
+      )}
 
       {error && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>

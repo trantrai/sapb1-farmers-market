@@ -44,6 +44,8 @@ interface ReportData {
   topStaff: TopStaff[]
   openOverdueOrders: OverdueOrder[]
   deliveryPerf: { total: number; onTime: number; late: number; onTimePct: number }
+  /** SAP B1 không đọc được → số liệu chỉ từ ứng dụng */
+  sapWarning?: string
 }
 
 // Palette biểu đồ map về token theme (globals.css, Swiss anchor): gold / navy / coral / navy-deep / coral-deep / gold-ink
@@ -127,6 +129,12 @@ export default function SalesReportView() {
           </button>
         </div>
       </div>
+
+      {data?.sapWarning && (
+        <div className="fm-alert fm-alert--warning" role="status" style={{ marginBottom: 12 }}>
+          {data.sapWarning}
+        </div>
+      )}
 
       {error && (
         <div className="fm-alert fm-alert--error" role="alert" style={{ marginBottom: 12 }}>

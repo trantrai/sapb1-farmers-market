@@ -11,6 +11,8 @@ import {
   startOfUtcDay,
   type BucketKey,
 } from '@/lib/ar-aging'
+import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
+import { fetchSapArDocs, isOnSap, type SapArDoc } from '@/lib/sap-ar-report'
 
 // GET /api/reports/ar-aging
 // CÔNG NỢ PHẢI THU theo chuẩn SAP B1:
@@ -23,6 +25,9 @@ import {
 //    ĐKTT → fallback docDueDate đã lưu
 //  - Aging buckets tính theo ngày đáo hạn: chưa đến hạn | 1–30 | 31–60 |
 //    61–90 | > 90 ngày quá hạn
+//  - Nguồn: HĐ/ghi có CÒN MỞ trên SAP B1 (chỉ đọc; số dư = DocTotal − PaidToDate,
+//    đáo hạn = DocDueDate của SAP) + chứng từ local CHƯA lên SAP. SAP lỗi →
+//    chỉ số liệu local kèm sapWarning. Tạm ứng vẫn lấy local.
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req)
   if (!user) return unauthorized()
@@ -49,6 +54,8 @@ export async function GET(req: NextRequest) {
       paymentGroupCode: true,
       grandTotal: true,
       paidAmount: true,
+      sapSyncStatus: true,
+      sapDocEntry: true,
     } as const
     const docWhere = { ...dbScope, status: { not: 'Cancelled' }, isDraft: { not: true } }
 
@@ -156,8 +163,38 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    for (const inv of invoices) addDoc('invoice', inv)
-    for (const cm of creditMemos) addDoc('creditMemo', cm)
+    // Chứng từ SAP còn mở (chỉ đọc) — gộp với chứng từ local chưa lên SAP
+    let sapWarning: string | undefined
+    let invList = invoices
+    let cmList = creditMemos
+    let sapInv: SapArDoc[] = []
+    let sapCm: SapArDoc[] = []
+    const s = await loadSapSettings(user.databaseId)
+    if (isSapConfigured(s)) {
+      const [ri, rc] = await Promise.all([
+        fetchSapArDocs(s, 'Invoices', { openOnly: true }),
+        fetchSapArDocs(s, 'CreditNotes', { openOnly: true }),
+      ])
+      if (ri.ok && rc.ok) {
+        sapInv = ri.docs
+        sapCm = rc.docs
+        invList = invoices.filter((d) => !isOnSap(d))
+        cmList = creditMemos.filter((d) => !isOnSap(d))
+      } else {
+        const err = !ri.ok ? ri.error : !rc.ok ? rc.error : ''
+        sapWarning = `Chưa lấy được công nợ từ SAP B1 (${err}) — đang hiển thị số liệu trong ứng dụng.`
+      }
+    }
+    // SAP đã tính DocDueDate theo ĐKTT → paymentGroupCode null để dùng thẳng DocDueDate
+    const fromSap = (d: SapArDoc, prefix: string) => ({
+      id: `${prefix}-${d.docEntry}`, docNum: d.docNum, cardCode: d.cardCode, cardName: d.cardName,
+      docDate: new Date(`${d.docDate}T00:00:00.000Z`), docDueDate: new Date(`${d.docDueDate}T00:00:00.000Z`),
+      paymentGroupCode: null, grandTotal: d.docTotal, paidAmount: d.paidToDate,
+    })
+    for (const d of sapInv) addDoc('invoice', fromSap(d, 'sap-inv'))
+    for (const d of sapCm) addDoc('creditMemo', fromSap(d, 'sap-cm'))
+    for (const inv of invList) addDoc('invoice', inv)
+    for (const cm of cmList) addDoc('creditMemo', cm)
 
     // Section riêng: tạm ứng chưa áp (không trừ vào công nợ — đúng SAP B1)
     const unapplied = downPayments
@@ -182,8 +219,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       grandTotal,
-      invoiceCount: invoices.length,
-      creditMemoCount: creditMemos.length,
+      invoiceCount: sapInv.length + invList.length,
+      creditMemoCount: sapCm.length + cmList.length,
+      sapInvoiceCount: sapInv.length,
+      sapCreditMemoCount: sapCm.length,
+      ...(sapWarning ? { sapWarning } : {}),
       openDocCount: rows.length,
       buckets: AR_BUCKETS.map((b) => ({
         key: b.key,
