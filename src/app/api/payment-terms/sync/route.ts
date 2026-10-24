@@ -17,8 +17,14 @@ import { rateLimit } from '@/lib/rate-limit'
 // DELETE /api/payment-terms/sync — xóa toàn bộ dữ liệu đã đồng bộ (cần settings.edit)
 // ============================================================
 
-/** Dòng OCTG thô từ Service Layer */
+/**
+ * Dòng /PaymentTermsTypes thô từ Service Layer. SL đặt tên field theo $metadata
+ * (GroupNumber/PaymentTermsGroupName), KHÔNG theo cột OCTG (GroupNum/PymntGroup)
+ * — đọc cả hai để tương thích.
+ */
 interface OctgRow {
+  GroupNumber?: number
+  PaymentTermsGroupName?: string
   GroupNum?: number
   PymntGroup?: string
   /** Số ngày cộng thêm tính ngày đáo hạn (chuẩn SAP B1:
@@ -152,7 +158,10 @@ export async function POST(req: NextRequest) {
     )
   }
   const rows = r.data
+    .map((x) => ({ ...x, GroupNum: x.GroupNumber ?? x.GroupNum, PymntGroup: x.PaymentTermsGroupName ?? x.PymntGroup }))
     .filter((x) => typeof x.GroupNum === 'number')
+    // Khử trùng theo mã (SL không hỗ trợ $skip có thể trả lặp trang)
+    .filter((x, i, arr) => arr.findIndex((y) => y.GroupNum === x.GroupNum) === i)
     .sort((a, b) => (a.GroupNum as number) - (b.GroupNum as number))
   if (rows.length === 0) {
     return NextResponse.json(

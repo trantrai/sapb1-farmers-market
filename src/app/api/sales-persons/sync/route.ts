@@ -17,8 +17,14 @@ import { rateLimit } from '@/lib/rate-limit'
 // DELETE /api/sales-persons/sync — xóa toàn bộ dữ liệu đã đồng bộ (cần settings.edit)
 // ============================================================
 
-/** Dòng OSLP thô từ Service Layer */
+/**
+ * Dòng /SalesPersons thô từ Service Layer. SL đặt tên field theo $metadata
+ * (SalesEmployeeCode/SalesEmployeeName), KHÔNG theo cột OSLP (SlpCode/SlpName)
+ * — đọc cả hai để tương thích.
+ */
 interface SlpRow {
+  SalesEmployeeCode?: number
+  SalesEmployeeName?: string
   SlpCode?: number
   SlpName?: string
   /** BoYesNoEnum: 'tYES' | 'tNO' */
@@ -145,7 +151,10 @@ export async function POST(req: NextRequest) {
     )
   }
   const rows = r.data
+    .map((x) => ({ ...x, SlpCode: x.SalesEmployeeCode ?? x.SlpCode, SlpName: x.SalesEmployeeName ?? x.SlpName }))
     .filter((x) => typeof x.SlpCode === 'number')
+    // Khử trùng theo mã (SL không hỗ trợ $skip có thể trả lặp trang)
+    .filter((x, i, arr) => arr.findIndex((y) => y.SlpCode === x.SlpCode) === i)
     .sort((a, b) => (a.SlpCode as number) - (b.SlpCode as number))
   if (rows.length === 0) {
     return NextResponse.json(
@@ -169,7 +178,6 @@ export async function POST(req: NextRequest) {
       name,
       active: x.Active !== 'tNO',
       sapDatabaseId: syncDbId,
-      syncedAt: now,
       updatedAt: now,
     }
     if (existingCodes.has(code)) {
