@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized, hashPassword } from '@/lib/fm-auth'
+import { parseSlpAssignments, validateSlpAssignments, saveSlpAssignments } from '@/lib/user-sales-person'
 
 const PUBLIC_SELECT = {
   id: true,
@@ -40,7 +41,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       role?: string
       password?: string
       active?: boolean
+      salesPersons?: unknown
     }
+
+    const slp = parseSlpAssignments(body.salesPersons)
+    if (!slp.ok) return NextResponse.json({ error: slp.error }, { status: 400 })
+    const slpErr = await validateSlpAssignments(slp.data)
+    if (slpErr) return NextResponse.json({ error: slpErr }, { status: 400 })
 
     const data: { fullName?: string; role?: string; password?: string; active?: boolean } = {}
 
@@ -95,11 +102,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       data.active = Boolean(body.active)
     }
 
-    if (Object.keys(data).length === 0) {
+    if (Object.keys(data).length === 0 && slp.data.length === 0) {
       return NextResponse.json({ error: 'Không có thay đổi nào' }, { status: 400 })
     }
 
-    const updated = await prisma.user.update({ where: { id }, data, select: PUBLIC_SELECT })
+    const updated = Object.keys(data).length
+      ? await prisma.user.update({ where: { id }, data, select: PUBLIC_SELECT })
+      : await prisma.user.findUniqueOrThrow({ where: { id }, select: PUBLIC_SELECT })
+    await saveSlpAssignments(id, slp.data)
     return NextResponse.json({ ok: true, user: updated })
   } catch (e) {
     console.error('PATCH /api/users/[id]', e)
@@ -132,6 +142,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     }
   }
 
+  await prisma.userSalesPerson.deleteMany({ where: { userId: id } })
   await prisma.user.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }

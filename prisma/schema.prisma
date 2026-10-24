@@ -902,6 +902,20 @@ model SalesPerson {
   @@index([sapDatabaseId])
 }
 
+// Gắn người dùng ↔ nhân viên kinh doanh (OSLP.SlpCode) theo từng DB SAP —
+// dùng tự điền NVBH khi tạo chứng từ mới. Mỗi user tối đa 1 NVKD / DB.
+model UserSalesPerson {
+  id              String   @id @default(cuid())
+  userId          String
+  sapDatabaseId   String
+  salesPersonCode Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, sapDatabaseId])
+  @@index([sapDatabaseId, salesPersonCode])
+}
+
 // Lịch sử ghi nhận thanh toán cho hóa đơn/ghi có/đặt cọc (Đợt 2, MỤC 11)
 model PaymentRecord {
   id        String   @id @default(cuid())

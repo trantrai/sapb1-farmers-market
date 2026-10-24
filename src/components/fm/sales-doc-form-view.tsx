@@ -11,13 +11,14 @@
 // nguồn → API ?prefill=1 trả dữ liệu điền sẵn (không tạo chứng từ ngay).
 // ============================================================
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, ArrowLeft, Wallet, Copy, Building2 } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
+import { parseMySalesPerson } from '@/lib/sales-person-default'
 import CopyFromPicker from './copy-from-picker'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
@@ -402,6 +403,10 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
 
   // ---- Đợt 2 — Nhân viên bán hàng: /api/sales-persons (worker khác triển khai
   // song song). 404/lỗi/rỗng → fallback nhập mã số tay để không chặn nhập liệu ----
+  // Chứng từ MỚI (không sao chép từ nguồn): tự điền NVKD gắn với user (mine) nếu ô còn trống
+  const applyMySlp = useEffectEvent((mine: number | null) => {
+    if (!isEdit && !sourceId && mine !== null) setSalesPersonCode((c) => c ?? mine)
+  })
   useEffect(() => {
     let cancelled = false
     api('/api/sales-persons')
@@ -414,6 +419,7 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           .filter((r) => Number.isInteger(r.code))
         if (list.length > 0) setSalesPersons(list)
         else setSpFallback(true)
+        applyMySlp(parseMySalesPerson(j))
       })
       .catch(() => { if (!cancelled) setSpFallback(true) })
     return () => { cancelled = true }

@@ -3,6 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized, hashPassword } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { ROLE_OPTIONS } from '@/lib/fm-shared'
+import { parseSlpAssignments, validateSlpAssignments, saveSlpAssignments, salesPersonOptions, slpByUser } from '@/lib/user-sales-person'
 
 const PUBLIC_SELECT = {
   id: true,
@@ -24,7 +25,16 @@ export async function GET(req: NextRequest) {
 
   const users = await prisma.user.findMany({ select: PUBLIC_SELECT, orderBy: { username: 'asc' } })
   const roles = await prisma.role.findMany({ select: { name: true, label: true }, orderBy: { name: 'asc' } })
-  return NextResponse.json({ data: users, roles, me: user.username })
+  // NVKD đã gắn theo từng DB SAP + danh mục để chọn (màn Người dùng)
+  const slp = await slpByUser(users.map((u) => u.id))
+  const options = await salesPersonOptions()
+  return NextResponse.json({
+    data: users.map((u) => ({ ...u, salesPersons: slp[u.id] ?? [] })),
+    roles,
+    me: user.username,
+    databases: options.databases,
+    salesPersonsByDb: options.salesPersons,
+  })
 }
 
 // POST /api/users — tạo người dùng mới
@@ -49,6 +59,7 @@ export async function POST(req: NextRequest) {
       fullName?: string
       password?: string
       role?: string
+      salesPersons?: unknown
     }
     const username = String(body.username ?? '').trim().toLowerCase()
     const fullName = String(body.fullName ?? '').trim()
@@ -91,6 +102,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const slp = parseSlpAssignments(body.salesPersons)
+    if (!slp.ok) return NextResponse.json({ error: slp.error }, { status: 400 })
+    const slpErr = await validateSlpAssignments(slp.data)
+    if (slpErr) return NextResponse.json({ error: slpErr }, { status: 400 })
+
     const dup = await prisma.user.findUnique({ where: { username } })
     if (dup) {
       return NextResponse.json({ error: `Tên đăng nhập "${username}" đã được sử dụng` }, { status: 409 })
@@ -100,6 +116,7 @@ export async function POST(req: NextRequest) {
       data: { username, fullName, role, password: await hashPassword(password), active: true },
       select: PUBLIC_SELECT,
     })
+    await saveSlpAssignments(created.id, slp.data)
     return NextResponse.json({ ok: true, user: created }, { status: 201 })
   } catch (e) {
     console.error('POST /api/users', e)

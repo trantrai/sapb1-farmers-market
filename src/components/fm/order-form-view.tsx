@@ -7,6 +7,7 @@ import PageHeader from './page-header'
 import { formatVND, formatNum, formatDateVN } from '@/lib/fm-shared'
 import { calcOrderLines } from '@/lib/order-calc'
 import { api } from '@/lib/fm-client'
+import { parseMySalesPerson, withMySalesPerson } from '@/lib/sales-person-default'
 import { useFocusTrap } from './use-focus-trap'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import CopyFromPicker from './copy-from-picker'
@@ -714,6 +715,9 @@ export default function OrderFormView({
   /** NVBH: GET /api/sales-persons → [{code, name}]; 404/lỗi → ô nhập số (fallback) */
   const [salesPersons, setSalesPersons] = useState<{ code: number; name: string }[]>([])
   const [spListFailed, setSpListFailed] = useState(false)
+  /** NVKD gắn với user ở DB hiện tại (màn Người dùng) → tự điền NVBH cho đơn MỚI */
+  const mySlpRef = useRef<number | null>(null)
+  const freshB2b = (d: string) => withMySalesPerson(defaultB2BForm(d), mySlpRef.current)
   /** ĐKTT: GET /api/payment-terms → [{code, name}]; 404/lỗi → ô nhập số (fallback) */
   const [paymentTerms, setPaymentTerms] = useState<{ code: number; name: string }[]>([])
   const [ptListFailed, setPtListFailed] = useState(false)
@@ -878,7 +882,7 @@ export default function OrderFormView({
     setConfirmCfg(null)
     setPartner(null); setRemarks('')
     setHeaderDiscPct(0)
-    setB2b(defaultB2BForm(docDate))
+    setB2b(freshB2b(docDate))
     setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8, warehouseCode: headerWh || undefined }])
     setAtp({})
     setError('')
@@ -1451,7 +1455,7 @@ export default function OrderFormView({
       setRemarks('')
       setHeaderWh('')
       setHeaderDiscPct(0)
-      setB2b(defaultB2BForm(new Date().toISOString().slice(0, 10)))
+      setB2b(freshB2b(new Date().toISOString().slice(0, 10)))
       setLines([{ key: nextKey(), item: null, quantity: 1, unitPrice: 0, discPct: 0, vatPct: 8 }])
       setError('')
       setFieldErr({})
@@ -1745,6 +1749,10 @@ export default function OrderFormView({
   }
 
   // ---- B2B: tải danh mục NVBH (SalesPersons) — lỗi/404 → dùng ô nhập số (fallback) ----
+  const applyMySlp = useEffectEvent((mine: number | null) => {
+    mySlpRef.current = mine
+    if (!isEdit) setB2b((b) => withMySalesPerson(b, mine))
+  })
   useEffect(() => {
     let cancelled = false
     api('/api/sales-persons')
@@ -1758,6 +1766,7 @@ export default function OrderFormView({
           .filter((x: { code: number }) => Number.isFinite(x.code))
         setSalesPersons(rows)
         if (rows.length === 0) setSpListFailed(true)
+        applyMySlp(parseMySalesPerson(j))
       })
       .catch(() => { if (!cancelled) setSpListFailed(true) })
     return () => { cancelled = true }

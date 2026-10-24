@@ -114,6 +114,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     )
   }
 
+  await prisma.userSalesPerson.deleteMany({ where: { sapDatabaseId: id } }) // gắn NVKD theo DB này hết ý nghĩa
   await prisma.sapDatabase.delete({ where: { id } })
   // Nếu xóa DB mặc định → chuyển cờ mặc định cho DB còn lại (cũ nhất)
   if (existing.isDefault) {
