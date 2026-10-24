@@ -25,6 +25,8 @@ import DeliveryHint from './delivery-hint'
 import type { OrderDraft as AssistantDraftData } from '@/lib/assistant/agent'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
+import { IMPORT_MAX_ROWS, parseImportRows, type ImportMatch } from '@/lib/order-import'
+import OrderImportPreview, { type ImportPick, type ImportPreviewData } from './order-import-preview'
 
 /** Nháp đơn từ Trợ lý sale admin + nonce (đổi nonce để áp dụng lại) */
 export type AssistantOrderDraft = AssistantDraftData & { nonce: number }
@@ -765,6 +767,8 @@ export default function OrderFormView({
   const [importErrors, setImportErrors] = useState<string[] | null>(null)
   /** Tiến trình tra cứu mã hàng từ master data (null = không chạy) */
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null)
+  /** Kết quả khớp chờ người dùng duyệt ở hộp xem trước (null = đóng) */
+  const [importPreview, setImportPreview] = useState<ImportPreviewData | null>(null)
 
   // ---- Mẫu đơn hàng (Order Template) ----
   interface TemplateLine {
@@ -948,34 +952,16 @@ export default function OrderFormView({
     setPriceHistFor(null)
   }
 
-  /** Parse số từ ô Excel: chấp nhận "1.234,56" (vi), "1,234.56" (en), "1,5".
-   *  Trả null khi ô trống, NaN khi không phải số. */
-  const parseExcelNum = (v: string): number | null => {
-    const s = v.trim().replace(/\s/g, '')
-    if (s === '') return null
-    let norm = s
-    if (norm.includes(',') && norm.includes('.')) {
-      norm =
-        norm.lastIndexOf(',') > norm.lastIndexOf('.')
-          ? norm.replace(/\./g, '').replace(',', '.')
-          : norm.replace(/,/g, '')
-    } else if (norm.includes(',')) {
-      norm = norm.replace(',', '.')
-    }
-    const n = Number(norm)
-    return Number.isFinite(n) ? n : NaN
-  }
-
+  /** Bước 1: đọc file theo template → khớp danh mục (1 request) → mở hộp xem trước */
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
 
+    setImportMsg(null)
+    setImportErrors(null)
+    setImportProgress({ current: 0, total: 0 })
     try {
-      // Reset banner cũ + bắt đầu hiển thị tiến trình
-      setImportMsg(null)
-      setImportErrors(null)
-
       // 1) Lấy template mặc định
       const tRes = await api('/api/excel-templates')
       const tJson = await tRes.json()
@@ -985,11 +971,9 @@ export default function OrderFormView({
         setImportMsg({ type: 'error', text: 'Chưa có template Excel nào. Vào "Mẫu Excel" để tạo template trước.' })
         return
       }
-      const mapping: Record<string, string> = template.mapping
 
-      // 2) Đọc file Excel
+      // 2) Đọc file Excel — lazy load xlsx (~7MB) chỉ khi dùng nhập Excel
       const buf = await file.arrayBuffer()
-      // B4: lazy load xlsx (~7MB) chỉ khi dùng nhập Excel
       const XLSX = await import('xlsx')
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
@@ -999,163 +983,105 @@ export default function OrderFormView({
         return
       }
 
-      // Đảo mapping: fieldKey -> excelColumn
-      const fieldToCol: Record<string, string> = {}
-      for (const [col, field] of Object.entries(mapping)) fieldToCol[field] = col
-
-      // 3) Parse + validate từng dòng (mã hàng, số lượng, số học)
-      interface ParsedRow {
-        excelRow: number // số dòng trên file (1-based, đã + header)
-        itemCode: string
-        itemName: string
-        quantity: number
-        unitPrice: number | null // null = Excel không khai → lấy từ master data
-        discPct: number | null
-        uom: string
-        taxCode: string
-        warehouseCode: string
-      }
-      const parsed: ParsedRow[] = []
-      const errors: string[] = []
-      rows.forEach((row, idx) => {
-        const excelRow = idx + 2
-        const get = (field: string): string => {
-          const col = fieldToCol[field]
-          if (!col) return ''
-          return String(row[col] ?? '').trim()
-        }
-        const itemCode = get('itemCode')
-        if (!itemCode) {
-          errors.push(`Dòng ${excelRow}: thiếu Mã hàng`)
-          return
-        }
-        const quantity = parseExcelNum(get('quantity'))
-        if (quantity === null || Number.isNaN(quantity)) {
-          errors.push(`Dòng ${excelRow}: Số lượng trống hoặc không phải số`)
-          return
-        }
-        if (quantity <= 0) {
-          errors.push(`Dòng ${excelRow}: Số lượng phải > 0`)
-          return
-        }
-        const unitPrice = parseExcelNum(get('unitPrice'))
-        if (unitPrice !== null && (Number.isNaN(unitPrice) || unitPrice < 0)) {
-          errors.push(`Dòng ${excelRow}: Đơn giá không hợp lệ`)
-          return
-        }
-        const discPct = parseExcelNum(get('discPct'))
-        if (discPct !== null && (Number.isNaN(discPct) || discPct < 0 || discPct > 100)) {
-          errors.push(`Dòng ${excelRow}: Chiết khấu % phải từ 0 đến 100`)
-          return
-        }
-        parsed.push({
-          excelRow,
-          itemCode,
-          itemName: get('itemName'),
-          quantity,
-          unitPrice,
-          discPct,
-          uom: get('uom'),
-          taxCode: get('taxCode'),
-          warehouseCode: get('warehouseCode'),
-        })
-      })
-
-      // 4) Tra cứu master data cho các mã hàng distinct — điền thông tin còn thiếu
-      //    (tên hàng, đơn vị, đơn giá, mã thuế, VAT%) mà template không khai báo
-      interface MasterItem {
-        itemCode: string
-        itemName?: string
-        uom?: string
-        price?: number
-        taxCode?: string
-        vatRate?: number
-        barcode?: string
-      }
-      const master = new Map<string, MasterItem>()
-      const distinctCodes = [...new Set(parsed.map((p) => p.itemCode))]
-      for (const [idx, code] of distinctCodes.entries()) {
-        // Hiển thị tiến trình tra cứu để người dùng biết không bị treo
-        setImportProgress({ current: idx + 1, total: distinctCodes.length })
-        try {
-          // Timeout dài: lần đầu cache SAP lạnh phải tải toàn bộ danh mục phân trang
-          const res = await api(`/api/items?q=${encodeURIComponent(code)}`, { timeoutMs: 120_000 })
-          if (!res.ok) continue
-          const json = await res.json()
-          const items = (json.data ?? []) as MasterItem[]
-          const found = items.find(
-            (it) => String(it.itemCode ?? '').trim().toLowerCase() === code.toLowerCase(),
-          )
-          if (found) master.set(code, found)
-        } catch {
-          /* lỗi mạng/timeout → coi như không tìm thấy, báo ở bước sau */
-        }
-      }
-
-      // 5) Dựng dòng đơn + validate mã hàng tồn tại trong danh mục
-      const newLines: DraftLine[] = []
-      for (const p of parsed) {
-        const m = master.get(p.itemCode)
-        if (!m) {
-          errors.push(`Dòng ${p.excelRow}: Mã hàng "${p.itemCode}" không có trong danh mục`)
-          continue
-        }
-        const item: ACOption = {
-          code: m.itemCode,
-          name: p.itemName || m.itemName || m.itemCode,
-          uom: m.uom ?? '',
-          taxCode: m.taxCode ?? '',
-          vatRate: typeof m.vatRate === 'number' ? m.vatRate : undefined,
-          price: typeof m.price === 'number' && m.price > 0 ? m.price : undefined,
-          barcode: m.barcode ?? '',
-        }
-        newLines.push({
-          key: nextKey(),
-          item,
-          quantity: p.quantity,
-          // Ưu tiên đơn giá trên Excel; thiếu → giá Price List 1 từ master data
-          unitPrice: p.unitPrice ?? item.price ?? 0,
-          discPct: p.discPct ?? 0,
-          // Template không có VAT% → lấy thuế suất theo mã thuế của mặt hàng
-          vatPct: item.vatRate ?? 8,
-          uom: p.uom || item.uom || undefined,
-          taxCode: p.taxCode || item.taxCode || undefined,
-          warehouseCode: p.warehouseCode || headerWh || undefined,
-        })
-      }
-
-      if (newLines.length === 0) {
-        setImportMsg({ type: 'error', text: 'Không nhập được dòng nào' })
-        setImportErrors(errors.length > 0 ? errors : null)
+      // 3) Parse + kiểm số học từng dòng
+      const { parsed, errors } = parseImportRows(rows, template.mapping as Record<string, string>)
+      if (parsed.length > IMPORT_MAX_ROWS) {
+        setImportMsg({ type: 'error', text: `File có ${parsed.length} dòng — tối đa ${IMPORT_MAX_ROWS} dòng mỗi lần nhập` })
         return
       }
 
-      // Thay dòng trống đầu tiên nếu chưa có dữ liệu
-      setLines((ls) => {
-        const hasData = ls.some((l) => l.item)
-        const base = hasData ? ls : []
-        return [...base, ...newLines]
-      })
-      // Tự động resolve giá đặc biệt/VAT/tồn kho cho từng dòng đã nhập
-      newLines.forEach((l) => {
-        if (l.item) {
-          void resolvePrice(l.key, l.item.code, partner?.code ?? null)
-          void checkAtp(l.key, l.item.code, l.warehouseCode)
-          // M2: bung dòng con BOM cho mặt hàng nhập từ Excel
-          void expandBom(l.key, l.item.code)
+      // 4) Khớp danh mục: mã hàng → mã vạch → tên gần đúng (máy chủ, chỉ đọc)
+      let matches: ImportMatch[] = []
+      if (parsed.length > 0) {
+        setImportProgress({ current: 0, total: parsed.length })
+        // Timeout dài: mirror trống → máy chủ phải tải danh mục SAP lần đầu
+        const res = await api('/api/orders/import-match', {
+          method: 'POST',
+          body: JSON.stringify({ rows: parsed.map((p) => ({ code: p.code, name: p.name })) }),
+          timeoutMs: 120_000,
+        })
+        const json = await res.json().catch(() => null)
+        if (!res.ok || !json?.ok) {
+          setImportMsg({ type: 'error', text: json?.error ?? 'Không khớp được danh mục mặt hàng' })
+          return
         }
+        if (json.catalogSize === 0) {
+          setImportMsg({ type: 'error', text: 'Danh mục mặt hàng trống — vào Đồng bộ Mặt hàng trước khi nhập Excel' })
+          return
+        }
+        matches = json.matches as ImportMatch[]
+      }
+      setImportPreview({
+        fileName: file.name,
+        templateName: template.name,
+        rows: parsed.map((p, i) => ({ parsed: p, match: matches[i] })),
+        errors,
       })
-
-      const msg = `Đã nhập ${newLines.length} dòng từ Excel (template "${template.name}").`
-      // Banner kết quả tách 2: success (số dòng OK) + error riêng (số dòng lỗi + chi tiết)
-      setImportMsg({ type: 'success', text: msg })
-      setImportErrors(errors.length > 0 ? errors : null)
     } catch {
       setImportMsg({ type: 'error', text: 'Không đọc được file Excel' })
-      setImportErrors(null)
     } finally {
       setImportProgress(null)
     }
+  }
+
+  /** Bước 2: điền các dòng người dùng đã chọn ở hộp xem trước vào đơn */
+  const applyImportPicks = (picks: ImportPick[]) => {
+    const data = importPreview
+    setImportPreview(null)
+    if (!data || picks.length === 0) return
+    const newLines: DraftLine[] = picks.map(({ parsed: p, item: m }) => {
+      const item: ACOption = {
+        code: m.itemCode,
+        name: m.itemName || p.name || m.itemCode,
+        uom: m.uom ?? '',
+        taxCode: m.taxCode ?? '',
+        vatRate: typeof m.vatRate === 'number' ? m.vatRate : undefined,
+        price: typeof m.price === 'number' && m.price > 0 ? m.price : undefined,
+        barcode: m.barcode ?? '',
+      }
+      return {
+        key: nextKey(),
+        item,
+        quantity: p.quantity,
+        // Ưu tiên đơn giá trên Excel; thiếu → giá Price List 1 từ master data
+        unitPrice: p.unitPrice ?? item.price ?? 0,
+        discPct: p.discPct ?? 0,
+        // Template không có VAT% → lấy thuế suất theo mã thuế của mặt hàng
+        vatPct: item.vatRate ?? 8,
+        uom: p.uom || item.uom || undefined,
+        taxCode: p.taxCode || item.taxCode || undefined,
+        warehouseCode: p.warehouseCode || headerWh || undefined,
+      }
+    })
+
+    // Thay dòng trống đầu tiên nếu chưa có dữ liệu
+    setLines((ls) => {
+      const hasData = ls.some((l) => l.item)
+      const base = hasData ? ls : []
+      return [...base, ...newLines]
+    })
+    // Tự động resolve giá đặc biệt/VAT/tồn kho cho từng dòng đã nhập
+    newLines.forEach((l) => {
+      if (l.item) {
+        void resolvePrice(l.key, l.item.code, partner?.code ?? null)
+        void checkAtp(l.key, l.item.code, l.warehouseCode)
+        // M2: bung dòng con BOM cho mặt hàng nhập từ Excel
+        void expandBom(l.key, l.item.code)
+      }
+    })
+
+    const pickedRows = new Set(picks.map((p) => p.parsed.excelRow))
+    const skipped = [
+      ...data.errors.map((er) => ({ excelRow: er.excelRow, text: `Dòng ${er.excelRow}: ${er.message}` })),
+      ...data.rows
+        .filter((r) => !pickedRows.has(r.parsed.excelRow))
+        .map((r) => ({
+          excelRow: r.parsed.excelRow,
+          text: `Dòng ${r.parsed.excelRow}: ${r.match.kind === 'none' ? `"${r.parsed.code || r.parsed.name}" không có trong danh mục` : 'bỏ qua'}`,
+        })),
+    ].sort((x, y) => x.excelRow - y.excelRow).map((x) => x.text)
+    setImportMsg({ type: 'success', text: `Đã nhập ${newLines.length} dòng từ Excel (template "${data.templateName}").` })
+    setImportErrors(skipped.length > 0 ? skipped : null)
   }
 
   // ---- ATP check: tồn kho khả dụng của mặt hàng (theo kho của dòng nếu có) ----
@@ -2711,9 +2637,12 @@ export default function OrderFormView({
             onChange={handleExcelImport}
           />
         </div>
+        {importPreview && (
+          <OrderImportPreview data={importPreview} onConfirm={applyImportPicks} onCancel={() => setImportPreview(null)} />
+        )}
         {importProgress && (
           <div className="fm-alert fm-alert--info" style={{ marginTop: 10 }} role="status">
-            <div>Đang tra cứu mã hàng {importProgress.current}/{importProgress.total}…</div>
+            <div>{importProgress.total ? `Đang khớp ${importProgress.total} dòng với danh mục mặt hàng…` : 'Đang đọc file Excel…'}</div>
           </div>
         )}
         {importMsg && (
@@ -2725,7 +2654,7 @@ export default function OrderFormView({
         {importErrors && importErrors.length > 0 && (
           <div className="fm-alert fm-alert--error" style={{ marginTop: 10 }} role="alert">
             <div>
-              <b>{importErrors.length} dòng lỗi:</b>{' '}
+              <b>{importErrors.length} dòng không nhập:</b>{' '}
               {importErrors.slice(0, 5).join('; ')}
               {importErrors.length > 5 ? ` (+${importErrors.length - 5} dòng nữa)` : ''}
             </div>

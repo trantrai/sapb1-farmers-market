@@ -749,6 +749,35 @@
   .fm-bom-swap__list { max-height: 50dvh; }
   .fm-bom-swap__foot .fm-btn { flex: 1; min-height: 44px; }
 }
+
+/* Xem trước nhập Excel (order-import-preview) */
+.fm-import-preview__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.fm-import-preview__head .fm-modal__title { display: flex; align-items: center; gap: 8px; }
+.fm-import-preview__file { margin: 0 0 10px; font-size: 13px; color: var(--fm-text-2); overflow-wrap: anywhere; }
+.fm-import-preview__summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 10px; }
+.fm-import-preview__filter { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12.5px; cursor: pointer; }
+.fm-import-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--fm-r-sm); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.fm-import-tag.is-ok { background: var(--fm-navy-soft); color: var(--fm-navy); }
+.fm-import-tag.is-warn { background: var(--fm-gold-faint); color: var(--fm-gold-ink); }
+.fm-import-tag.is-error { background: var(--fm-coral-soft); color: var(--fm-coral-deep); }
+.fm-import-preview__list { max-height: 52vh; overflow-y: auto; border: 1px solid var(--fm-line); border-radius: var(--fm-r-lg); }
+.fm-import-preview__list .fm-table { margin: 0; }
+.fm-import-preview__list thead th { position: sticky; top: 0; z-index: 1; }
+.fm-import-preview__list tbody tr.is-off td, .fm-import-preview__list tbody tr.is-invalid td { color: var(--fm-text-3); }
+.fm-import-preview__src { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.fm-import-preview__src span { font-size: 12px; color: var(--fm-text-2); }
+.fm-import-preview__err { color: var(--fm-coral-deep); font-size: 12.5px; }
+.fm-import-preview__pick { width: 100%; min-width: 220px; }
+.fm-import-preview__foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.fm-import-preview__foot .fm-hint { margin-right: auto; margin-top: 0; font-size: 12px; }
+@media (max-width: 640px) {
+  .fm-import-preview__list { max-height: 55dvh; border: none; }
+  .fm-import-preview__filter { margin-left: 0; min-height: 40px; }
+  .fm-import-preview__pick { min-width: 0; min-height: 40px; }
+  .fm-import-preview__list thead { display: none; }
+  .fm-import-preview__foot .fm-hint { flex-basis: 100%; }
+  .fm-import-preview__foot .fm-btn { flex: 1; min-height: 44px; }
+}
 @media (max-width: 640px) {
   .fm-bom-toggle { min-height: 40px; min-width: 40px; justify-content: center; }
   .fm-bom-child-cell { padding-left: 0; }
