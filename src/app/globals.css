@@ -710,10 +710,10 @@
 .fm-bom-branch { color: var(--fm-text-3); }
 /* Nút thu gọn / mở rộng nhóm thành phần BOM — đứng trước số thứ tự dòng cha, cùng hàng */
 .fm-bom-toggle {
-  display: inline-flex; align-items: center; justify-content: center; gap: 1px; flex: none;
-  height: 22px; min-width: 22px; padding: 0 5px 0 2px;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 22px; padding: 0;
   border: 1px solid transparent; border-radius: 999px; background: var(--fm-navy-soft);
-  color: var(--fm-navy); font-size: 10.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer;
+  color: var(--fm-navy); line-height: 1; cursor: pointer;
   transition: background-color .12s, border-color .12s;
 }
 .fm-bom-toggle svg { flex: none; transition: transform .12s; }
@@ -721,17 +721,17 @@
 .fm-bom-toggle:focus-visible { outline: 2px solid var(--fm-navy); outline-offset: 1px; }
 .fm-bom-toggle[aria-expanded="false"] { background: var(--fm-gold-faint); border-color: var(--fm-gold); }
 .fm-bom-toggle[aria-expanded="false"]:hover { background: var(--fm-surface); }
-.fm-bom-toggle__count { min-width: 8px; text-align: center; }
 .fm-bom-parent-no { display: flex; flex-direction: row; align-items: center; gap: 2px 4px; flex-wrap: wrap; }
 .fm-table tbody tr:not(.is-bom-child) .fm-bom-parent-no:has(.fm-bom-toggle) { min-height: 38px; }
 .fm-bom-parent-no .fm-line-no { padding-top: 0; min-width: 0; }
 /* Cột # rộng thêm cho nút BOM — lấy lại từ cột Đơn giá/Thuế để cột Tên hàng không bị ép */
 @media (min-width: 641px) {
   .fm-line-table:has(.fm-bom-toggle) .fm-bom-parent-no { margin: 0 -6px; }
-  .fm-line-table:has(.fm-bom-toggle) .fm-col-no { width: 64px; }
-  .fm-line-table:has(.fm-bom-toggle) .fm-col-price { width: 108px; }
-  .fm-line-table:has(.fm-bom-toggle):has(.fm-line-expand) .fm-col-no { width: 84px; }
-  .fm-line-table:has(.fm-bom-toggle):has(.fm-line-expand) .fm-col-tax { width: 72px; }
+  .fm-line-table:has(.fm-bom-toggle) .fm-col-no { width: 56px; }
+  .fm-line-table:has(.fm-bom-toggle) .fm-col-price { width: 116px; }
+  .fm-line-table:has(.fm-bom-toggle):has(.fm-line-expand) .fm-col-no { width: 76px; }
+  .fm-line-table:has(.fm-bom-toggle):has(.fm-line-expand) .fm-col-tax { width: 76px; }
+  .fm-line-table:has(.fm-bom-toggle):has(.fm-line-expand) .fm-col-price { width: 108px; }
 }
 /* Ô mặt hàng của dòng con — gọn 1 dòng: └ mã ×định mức [hoán đổi] */
 .fm-bom-child-cell { display: flex; align-items: center; gap: 4px; padding-left: 4px; min-width: 0; white-space: nowrap; }
@@ -800,7 +800,7 @@
   .fm-import-preview__foot .fm-btn { flex: 1; min-height: 44px; }
 }
 @media (max-width: 640px) {
-  .fm-bom-toggle { height: 40px; min-width: 40px; padding: 0 8px 0 4px; }
+  .fm-bom-toggle { width: 40px; height: 40px; }
   .fm-bom-child-cell { padding-left: 0; }
   .fm-bom-swap-btn { width: 40px; height: 40px; }
   /* Thẻ dòng con BOM gọn: ẩn các ô luôn = 0 / không thao tác được (giá con BOM luôn 0đ) */

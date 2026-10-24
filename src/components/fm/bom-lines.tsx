@@ -195,7 +195,6 @@ export function BomToggle({ collapsed, count, onToggle, parentLabel }: {
       onClick={onToggle}
     >
       {collapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
-      <span className="fm-bom-toggle__count">{count}</span>
     </button>
   )
 }
