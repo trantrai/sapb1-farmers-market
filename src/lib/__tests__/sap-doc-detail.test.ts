@@ -51,6 +51,20 @@ describe('fetchSapDocDetail', () => {
 describe('attachSapBomGroups', () => {
   const l = (lineNum: number, itemCode: string, bomId: string | null = null) => ({ lineNum, itemCode, bomId })
 
+  it('chứng từ tạo trên SAP: dòng iIngredient là con của dòng cha BOM liền trên', () => {
+    const t = (lineNum: number, itemCode: string, treeType: string) => ({ lineNum, itemCode, bomId: null, treeType })
+    const out = attachSapBomGroups([
+      t(0, 'RAU', 'iNotATree'), t(1, 'GIO', 'iSalesTree'), t(2, 'A', 'iIngredient'), t(3, 'B', 'iIngredient'),
+      t(4, 'KIT', 'iAssemblyTree'), t(5, 'K1', 'iIngredient'), t(6, 'LE', 'iIngredient'),
+    ])
+    expect(out.map((x) => `${x.itemCode}:${x.isBomChild ? 'c' : 'p'}:${x.bomGroupKey ?? '-'}:${x.bomType ?? '-'}:${x.bomEditable}`)).toEqual([
+      'RAU:p:-:-:true', 'GIO:p:bom-1:-:true', 'A:c:bom-1:-:true', 'B:c:bom-1:-:true',
+      'KIT:p:bom-4:assembly:true', 'K1:c:bom-4:-:false', 'LE:c:bom-4:-:false',
+    ])
+    // iIngredient không có cha BOM phía trên → giữ là dòng thường
+    expect(attachSapBomGroups([t(0, 'X', 'iIngredient')])[0]).toMatchObject({ isBomChild: false, bomGroupKey: null })
+  })
+
   it('dòng con theo U_BOMID gắn vào cha gần nhất phía trên; con nằm cuối được xếp lại dưới cha', () => {
     const out = attachSapBomGroups([l(0, 'RAU'), l(1, CB), l(2, 'N0000148', CB), l(3, 'TAO'), l(4, 'X-999', CB)])
     expect(out.map((x) => `${x.itemCode}:${x.isBomChild ? 'c' : 'p'}:${x.bomGroupKey ?? '-'}`)).toEqual([

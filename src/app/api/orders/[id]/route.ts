@@ -10,6 +10,7 @@ import { checkOrderDates, checkOrderItems } from '@/lib/order-server-check'
 import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { parseB2BHeader } from '../route'
 import { checkOrderSourceLines } from '@/lib/order-source-lines'
+import { attachSapBomGroups } from '@/lib/sap-doc-bom'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -56,7 +57,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       },
       orderBy: { docNum: 'asc' },
     })
-    return NextResponse.json({ order: { ...cur.order, deliveries: localDeliveries } })
+    // Dựng lại nhóm BOM (U_BOMID / TreeType) để màn chi tiết hiển thị cha–con
+    return NextResponse.json({ order: { ...cur.order, lines: attachSapBomGroups(cur.order.lines), deliveries: localDeliveries } })
   }
 
   const order = await prisma.salesOrder.findUnique({

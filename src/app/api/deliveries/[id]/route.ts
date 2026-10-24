@@ -5,6 +5,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import { acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapDocDetail } from '@/lib/sap-orders'
+import { attachSapBomGroups } from '@/lib/sap-doc-bom'
 import { parseB2BHeader } from '../route'
 import { childQtyFor } from '@/lib/delivery-bom'
 
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       if (!det.ok || !det.order) {
         return NextResponse.json({ error: det.error ?? 'Không lấy được chi tiết phiếu từ SAP B1' }, { status: 502 })
       }
-      return NextResponse.json({ ok: true, delivery: { ...det.order, id: idParam, source: 'sap' } })
+      return NextResponse.json({ ok: true, delivery: { ...det.order, id: idParam, source: 'sap', lines: attachSapBomGroups(det.order.lines) } })
     }
   }
   const delivery = await prisma.delivery.findUnique({
