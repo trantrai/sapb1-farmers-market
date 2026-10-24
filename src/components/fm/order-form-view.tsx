@@ -690,7 +690,7 @@ export default function OrderFormView({
   onPrefillApplied,
   onOpenOrder,
 }: {
-  onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null; warningsIgnored?: number }) => void
+  onSaved: (result: { id?: string | null; docNum: number | null; isDraft?: boolean; sapStatus: string; sapDocNum?: number | null; sapError?: string | null; warningsIgnored?: number }) => void
   /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
   editOrder?: EditOrderData | null
   /** Nút hủy ở chế độ sửa → quay lại danh sách */
@@ -1912,7 +1912,8 @@ export default function OrderFormView({
       clearDraft() // lưu thành công → xóa nháp
       onSaved({
         id: o.id ?? null,
-        docNum: o.docNum,
+        docNum: o.docNum ?? null,
+        isDraft: Boolean(o.isDraft),
         sapStatus: o.sapSyncStatus ?? 'none',
         sapDocNum: o.sapDocNum ?? null,
         sapError: o.sapSyncError ?? null,
@@ -2049,11 +2050,14 @@ export default function OrderFormView({
   }
 
   // M4: paddingBottom = chỗ cuộn thêm để sticky action bar không che nội dung cuối form
+  // Đơn nháp chưa được cấp số chứng từ (docNum = null)
+  const editDocRef = editOrder?.docNum != null ? `#${editOrder.docNum}` : '(nháp)'
+
   return (
     <div style={{ paddingBottom: 96 }}>
       <PageHeader
-        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng bán #${editOrder?.docNum}` : 'Tạo đơn hàng bán mới']}
-        title={isEdit ? `Cập nhật đơn hàng bán #${editOrder?.docNum}` : 'Tạo đơn hàng bán mới'}
+        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng bán ${editDocRef}` : 'Tạo đơn hàng bán mới']}
+        title={isEdit ? `Cập nhật đơn hàng bán ${editDocRef}` : 'Tạo đơn hàng bán mới'}
 />
       {error && (
         <div className="fm-alert fm-alert--error" role="alert">
@@ -2119,7 +2123,7 @@ export default function OrderFormView({
       {isEdit && editOrder && (
         <div className="fm-alert fm-alert--success" style={{ marginBottom: 14 }}>
           <div>
-            <b>Đang sửa đơn hàng bán #{editOrder.docNum}</b>
+            <b>Đang sửa đơn hàng bán {editDocRef}</b>
             {editOrder.sapSyncStatus === 'synced'
               ? ' — Lưu thay đổi sẽ cập nhật trực tiếp chứng từ trên SAP B1 (PATCH /Orders). Chỉ được sửa khi chứng từ còn Mở trên SAP.'
               : ' — Đơn chưa đẩy sang SAP B1, lưu thay đổi chỉ áp dụng trên hệ thống này.'}
