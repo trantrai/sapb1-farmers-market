@@ -631,18 +631,25 @@ export default function AppShell({ user, onLogout }: Props) {
                 prefill={editOrder ? null : assistantDraft}
                 onPrefillApplied={() => setAssistantDraft(null)}
                 onCancel={() => { setEditOrder(null); go('orders') }}
-                onSaved={({ id: orderId, docNum, sapStatus, sapDocNum, sapError }) => {
+                onOpenOrder={(orderId) => { setDetailOrderId(orderId); go('orderDetail') }}
+                onSaved={({ id: orderId, docNum, isDraft, sapStatus, sapDocNum, sapError, warningsIgnored }) => {
                   const wasEdit = Boolean(editOrder)
                   setEditOrder(null)
-                  let msg = wasEdit
-                    ? `Đã cập nhật đơn hàng bán #${docNum} thành công!`
-                    : `Đã tạo đơn hàng bán #${docNum} thành công!`
-                  if (sapStatus === 'synced') msg += wasEdit
+                  // Nháp chưa có số chứng từ (docNum = null) và không đẩy SAP
+                  const ref = docNum != null ? ` #${docNum}` : ''
+                  let msg = isDraft
+                    ? `Đã lưu nháp đơn hàng bán${ref} thành công!`
+                    : wasEdit
+                      ? `Đã cập nhật đơn hàng bán${ref} thành công!`
+                      : `Đã tạo đơn hàng bán${ref} thành công!`
+                  if (isDraft) msg += ' Đơn nháp chưa đẩy sang SAP B1.'
+                  else if (sapStatus === 'synced') msg += wasEdit
                     ? ` Đã cập nhật chứng từ trên SAP B1${sapDocNum ? ` (DocNum ${sapDocNum})` : ''}.`
                     : ` Đã đẩy sang SAP B1 — DocNum ${sapDocNum}.`
                   else if (sapStatus === 'pending')
                     msg += ` Chưa đẩy được sang SAP B1${sapError ? `: ${sapError}` : ''} — bấm "Đẩy lại" trong danh sách đơn.`
                   else if (!wasEdit) msg += ' (chưa cấu hình SAP B1 — đơn chỉ lưu trên hệ thống này)'
+                  if (warningsIgnored) msg += ` Đã lưu kèm ${warningsIgnored} cảnh báo chưa xử lý.`
                   showToast(
                     msg,
                     'success',

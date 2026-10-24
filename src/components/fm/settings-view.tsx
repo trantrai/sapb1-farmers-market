@@ -2,15 +2,22 @@
 
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from './use-focus-trap'
-import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X } from 'lucide-react'
+import { PlugZap, Save, Database, Sparkles, Mail, Plus, Pencil, Trash2, Star, X, ClipboardCheck, ShieldCheck, RefreshCw, Layers } from 'lucide-react'
+import { resetShowLockedBomChildrenCache } from './bom-lines'
 import AssistantSettingsCard from './assistant-settings-card'
 import { api } from '@/lib/fm-client'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PageHeader from './page-header'
+import { ORDER_CHECK_RULES, type OrderCheckConfig } from '@/lib/order-check-config'
 
 interface SettingsData {
   suggestHistoryDays: number
   suggestMaxItems: number
+  /** Kiểm tra đơn hàng trước khi lưu — bật/tắt cảnh báo */
+  orderCheck: OrderCheckConfig
+  /** Tự thử lại đơn chưa đẩy được sang SAP (job nền) */
+  sapAutoRetry: boolean
+  showBomProductionChildren: boolean
   smtpHost: string
   smtpPort: number
   smtpUser: string
@@ -133,6 +140,7 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
       const saved: SettingsData = { ...json.settings, smtpPass: '', hasSmtpPass: Boolean(json.settings.smtpPass), baseToken: '', hasBaseToken: Boolean(json.hasBaseToken) }
       setS(saved)
       setSSaved(saved)
+      resetShowLockedBomChildrenCache(Boolean(json.settings.showBomProductionChildren))
       setMsg({ type: 'success', text: 'Đã lưu cài đặt' })
     } finally {
       setBusy(false)
@@ -197,6 +205,21 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
         setMsg({ type: 'success', text: json.message ?? 'Kết nối thành công' })
       }
       await loadDbs()
+    } finally {
+      setDbBusy(null)
+    }
+  }
+
+  // Kiểm tra (CHỈ ĐỌC) DB SAP đã có UDF chống trùng U_FM_LocalId chưa — không tạo UDF
+  const checkUdf = async (d: SapDb) => {
+    setDbBusy(d.id)
+    setMsg(null)
+    try {
+      const res = await api(`/api/sap-databases/${d.id}/udf-check`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) setMsg({ type: 'error', text: json.error ?? 'Không kiểm tra được UDF' })
+      else if (json.supported) setMsg({ type: 'success', text: `${d.label}: đã có UDF ${json.field} trên Đơn bán hàng — chống trùng & tự thử lại an toàn đang hoạt động.` })
+      else setMsg({ type: 'info', text: `${d.label}: chưa có UDF ${json.field}. Tạo trong SAP B1 (Tools → Customization Tools → User-Defined Fields - Management → Marketing Documents → Title, tên FM_LocalId, kiểu Alphanumeric 50) để bật chống trùng tự động.` })
     } finally {
       setDbBusy(null)
     }
@@ -308,6 +331,9 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
                         <button className="fm-btn fm-btn--secondary fm-btn--sm" onClick={() => testDb(d)} disabled={dbBusy !== null} title="Kiểm tra kết nối Service Layer">
                           <PlugZap size={14} />
                           {dbBusy === d.id ? 'Đang kiểm tra…' : 'Kiểm tra'}
+                        </button>
+                        <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => checkUdf(d)} disabled={dbBusy !== null} title="Kiểm tra UDF chống trùng U_FM_LocalId (chỉ đọc)">
+                          <ShieldCheck size={14} /> Kiểm tra UDF
                         </button>
                         <button className="fm-btn fm-btn--ghost fm-btn--sm" onClick={() => openEdit(d)} disabled={dbBusy !== null} aria-label={`Sửa ${d.label}`}>
                           <Pencil size={14} /> Sửa
@@ -435,6 +461,117 @@ export default function SettingsView({ canEdit }: { canEdit: boolean }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
+            <Save size={16} />
+            {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
+        </div>
+      </div>
+
+      {/* Kiểm tra đơn hàng trước khi lưu — bật/tắt cảnh báo (lỗi bắt buộc luôn kiểm) */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ClipboardCheck size={18} /> Kiểm tra đơn hàng trước khi lưu
+        </h2>
+        <p className="fm-hint" style={{ marginTop: 0, fontSize: 13 }}>
+          Cảnh báo hiện ở vùng "Kiểm tra đơn" trên form đơn hàng bán, không chặn lưu. Lỗi bắt buộc (thiếu khách, số lượng ≤ 0,
+          ngày giao trước ngày chứng từ, mặt hàng không có trong danh mục…) luôn được kiểm tra.
+        </p>
+        <fieldset className="fm-ordercheck-cfg" disabled={!canEdit}>
+          <legend className="fm-sr-only">Bật/tắt cảnh báo kiểm tra đơn</legend>
+          <label className="fm-check">
+            <input
+              type="checkbox"
+              checked={s.orderCheck.enabled}
+              onChange={(e) => update({ orderCheck: { ...s.orderCheck, enabled: e.target.checked } })}
+            />
+            <b>Bật cảnh báo trước khi lưu</b>
+          </label>
+          {([
+            ['Trên đơn đang nhập', ORDER_CHECK_RULES.filter((r) => !('history' in r))],
+            ['Theo lịch sử khách hàng', ORDER_CHECK_RULES.filter((r) => 'history' in r)],
+          ] as const).map(([title, rules]) => (
+            <div key={title} className="fm-ordercheck-cfg__group" aria-disabled={!s.orderCheck.enabled}>
+              <span className="fm-ordercheck-cfg__title">{title}</span>
+              {rules.map((r) => (
+                <label key={r.key} className="fm-check">
+                  <input
+                    type="checkbox"
+                    checked={s.orderCheck.rules[r.key]}
+                    disabled={!s.orderCheck.enabled}
+                    onChange={(e) => update({ orderCheck: { ...s.orderCheck, rules: { ...s.orderCheck.rules, [r.key]: e.target.checked } } })}
+                  />
+                  {r.label}
+                </label>
+              ))}
+              {rules.some((r) => 'history' in r) && (
+                <label className="fm-check">
+                  <input
+                    type="checkbox"
+                    checked={s.orderCheck.notices}
+                    disabled={!s.orderCheck.enabled}
+                    onChange={(e) => update({ orderCheck: { ...s.orderCheck, notices: e.target.checked } })}
+                  />
+                  Hiện thông báo nổi khi vừa phát hiện
+                </label>
+              )}
+            </div>
+          ))}
+        </fieldset>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
+            <Save size={16} />
+            {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
+        </div>
+      </div>
+
+      {/* Hiển thị thành phần con BOM Production/Assembly */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Layers size={18} /> Hiển thị BOM trên chứng từ
+        </h2>
+        <label className="fm-check">
+          <input
+            type="checkbox"
+            checked={Boolean(s.showBomProductionChildren)}
+            disabled={!canEdit}
+            onChange={(e) => update({ showBomProductionChildren: e.target.checked })}
+          />
+          <b>Hiện thành phần con BOM Production / Assembly</b>
+        </label>
+        <p className="fm-hint" style={{ fontSize: 13 }}>
+          Bật: form đơn hàng, chứng từ bán hàng, màn chi tiết và bản in hiện các dòng con của BOM Production/Assembly. Số lượng
+          thành phần con <b>luôn bị khóa</b> theo công thức (SL con = SL cha × định mức) — muốn đổi thì đổi số lượng dòng cha; máy
+          chủ cũng từ chối mọi số lượng con sai công thức. Tắt: ẩn các dòng con này (vẫn lưu và đẩy SAP bình thường). Con BOM
+          Template luôn hiện và sửa được.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
+            <Save size={16} />
+            {busy ? 'Đang lưu…' : 'Lưu cài đặt'}
+          </button>
+          {dirty && canEdit && <span className="fm-chip fm-chip--open">Có thay đổi chưa lưu</span>}
+        </div>
+      </div>
+
+      {/* Đợt 2 — tự thử lại đơn chưa đẩy được sang SAP */}
+      <div className="fm-card" style={{ marginBottom: 16 }}>
+        <h2 className="fm-card__title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <RefreshCw size={18} /> Đồng bộ đơn hàng sang SAP B1
+        </h2>
+        <label className="fm-check">
+          <input type="checkbox" checked={s.sapAutoRetry} disabled={!canEdit} onChange={(e) => update({ sapAutoRetry: e.target.checked })} />
+          <b>Tự thử lại đơn chưa đẩy được sang SAP</b>
+        </label>
+        <p className="fm-hint" style={{ fontSize: 13 }}>
+          Job nền thử lại sau 2, 5, 15, 60, 240 phút (tối đa 5 lần) — chỉ với lỗi chắc chắn chưa tới SAP, hoặc lỗi không rõ khi DB đã có
+          UDF <code>U_FM_LocalId</code> (lần đẩy sau tra UDF trước nên không tạo trùng). Lỗi không rõ khi DB chưa có UDF → đơn chuyển
+          &quot;Cần đối chiếu&quot;, không tự đẩy. Dùng nút &quot;Kiểm tra UDF&quot; ở danh sách database để biết DB đã có UDF chưa.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="fm-btn fm-btn--primary" onClick={save} disabled={!canEdit || busy || !dirty}>
             <Save size={16} />
             {busy ? 'Đang lưu…' : 'Lưu cài đặt'}

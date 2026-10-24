@@ -34,7 +34,7 @@ export function useExpandedLines() {
 }
 
 /** Nút ▸/▾ mở chi tiết dòng (đặt ở ô # cùng số thứ tự) */
-export function LineExpandButton({ expanded, onToggle, lineNo, controls, hasIssue, hideNo }: {
+export function LineExpandButton({ expanded, onToggle, lineNo, controls, hasIssue, hideNo, title }: {
   expanded: boolean
   onToggle: () => void
   lineNo: number
@@ -44,6 +44,8 @@ export function LineExpandButton({ expanded, onToggle, lineNo, controls, hasIssu
   controls: string
   /** Chi tiết có trường cần chú ý (vd thiếu thông tin) → chấm báo */
   hasIssue?: boolean
+  /** Gợi ý khi chưa mở (mặc định: ĐVT, kho, thuế…) */
+  title?: string
 }) {
   return (
     <button
@@ -52,7 +54,7 @@ export function LineExpandButton({ expanded, onToggle, lineNo, controls, hasIssu
       aria-expanded={expanded}
       aria-controls={controls}
       aria-label={`${expanded ? 'Ẩn' : 'Xem'} chi tiết dòng ${lineNo}${hideNo ? ' (thành phần BOM)' : ''}`}
-      title={expanded ? 'Ẩn chi tiết dòng' : 'Chi tiết dòng: đơn vị tính, kho, thuế…'}
+      title={expanded ? 'Ẩn chi tiết dòng' : title ?? 'Chi tiết dòng: đơn vị tính, kho, thuế…'}
       onClick={onToggle}
     >
       {expanded ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}

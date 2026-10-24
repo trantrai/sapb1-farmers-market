@@ -2,7 +2,10 @@
 
 // ============================================================
 // FORM tạo/sửa Phiếu giao hàng — standalone, đơn giản hơn
-// order-form-view (không BOM, không ATP).
+// order-form-view (không ATP).
+// - BOM: chọn mặt hàng BOM → bung thành phần con (giá 0, SL = SL cha × định
+//   mức, theo SL cha). Dòng con chỉ lưu để hiển thị/soạn hàng — khi đẩy SAP
+//   chỉ gửi dòng cha, SAP tự bung theo công thức.
 // - Chế độ TẠO (deliveryId undefined): chọn khách hàng, ngày chứng từ,
 //   ghi chú, thêm dòng mặt hàng → POST /api/deliveries
 // - Chế độ SỬA (deliveryId có giá trị): tải phiếu qua GET, khách hàng
@@ -11,11 +14,11 @@
 // Thuật ngữ chuẩn SAP B1. Nút lưu có trạng thái "Đang lưu…".
 // ============================================================
 
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Plus, Save, Trash2, Copy } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
-import { formatVND } from '@/lib/fm-shared'
+import { formatNum, formatVND } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
@@ -28,7 +31,12 @@ import {
 } from './order-form-view'
 import { useBpB2BInfo } from './b2b-party-fields'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
-import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
+import { LineQuickAdd } from './line-items'
+import {
+  BomChildCell, BomToggle, applyParentQty, bomChildCounts, explodeBom, fetchBomDef,
+  inferBomTypes, removeWithBom, roundQty, visibleBomLines, type BomKind,
+  bomParentTypes, useShowLockedBomChildren,
+} from './bom-lines'
 
 interface FormLine {
   key: number
@@ -47,6 +55,27 @@ interface FormLine {
   uom?: string
   /** Số lô (SAP BatchNumbers) — truy xuất nguồn gốc */
   batchNumber?: string
+  /** BOM: loại BOM của dòng cha (undefined = hàng thường) */
+  bomType?: BomKind
+  /** BOM: dòng thành phần con (giá 0, SL theo dòng cha) */
+  isBomChild?: boolean
+  bomGroupKey?: string
+  bomEditable?: boolean
+  bomQtyPerParent?: number
+}
+
+/** Trường BOM của dòng nạp từ phiếu đã lưu / prefill */
+const bomFromSaved = (l: { isBomChild?: boolean | null; bomGroupKey?: string | null; bomEditable?: boolean | null; bomQtyPerParent?: number | null; bomType?: string | null }) => ({
+  isBomChild: l.isBomChild ?? false,
+  bomGroupKey: l.bomGroupKey ?? undefined,
+  bomEditable: l.bomEditable ?? true,
+  bomQtyPerParent: l.bomQtyPerParent ?? undefined,
+  ...(l.bomType === 'template' || l.bomType === 'production' || l.bomType === 'assembly' ? { bomType: l.bomType as BomKind } : {}),
+})
+/** Giữ bomType đã có (từ API), chỉ suy từ dòng con khi thiếu */
+const withBomTypes = (ls: FormLine[]): FormLine[] => {
+  const inferred = inferBomTypes(ls)
+  return inferred.map((l, i) => (ls[i].bomType && l.bomGroupKey ? { ...l, bomType: ls[i].bomType } : l))
 }
 
 let keyCounter = 0
@@ -126,7 +155,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
     setPickAndPackNotes('')
     // Copy-from: mang theo B2B của chứng từ nguồn (nếu API prefill có trả)
     setB2b(b2bFromSaved((p.docDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10), p as unknown as Parameters<typeof b2bFromSaved>[1]))
-    setLines(
+    setLines(withBomTypes(
       (p.lines ?? []).map((l) => ({
         key: nextKey(),
         item: { code: l.itemCode, name: l.itemName, barcode: l.barcode || undefined },
@@ -136,8 +165,9 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
         discPct: l.discPct ?? 0,
         uom: l.uom || undefined,
         warehouseCode: (l.warehouseCode ?? wh) || undefined,
+        ...bomFromSaved(l),
       })),
-    )
+    ))
     setPartnerErr('')
     setSaveError('')
     setCopyFromInfo(p)
@@ -238,8 +268,8 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
         setHeaderDiscPct(typeof d.headerDiscPct === 'number' ? d.headerDiscPct : 0)
         setPickAndPackNotes(d.pickAndPackNotes ?? '')
         setB2b(b2bFromSaved(docDateStr, d))
-        setLines(
-          (d.lines ?? []).map((l: { id: string; itemCode: string; itemName: string; barcode?: string | null; quantity: number; unitPrice: number; taxCode?: string | null; discPct?: number; warehouseCode?: string | null; uom?: string | null; batchNumber?: string | null }) => ({
+        setLines(withBomTypes(
+          (d.lines ?? []).map((l: { id: string; itemCode: string; itemName: string; barcode?: string | null; quantity: number; unitPrice: number; taxCode?: string | null; discPct?: number; warehouseCode?: string | null; uom?: string | null; batchNumber?: string | null; isBomChild?: boolean | null; bomGroupKey?: string | null; bomEditable?: boolean | null; bomQtyPerParent?: number | null; bomType?: string | null }) => ({
             key: nextKey(),
             dbId: l.id,
             item: { code: l.itemCode, name: l.itemName, barcode: l.barcode || undefined },
@@ -250,8 +280,9 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
             uom: l.uom || undefined,
             warehouseCode: (l.warehouseCode ?? d.warehouseCode ?? '') || undefined,
             batchNumber: l.batchNumber ?? undefined,
+            ...bomFromSaved(l),
           })),
-        )
+        ))
       })
       .catch(() => {
         if (!cancelled) setLoadError('Không kết nối được máy chủ')
@@ -263,13 +294,55 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
   }, [deliveryId])
 
   const setLine = (key: number, patch: Partial<FormLine>) => {
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+    setLines((ls) => {
+      const next = ls.map((l) => (l.key === key ? { ...l, ...patch } : l))
+      // Đổi SL dòng cha BOM → SL con = SL cha × định mức
+      return patch.quantity !== undefined ? applyParentQty(next, key, patch.quantity) : next
+    })
   }
-  /** Chọn mặt hàng: gợi ý đơn giá, mã thuế, đơn vị tính từ danh mục (user vẫn sửa được) */
+
+  /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu bình thường) */
+  const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  /** Cài đặt: hiện con BOM Production/Assembly */
+  const showLockedBom = useShowLockedBomChildren()
+  const toggleBomGroup = (gk: string) =>
+    setBomCollapsed((cur) => {
+      const next = new Set(cur)
+      if (next.has(gk)) next.delete(gk)
+      else next.add(gk)
+      return next
+    })
+
+  // ---------- BOM: chọn mặt hàng BOM → bung thành phần con (giá 0, SL = SL cha × định mức) ----------
+  const expandBom = async (parentKey: number, itemCode: string) => {
+    const def = itemCode ? await fetchBomDef(itemCode) : null
+    setLines((ls) => {
+      const parent = ls.find((l) => l.key === parentKey)
+      // Người dùng đã đổi sang mặt hàng khác trong lúc chờ → bỏ qua
+      if (!parent || (parent.item?.code ?? '') !== itemCode) return ls
+      if (!def && !parent.bomGroupKey) return ls
+      return explodeBom(ls, parentKey, def, (c, p, groupKey) => ({
+        key: nextKey(),
+        item: { code: c.childItemCode, name: c.childItemName || c.childItemCode, uom: c.uom || '' },
+        quantity: roundQty((Number(p.quantity) || 0) * Number(c.qtyPerParent || 0)),
+        unitPrice: 0, // thành phần con giá luôn = 0
+        discPct: 0,
+        uom: c.uom || undefined,
+        warehouseCode: p.warehouseCode || headerWh || undefined,
+        isBomChild: true,
+        bomGroupKey: groupKey,
+        bomEditable: def!.bomType === 'template',
+        bomQtyPerParent: Number(c.qtyPerParent || 0),
+      })).lines
+    })
+  }
+
+  /** Chọn mặt hàng: gợi ý đơn giá, mã thuế, đơn vị tính từ danh mục (user vẫn sửa được); BOM → bung con */
   const selectItem = (key: number, v: ACOption | null) => {
     setLines((ls) => ls.map((l) => (l.key === key
       ? { ...l, item: v, unitPrice: v?.price ?? l.unitPrice, taxCode: v?.taxCode || l.taxCode, uom: v?.uom || l.uom }
       : l)))
+    void expandBom(key, v?.code ?? '')
   }
   /**
    * Thêm nhiều mặt hàng 1 lượt (dán danh sách / đặt lại đơn cũ): mỗi dòng đi qua
@@ -280,13 +353,13 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
       key: nextKey(), item: null, quantity: e.quantity, unitPrice: 0, taxCode: undefined, discPct: 0,
       warehouseCode: headerWh || undefined,
     }))
-    setLines((ls) => [...ls.filter((x) => x.item), ...fresh])
+    setLines((ls) => [...ls.filter((x) => x.item || x.isBomChild), ...fresh])
     fresh.forEach((nl, i) => selectItem(nl.key, entries[i].item))
   }
 
   /** Thêm dòng nhanh: điền vào dòng trống đầu tiên (nếu có) hoặc thêm dòng mới cuối bảng */
   const quickAddLine = (v: ACOption, quantity: number) => {
-    const empty = lines.find((l) => !l.item)
+    const empty = lines.find((l) => !l.item && !l.isBomChild)
     const key = empty?.key ?? nextKey()
     setLines((ls) =>
       empty
@@ -295,10 +368,12 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
     )
     selectItem(key, v)
   }
-  /** Dòng đang mở chi tiết (kho, ĐVT, mã thuế, số lô) */
-  const expandedLines = useExpandedLines()
   const removeLine = (key: number) => {
-    setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls))
+    setLines((ls) => {
+      // Xóa dòng cha BOM → xóa cả nhóm thành phần con
+      const next = removeWithBom(ls, key)
+      return next.length > 0 ? next : ls
+    })
   }
 
   /** Phiếu tạo từ đơn hàng (chế độ sửa): chỉ sửa SL, không thêm/xóa/đổi mặt hàng */
@@ -309,6 +384,21 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
   /** Tiền CK đầu chứng từ (SAP DiscountPercent) — làm tròn, trừ vào tổng phiếu */
   const headerDiscAmt = Math.round((subTotal * clampDisc(headerDiscPct)) / 100)
   const grandTotal = subTotal - headerDiscAmt
+  /** Thuế suất theo mặt hàng (chỉ có khi vừa chọn từ danh mục) — phiếu giao không lưu VAT%, SAP tự tính khi đẩy */
+  const lineVatPct = (l: FormLine) => (typeof l.item?.vatRate === 'number' ? clampDisc(l.item.vatRate) : undefined)
+  const lineVatAmt = (l: FormLine) => Math.round((lineTotal(l) * (lineVatPct(l) ?? 0)) / 100)
+  /** Thuế tạm tính — cùng công thức màn chi tiết (trừ phần CK đầu chứng từ) */
+  const vatTotal = Math.round(lines.reduce((s, l) => s + lineVatAmt(l), 0) * (1 - clampDisc(headerDiscPct) / 100))
+  const docTotal = grandTotal + vatTotal
+  const totalBeforeDisc = lines.reduce((s, l) => s + Math.round(l.quantity * l.unitPrice), 0)
+  const lineCols = canEditLines ? 15 : 14
+  const totalRows: [string, string, string][] = [
+    ['before', 'Tổng trước chiết khấu:', formatVND(totalBeforeDisc)],
+    ['disc', 'Chiết khấu các dòng:', totalBeforeDisc > subTotal ? `−${formatVND(totalBeforeDisc - subTotal)}` : formatVND(0)],
+    ...(headerDiscAmt > 0 ? [['hdisc', `Chiết khấu đầu chứng từ (${headerDiscPct}%):`, `−${formatVND(headerDiscAmt)}`] as [string, string, string]] : []),
+    ['after', 'Sau chiết khấu:', formatVND(grandTotal)],
+    ['vat', 'Thuế các dòng (tạm tính):', formatVND(vatTotal)],
+  ]
 
   const validate = (): boolean => {
     setPartnerErr('')
@@ -331,6 +421,7 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
         setSaveError(`Dòng ${i + 1} (${l.item.code}): số lượng phải > 0`)
         return false
       }
+      if (l.isBomChild) continue
       if (!Number.isFinite(l.unitPrice) || l.unitPrice < 0) {
         setSaveError(`Dòng ${i + 1} (${l.item.code}): đơn giá không hợp lệ`)
         return false
@@ -418,6 +509,10 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
               discPct: clampDisc(l.discPct),
               warehouseCode: l.warehouseCode || headerWh || undefined,
               batchNumber: l.batchNumber?.trim() || undefined,
+              isBomChild: l.isBomChild || undefined,
+              bomGroupKey: l.bomGroupKey || undefined,
+              bomEditable: l.bomEditable,
+              bomQtyPerParent: l.bomQtyPerParent,
             })),
           }),
         })
@@ -651,52 +746,96 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
           <thead>
             <tr>
               <th className="fm-col-no">#</th>
-              <th style={{ minWidth: 240 }}>Mặt hàng</th>
+              <th className="fm-col-code">Mã hàng</th>
+              <th className="fm-col-name">Tên hàng</th>
               <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
               <th className="fm-col-qty fm-num">Số lượng</th>
-              <th className="fm-col-price fm-num">Đơn giá (₫)</th>
-              <th className="fm-col-disc fm-num">CK (%)</th>
-              <th className="fm-col-total fm-num">Thành tiền (₫)</th>
+              <th className="fm-col-uom" title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">Đơn vị tính</th>
+              <th className="fm-col-wh" title="Kho xuất của dòng (WarehouseCode) — mặc định theo kho header">Kho</th>
+              <th className="fm-col-batch" title="Số lô (SAP: BatchNumbers) — truy xuất nguồn gốc">Số lô</th>
+              <th className="fm-col-price fm-num">Đơn giá</th>
+              <th className="fm-col-disc fm-num" title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
+              <th className="fm-col-money fm-num">Sau chiết khấu</th>
+              <th className="fm-col-tax" title="Mã nhóm thuế SAP (VatGroup) · thuế suất theo mặt hàng">Thuế</th>
+              <th className="fm-col-money fm-num" title="Tạm tính theo thuế suất của mặt hàng — SAP tính lại khi đẩy phiếu">Tiền thuế</th>
+              <th className="fm-col-total fm-num">Tiền dòng (sau thuế)</th>
               {canEditLines && <th className="fm-col-del"><span className="fm-sr-only">Xóa dòng</span></th>}
             </tr>
           </thead>
           <tbody>
-            {lines.map((l, i) => {
-              const detailId = `dl-line-detail-${l.key}`
-              const expanded = expandedLines.isOpen(l.key)
+            {(() => {
+            const vis = visibleBomLines(lines, bomCollapsed, showLockedBom)
+            const childCounts = bomChildCounts(lines)
+            const parentTypes = bomParentTypes(lines)
+            const parentCodes = new Map(
+              lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
+            )
+            const parentCount = lines.filter((x) => !x.isBomChild).length
+            let stt = 0
+            return vis.map((l) => {
+              const isChild = Boolean(l.isBomChild)
+              if (!isChild) stt += 1
+              const i = stt - 1
+              const showToggle = !isChild && (l.bomType === 'template' || (showLockedBom && Boolean(l.bomType ?? parentTypes.get(l.bomGroupKey as string)))) && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
               const lockedBySource = isEdit && hasSourceOrder
-              const whText = l.warehouseCode || headerWh || ''
+              /** Dòng con BOM: giá/CK/thuế = 0, SL theo dòng cha — chỉ sửa kho/số lô */
+              const lockedPrice = lockedBySource || isChild
+              const afterDisc = lineTotal(l)
+              const vatPct = isChild ? undefined : lineVatPct(l)
+              const vatAmt = isChild ? 0 : lineVatAmt(l)
+              const uomText = l.uom || l.item?.uom || ''
               return (
-              <Fragment key={l.key}>
-              <tr className={l.item ? '' : 'is-draft'}>
+              <tr key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${!isChild && l.bomGroupKey ? ' is-bom-parent' : ''}`}>
                 <td data-label="Dòng">
-                  <LineExpandButton expanded={expanded} onToggle={() => expandedLines.toggle(l.key)} lineNo={i + 1} controls={detailId} />
+                  <div className="fm-bom-parent-no">
+                    {showToggle && (
+                      <BomToggle
+                        collapsed={bomCollapsed.has(l.bomGroupKey as string)}
+                        count={childCounts.get(l.bomGroupKey as string) ?? 0}
+                        parentLabel={l.item?.code ?? ''}
+                        onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
+                      />
+                    )}
+                    {!isChild && <span className="fm-line-no">{stt}</span>}
+                  </div>
                 </td>
-                <td data-label="Mặt hàng" data-full>
-                  {!canEditLines ? (
-                    <div className="fm-line-item-text">
-                      <b>{l.item?.code ?? '—'}</b>
-                      {l.item && <div className="fm-line-item-text__name">{l.item.name}</div>}
-                    </div>
-                  ) : (
-                    <Autocomplete
-                      label={`Mặt hàng dòng ${i + 1}`}
-                      hideLabel
-                      placeholder="Tìm mã, tên mặt hàng hoặc quét barcode…"
-                      fetchUrl="/api/items"
-                      value={l.item}
-                      onChange={(v) => selectItem(l.key, v)}
+                <td data-label="Mã hàng" data-full className="fm-line-code">
+                  {isChild ? (
+                    <BomChildCell
+                      code={l.item?.code}
+                      qtyPerParent={l.bomQtyPerParent}
+                      uom={uomText}
+                      parentCode={parentCodes.get(l.bomGroupKey as string)}
                       disabled={saving}
                     />
-                  )}
-                  {l.item && !expanded && (
-                    <div className="fm-line-summary">
-                      {[l.uom || l.item.uom, whText && `Kho ${whText}`, l.taxCode, l.batchNumber && `Lô ${l.batchNumber}`].filter(Boolean).join(' · ')}
+                  ) : !canEditLines ? (
+                    <div className="fm-line-item-text"><b>{l.item?.code ?? '—'}</b></div>
+                  ) : (
+                    <div className="fm-line-code__pick">
+                      <Autocomplete
+                        label={`Mặt hàng dòng ${i + 1}`}
+                        hideLabel
+                        placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
+                        fetchUrl="/api/items"
+                        value={l.item}
+                        onChange={(v) => selectItem(l.key, v)}
+                        disabled={saving}
+                      />
                     </div>
                   )}
                 </td>
+                <td data-label="Tên hàng" className="fm-line-name" title={l.item?.name || undefined}>{l.item?.name || '—'}</td>
                 <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                 <td data-label="Số lượng" className="fm-num">
+                  {isChild ? (
+                    <span
+                      className="fm-line-locked-qty"
+                      title="Thành phần BOM: số lượng theo dòng cha × định mức (đổi số lượng dòng cha để quy đổi)"
+                      aria-label={`Số lượng thành phần ${l.item?.code ?? ''} (theo dòng cha)`}
+                    >
+                      {formatNum(l.quantity)}
+                    </span>
+                  ) : (
                   <input
                     type="number"
                     className="fm-line-input"
@@ -708,8 +847,50 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                     disabled={saving}
                     aria-label={`Số lượng dòng ${i + 1}`}
                   />
+                  )}
                 </td>
-                <td data-label="Đơn giá (₫)" className="fm-num">
+                <td data-label="Đơn vị tính">
+                  {l.item ? (
+                    <input
+                      type="text"
+                      className="fm-line-input fm-line-input--uom"
+                      value={uomText}
+                      onChange={(e) => setLine(l.key, { uom: e.target.value || undefined })}
+                      disabled={saving}
+                      title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng"
+                      aria-label={`Đơn vị tính dòng ${i + 1}`}
+                    />
+                  ) : '—'}
+                </td>
+                <td data-label="Kho">
+                  <select
+                    className="fm-line-select"
+                    value={l.warehouseCode ?? headerWh ?? ''}
+                    disabled={saving || warehouses.length === 0}
+                    title="Kho xuất của dòng (WarehouseCode) — mặc định theo kho header"
+                    aria-label={`Kho dòng ${i + 1}`}
+                    onChange={(e) => setLine(l.key, { warehouseCode: e.target.value || undefined })}
+                  >
+                    <option value="">—</option>
+                    {warehouses.map((w) => (
+                      <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
+                    ))}
+                  </select>
+                </td>
+                <td data-label="Số lô">
+                  <input
+                    type="text"
+                    className="fm-line-input"
+                    value={l.batchNumber ?? ''}
+                    placeholder="—"
+                    onChange={(e) => setLine(l.key, { batchNumber: e.target.value.trim() || undefined })}
+                    disabled={saving || lockedBySource || !l.item}
+                    maxLength={50}
+                    title="Số lô (SAP: BatchNumbers) — truy xuất nguồn gốc"
+                    aria-label={`Số lô dòng ${i + 1}`}
+                  />
+                </td>
+                <td data-label="Đơn giá" className="fm-num">
                   <input
                     type="number"
                     className="fm-line-input"
@@ -718,14 +899,14 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                     inputMode="decimal"
                     value={l.unitPrice}
                     onChange={(e) => setLine(l.key, { unitPrice: parseFloat(e.target.value) || 0 })}
-                    disabled={saving || lockedBySource}
+                    disabled={saving || lockedPrice}
                     aria-label={`Đơn giá dòng ${i + 1}`}
                   />
                 </td>
                 <td data-label="CK (%)" className="fm-num">
                   <input
                     type="number"
-                    className="fm-line-input"
+                    className="fm-line-input fm-line-input--pct"
                     min={0}
                     max={100}
                     step="any"
@@ -733,18 +914,35 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                     value={l.discPct || ''}
                     placeholder="0"
                     onChange={(e) => setLine(l.key, { discPct: clampDisc(parseFloat(e.target.value) || 0) })}
-                    disabled={saving || lockedBySource}
+                    disabled={saving || lockedPrice}
                     aria-label={`Chiết khấu % dòng ${i + 1}`}
                   />
                 </td>
-                <td className="fm-num fm-line-total" data-label="Thành tiền (₫)">{formatVND(lineTotal(l))}</td>
+                <td data-label="Sau chiết khấu" className="fm-num">{l.item ? formatVND(afterDisc) : '—'}</td>
+                <td data-label="Thuế" className="fm-line-tax">
+                  <div className="fm-line-tax__edit">
+                    <input
+                      type="text"
+                      className="fm-line-input fm-line-input--tax"
+                      value={l.taxCode ?? ''}
+                      placeholder="—"
+                      onChange={(e) => setLine(l.key, { taxCode: e.target.value.trim() || undefined })}
+                      disabled={saving || lockedPrice}
+                      title="Mã nhóm thuế SAP (VatGroup)"
+                      aria-label={`Mã thuế dòng ${i + 1}`}
+                    />
+                    {vatPct !== undefined && <span title="Thuế suất theo mặt hàng">· {vatPct}%</span>}
+                  </div>
+                </td>
+                <td data-label="Tiền thuế" className="fm-num">{l.item && vatPct !== undefined ? formatVND(vatAmt) : '—'}</td>
+                <td className="fm-num fm-line-total" data-label="Tiền dòng (sau thuế)">{l.item ? formatVND(afterDisc + vatAmt) : '—'}</td>
                 {canEditLines && (
                   <td data-label="Xóa dòng">
                     <button
                       type="button"
                       className="fm-row-del"
                       onClick={() => removeLine(l.key)}
-                      disabled={saving || lines.length <= 1}
+                      disabled={saving || (!isChild && parentCount <= 1)}
                       title="Xóa dòng"
                       aria-label={`Xóa dòng ${i + 1}`}
                     >
@@ -753,83 +951,32 @@ export default function DeliveryFormView({ deliveryId, onSaved, onCancel }: Prop
                   </td>
                 )}
               </tr>
-              {expanded && (
-                <LineDetailRow id={detailId} colSpan={canEditLines ? 8 : 7}>
-                  <LineDetailField label="Kho" htmlFor={`${detailId}-wh`} title="Kho xuất của dòng (WarehouseCode) — mặc định theo kho header">
-                    <select
-                      id={`${detailId}-wh`}
-                      className="fm-line-select"
-                      value={l.warehouseCode ?? headerWh ?? ''}
-                      disabled={saving || warehouses.length === 0}
-                      onChange={(e) => setLine(l.key, { warehouseCode: e.target.value || undefined })}
-                    >
-                      <option value="">—</option>
-                      {warehouses.map((w) => (
-                        <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
-                      ))}
-                    </select>
-                  </LineDetailField>
-                  <LineDetailField label="Đơn vị tính" htmlFor={`${detailId}-uom`} title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">
-                    <input
-                      id={`${detailId}-uom`}
-                      type="text"
-                      className="fm-line-input"
-                      value={l.uom || l.item?.uom || ''}
-                      onChange={(e) => setLine(l.key, { uom: e.target.value || undefined })}
-                      disabled={saving}
-                    />
-                  </LineDetailField>
-                  <LineDetailField label="Mã thuế" htmlFor={`${detailId}-tax`} title="Mã nhóm thuế SAP (VatGroup)">
-                    <input
-                      id={`${detailId}-tax`}
-                      type="text"
-                      className="fm-line-input"
-                      value={l.taxCode ?? ''}
-                      placeholder="—"
-                      onChange={(e) => setLine(l.key, { taxCode: e.target.value.trim() || undefined })}
-                      disabled={saving || lockedBySource}
-                    />
-                  </LineDetailField>
-                  <LineDetailField label="Số lô" htmlFor={`${detailId}-batch`} title="Số lô (SAP: BatchNumbers) — truy xuất nguồn gốc">
-                    <input
-                      id={`${detailId}-batch`}
-                      type="text"
-                      className="fm-line-input"
-                      value={l.batchNumber ?? ''}
-                      placeholder="—"
-                      onChange={(e) => setLine(l.key, { batchNumber: e.target.value.trim() || undefined })}
-                      disabled={saving || lockedBySource}
-                      maxLength={50}
-                    />
-                  </LineDetailField>
-                </LineDetailRow>
-              )}
-              </Fragment>
               )
-            })}
+            })
+            })()}
           </tbody>
+          <tfoot className="fm-line-foot">
+            {totalRows.map(([k, label, value]) => (
+              <tr key={k}>
+                <td colSpan={lineCols - (canEditLines ? 2 : 1)} className="fm-num">{label}</td>
+                <td className="fm-num">{value}</td>
+                {canEditLines && <td />}
+              </tr>
+            ))}
+            <tr className="fm-detail-total">
+              <td colSpan={lineCols - (canEditLines ? 2 : 1)} className="fm-num"><b>Tổng chứng từ:</b></td>
+              <td className="fm-num"><b>{formatVND(docTotal)}</b></td>
+              {canEditLines && <td />}
+            </tr>
+          </tfoot>
         </table>
         </div>
         {canEditLines && <LineQuickAdd onAdd={quickAddLine} onAddMany={addItemsBatch} disabled={saving} />}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-          <table style={{ minWidth: 280 }}>
-            <tbody>
-              <tr>
-                <td>Tổng các dòng (sau CK dòng):</td>
-                <td style={{ textAlign: 'right' }}>{formatVND(subTotal)}</td>
-              </tr>
-              {headerDiscAmt > 0 && (
-                <tr>
-                  <td>Chiết khấu đầu chứng từ ({headerDiscPct}%):</td>
-                  <td style={{ textAlign: 'right' }}>−{formatVND(headerDiscAmt)}</td>
-                </tr>
-              )}
-              <tr>
-                <td style={{ fontWeight: 700 }}>Tổng phiếu giao hàng:</td>
-                <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 16 }}>{formatVND(grandTotal)}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="fm-totals fm-totals--mobile">
+          {totalRows.map(([k, label, value]) => (
+            <div key={k} className="fm-totals__row"><span>{label.replace(/:$/, '')}</span><b>{value}</b></div>
+          ))}
+          <div className="fm-totals__grand"><span>Tổng chứng từ</span><span>{formatVND(docTotal)}</span></div>
         </div>
       </div>
 

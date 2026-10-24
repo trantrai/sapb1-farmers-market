@@ -135,6 +135,11 @@ model SalesOrder {
   sapSyncError    String?          // Lỗi lần đẩy gần nhất (nếu có)
   sapSyncedAt     DateTime?        // Thời điểm đẩy thành công
   sapDatabaseId   String?          // DB SAP đích của đơn (đẩy/retry luôn dùng DB này)
+  // --- Tự thử lại & chống trùng khi đẩy SAP (src/lib/sap-sync-retry.ts) ---
+  sapSyncErrorKind String?         // safe | unknown | reconcile | business (null = không lỗi)
+  sapSyncAttempts  Int     @default(0) // số lần job nền đã tự thử lại
+  sapNextRetryAt   DateTime?       // lần tự thử kế tiếp (null = không tự thử)
+  sapSyncLastAt    DateTime?       // lần đẩy gần nhất (thành công hay thất bại)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   lines           SalesOrderLine[]
@@ -144,6 +149,7 @@ model SalesOrder {
   @@index([sapDatabaseId, status])
   @@index([cardCode, docDate])
   @@index([sapSyncStatus, sapDocEntry])
+  @@index([sapSyncStatus, sapNextRetryAt])
   @@index([docNum])
 }
 
@@ -226,6 +232,11 @@ model DeliveryLine {
   sourceQuotationLineId String?
   // Kho xuất của dòng (SAP DocumentLines.WarehouseCode) — mặc định theo kho header
   warehouseCode String?
+  // BOM (giống SalesOrderLine): dòng cha + các dòng con cùng bomGroupKey
+  isBomChild      Boolean @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean @default(true)
+  bomQtyPerParent Float?
 
   batchNumber String? // Số lô (SAP BatchNumbers) — truy xuất nguồn gốc
   @@index([deliveryId])
@@ -346,6 +357,12 @@ model AppSettings {
   // --- Gợi ý mặt hàng theo lịch sử đơn hàng ---
   suggestHistoryDays Int    @default(90) // Khoảng thời gian lịch sử (ngày)
   suggestMaxItems    Int    @default(10) // Số mặt hàng gợi ý tối đa
+  // --- Kiểm tra đơn hàng trước khi lưu: JSON bật/tắt cảnh báo (src/lib/order-check-config.ts); rỗng = bật hết ---
+  orderCheckConfig   String @default("")
+  // --- Tự thử lại đơn chưa đẩy được sang SAP (job nền mỗi 2 phút, src/lib/order-sap-retry-worker.ts) ---
+  sapAutoRetry       Boolean @default(true)
+  // --- Hiện thành phần con BOM Production/Assembly trên form/chi tiết (SL con luôn khóa theo công thức) ---
+  showBomProductionChildren Boolean @default(false)
   // --- Cấu hình Email (SMTP) ---
   smtpHost      String    @default("") // vd: smtp.gmail.com
   smtpPort      Int       @default(587)

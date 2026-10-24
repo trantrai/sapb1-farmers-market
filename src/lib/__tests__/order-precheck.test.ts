@@ -53,3 +53,45 @@ describe('precheckOrder', () => {
     expect(r).toEqual(['error:qty', 'warning:due-sunday'])
   })
 })
+
+describe('precheckOrder — lịch sử khách (insights)', () => {
+  const stat = (o: Partial<import('@/lib/order-precheck').ItemHistoryStat> = {}) => ({
+    samples: 5, medianQty: 10, uom: 'kg', lastPrice: 100, lastDate: '2026-10-20', ...o,
+  })
+  const line = { key: 1, itemCode: 'A', quantity: 10, unitPrice: 100, uom: 'kg', atpAvailable: 999 }
+  const withIns = (items: Record<string, ReturnType<typeof stat>>, duplicates: import('@/lib/order-precheck').DuplicateOrderHit[] = [], l = line) =>
+    precheckOrder({ ...base, lines: [l], insights: { duplicates, items } })
+
+  it('mọi kết quả có key ổn định', () => {
+    for (const i of precheckOrder({ ...base, hasPartner: false, lines: [] })) expect(i.key).toBeTruthy()
+  })
+
+  it('đơn trùng → cảnh báo kèm orderId; khóa đổi theo ngày giao', () => {
+    const r = withIns({}, [{ id: 'o1', docNum: 1052, isDraft: false, overlap: 8, total: 9 }])
+    expect(r).toEqual([expect.objectContaining({ code: 'dup-order', orderId: 'o1', key: 'dup-order:o1:2026-10-28' })])
+    expect(r[0].message).toMatch(/#1052.*trùng 8\/9/)
+    const empty = withIns({}, [{ id: 'o2', docNum: null, isDraft: true, overlap: 0, total: 0 }])
+    expect(empty[0].message).toMatch(/đơn nháp/)
+    expect(empty[0].message).not.toMatch(/trùng/)
+  })
+
+  it('SL bất thường: ≥3 lần trung vị hoặc ≤1/3; cần đủ mẫu, cùng đơn vị', () => {
+    const codesOf = (r: ReturnType<typeof withIns>) => r.map((x) => x.code)
+    expect(codesOf(withIns({ A: stat() }, [], { ...line, quantity: 30 }))).toEqual(['qty-anomaly'])
+    expect(codesOf(withIns({ A: stat() }, [], { ...line, quantity: 3 }))).toEqual(['qty-anomaly'])
+    expect(codesOf(withIns({ A: stat() }, [], { ...line, quantity: 25 }))).toEqual([])
+    expect(codesOf(withIns({ A: stat({ samples: 2 }) }, [], { ...line, quantity: 100 }))).toEqual([])
+    expect(codesOf(withIns({ A: stat({ uom: 'thùng' }) }, [], { ...line, quantity: 100 }))).toEqual([])
+    const r = withIns({ A: stat() }, [], { ...line, quantity: 100 })
+    expect(r[0].message).toMatch(/thường đặt ~10 kg/)
+    expect(r[0].key).toBe('qty-anomaly:1:100')
+  })
+
+  it('giá lệch >10% so với lần bán trước (tăng hoặc giảm); bỏ qua dòng con BOM', () => {
+    expect(withIns({ A: stat() }, [], { ...line, unitPrice: 111 }).map((x) => x.code)).toEqual(['price-change'])
+    expect(withIns({ A: stat() }, [], { ...line, unitPrice: 85 })[0].message).toMatch(/−15%.*20\/10\/2026/)
+    expect(withIns({ A: stat() }, [], { ...line, unitPrice: 109 })).toEqual([])
+    expect(withIns({ A: stat({ lastPrice: null }) }, [], { ...line, unitPrice: 500 })).toEqual([])
+    expect(withIns({ A: stat() }, [], { ...line, unitPrice: 0, isBomChild: true, quantity: 99 } as typeof line)).toEqual([])
+  })
+})

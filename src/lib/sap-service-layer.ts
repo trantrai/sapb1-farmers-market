@@ -26,6 +26,31 @@ export interface SapCallResult<T = unknown> {
   status: number
   data?: T
   error?: string
+  /**
+   * Lỗi không có HTTP status (status 0) xảy ra ở bước nào — để biết SAP đã
+   * nhận request hay chưa: login/connect = CHẮC CHẮN chưa tới SAP;
+   * timeout/network = không rõ (request có thể đã được xử lý).
+   */
+  failKind?: SapFailKind
+}
+
+export type SapFailKind = 'login' | 'connect' | 'timeout' | 'network'
+
+/** Mã lỗi cho biết kết nối chưa được thiết lập (DNS/TCP/TLS) → request chưa tới SAP */
+const CONNECT_ERROR_CODES = new Set([
+  'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+  'CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID',
+])
+
+/** Phân loại exception của fetch: chưa kết nối được / hết thời gian chờ / lỗi mạng giữa chừng */
+export function fetchFailKind(e: unknown): Exclude<SapFailKind, 'login'> {
+  const err = e as { name?: string; message?: string; code?: string; cause?: { code?: string } } | null
+  const code = err?.cause?.code ?? err?.code ?? ''
+  if (CONNECT_ERROR_CODES.has(code)) return 'connect'
+  const msg = `${err?.name ?? ''} ${err?.message ?? ''}`
+  if (/TimeoutError|aborted/i.test(msg)) return 'timeout'
+  return 'network'
 }
 
 /** Tùy chọn ghi audit cho từng lệnh gọi */
@@ -438,52 +463,67 @@ export async function sapGetAll<T = unknown>(
   return { ok: true, data: all, total: all.length }
 }
 
-/** POST dữ liệu sang Service Layer (dùng cho đẩy đơn hàng sau này). Mọi lần gọi đều được ghi audit */
+/**
+ * POST dữ liệu sang Service Layer (tạo chứng từ…). Mọi lần gọi đều được ghi audit.
+ * 401 (session hết hạn) → login lại ĐÚNG 1 lần rồi gửi lại: 401 nghĩa là SAP
+ * chưa xử lý request nên gửi lại không tạo trùng.
+ */
 export async function sapPost<T = unknown>(c: SapConfig, path: string, body: unknown, opts: SapCallOpts = {}): Promise<SapCallResult<T>> {
   const base = c.serviceLayerUrl.replace(/\/+$/, '')
   const cleanPath = path.startsWith('/') ? path : `/${path}`
-  let session = sessions.get(sessionKey(c))
-  if (!session || session.expiresAt < Date.now()) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let session = sessions.get(sessionKey(c))
+    if (!session || session.expiresAt < Date.now()) {
+      try {
+        session = await sapLogin(c)
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e)
+        void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, error, payload: body, retryOf: opts.retryOf })
+        return { ok: false, status: 0, error, failKind: 'login' }
+      }
+    }
+    const startedAt = Date.now()
     try {
-      session = await sapLogin(c)
+      const res = await sslFetch(
+        `${base}${cleanPath}`,
+        {
+          method: 'POST',
+          headers: { Cookie: session.cookie, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+          cache: 'no-store',
+        },
+        c.sslSkipVerify,
+      )
+      if (res.status === 401 && attempt === 0) {
+        sessions.delete(sessionKey(c)) // session hết hạn → login lại rồi gửi lại 1 lần
+        continue
+      }
+      if (!res.ok) {
+        const error = sapErrorVN(res.status, await safeJson(res))
+        void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
+        return { ok: false, status: res.status, error }
+      }
+      const data = (await res.json()) as T
+      // Tóm tắt kết quả cho audit: DocEntry/DocNum nếu có (POST /Orders…)
+      const d = data as { DocEntry?: unknown; DocNum?: unknown } | null
+      const summary =
+        typeof d?.DocEntry === 'number' || typeof d?.DocNum === 'number'
+          ? `Đã tạo chứng từ — DocEntry ${d?.DocEntry ?? '?'} / DocNum ${d?.DocNum ?? '?'}`
+          : `HTTP ${res.status}`
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, payload: body, resultSummary: summary, retryOf: opts.retryOf })
+      return { ok: true, status: res.status, data }
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
-      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, error, payload: body, retryOf: opts.retryOf })
-      return { ok: false, status: 0, error }
+      const failKind = fetchFailKind(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      const error = failKind === 'timeout' ? `Service Layer không phản hồi sau ${TIMEOUT_MS / 1000}s` : msg
+      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
+      return { ok: false, status: 0, error, failKind }
     }
   }
-  const startedAt = Date.now()
-  try {
-    const res = await sslFetch(
-      `${base}${cleanPath}`,
-      {
-        method: 'POST',
-        headers: { Cookie: session.cookie, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        cache: 'no-store',
-      },
-      c.sslSkipVerify,
-    )
-    if (!res.ok) {
-      const error = sapErrorVN(res.status, await safeJson(res))
-      void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: res.status, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
-      return { ok: false, status: res.status, error }
-    }
-    const data = (await res.json()) as T
-    // Tóm tắt kết quả cho audit: DocEntry/DocNum nếu có (POST /Orders…)
-    const d = data as { DocEntry?: unknown; DocNum?: unknown } | null
-    const summary =
-      typeof d?.DocEntry === 'number' || typeof d?.DocNum === 'number'
-        ? `Đã tạo chứng từ — DocEntry ${d?.DocEntry ?? '?'} / DocNum ${d?.DocNum ?? '?'}`
-        : `HTTP ${res.status}`
-    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: true, httpStatus: res.status, durationMs: Date.now() - startedAt, payload: body, resultSummary: summary, retryOf: opts.retryOf })
-    return { ok: true, status: res.status, data }
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e)
-    void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 0, durationMs: Date.now() - startedAt, error, payload: body, retryOf: opts.retryOf })
-    return { ok: false, status: 0, error }
-  }
+  const authError = 'Không thể xác thực session với Service Layer'
+  void logSapAudit({ sapDatabaseId: c.dbId ?? null, method: 'POST', path: cleanPath, ok: false, httpStatus: 401, error: authError, payload: body, retryOf: opts.retryOf })
+  return { ok: false, status: 401, error: authError }
 }
 
 /** Xóa session cache (gọi khi đổi mật khẩu/cấu hình) */

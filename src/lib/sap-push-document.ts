@@ -22,6 +22,7 @@
 
 import { loadSapSettings, isSapConfigured, sapGet, sapPost, sapPatch, type SapConfig } from './sap-service-layer'
 import { db as prisma } from './db'
+import { classifySapPostFailure, withMarker, type SapSyncErrorKind } from './sap-sync-retry'
 import { freshTemplateGroups, isFreshTplChild, reconcileTemplateBoms, type SapDocLine } from './sap-bom-reconcile'
 
 /** Entity set chứng từ bán hàng trên Service Layer (OData v2) */
@@ -192,6 +193,10 @@ export interface SapPushResult {
    * copy-from chưa lên SAP). Route nên trả HTTP 400 thay vì 502.
    */
   blocked?: boolean
+  /** Loại lỗi khi đẩy thất bại — quyết định có tự thử lại không (xem sap-sync-retry) */
+  errorKind?: SapSyncErrorKind
+  /** Chứng từ được gửi kèm UDF marker U_FM_LocalId (tra lại được, chống trùng) */
+  udf?: boolean
 }
 
 /**
@@ -357,7 +362,9 @@ async function baseFromSourceLine(
   }
   // BaseLine = LineNum của dòng nguồn TRÊN SAP (đếm từ 0). Có sapLineNum (SAP
   // trả về khi đẩy/sửa) → dùng luôn; thiếu (DeliveryLine, chứng từ đẩy trước
-  // khi có cột) → suy từ lineNum local (đếm từ 1).
+  // khi có cột) → suy từ lineNum local (đếm từ 1). Phiếu giao hàng lưu dòng con
+  // BOM ngay sau dòng cha — cùng vị trí SAP tự bung khi nhận dòng cha — nên
+  // lineNum local vẫn khớp LineNum trên SAP.
   const baseLine =
     spec.hasSapLineNum && typeof line.sapLineNum === 'number'
       ? line.sapLineNum
@@ -620,6 +627,18 @@ async function findDocByLocalId(
   return { supported: true, doc: { DocEntry: first.DocEntry, DocNum: first.DocNum } }
 }
 
+/**
+ * Kiểm tra (CHỈ ĐỌC) DB SAP đã định nghĩa UDF U_FM_LocalId trên chứng từ chưa:
+ * thử $filter theo một localId không tồn tại. KHÔNG tạo UDF.
+ */
+export async function checkLocalIdUdf(
+  settings: SapConfig,
+  entitySet: SapDocEntitySet = 'Orders',
+): Promise<{ supported: boolean; error?: string }> {
+  const r = await findDocByLocalId(settings, entitySet, '__fm_udf_probe__')
+  return r.lookupError ? { supported: false, error: r.lookupError } : { supported: r.supported }
+}
+
 /** Đọc LineNum của các dòng từ response POST/PATCH (mảng trực tiếp hoặc {results}) */
 function extractLineNums(res: SapDocResponse | undefined): number[] | undefined {
   if (!res?.DocumentLines) return undefined
@@ -656,6 +675,7 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
       // trả lỗi để user retry sau.
       return {
         status: 'error',
+        errorKind: 'safe',
         error: `Không kiểm tra được trùng chứng từ trên SAP (${existing.lookupError}) — chưa đẩy để tránh tạo trùng. Vui lòng thử lại.`,
       }
     }
@@ -664,8 +684,8 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
       // trước có thể mới xong bước 1 (SAP đã bung định mức gốc) → áp tiếp bước 2.
       if (fresh.size > 0) {
         const rec = await reconcileTemplateBoms(settings, input.entitySet, existing.doc.DocEntry, input.lines, postIdx)
-        if (!rec.ok) return { status: 'pending', error: rec.error }
-        return { status: 'synced', docEntry: existing.doc.DocEntry, docNum: existing.doc.DocNum, lineNums: rec.lineNums }
+        if (!rec.ok) return { status: 'pending', errorKind: 'safe', udf: true, error: rec.error }
+        return { status: 'synced', udf: true, docEntry: existing.doc.DocEntry, docNum: existing.doc.DocNum, lineNums: rec.lineNums }
       }
       const full = await sapGet<SapDocResponse>(
         settings,
@@ -675,6 +695,7 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
       )
       return {
         status: 'synced',
+        udf: true,
         docEntry: existing.doc.DocEntry,
         docNum: existing.doc.DocNum,
         lineNums: extractLineNums(full.ok ? full.data : undefined),
@@ -688,18 +709,26 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
   // (không lặng lẽ bỏ qua — sẽ lệch OpenQty trên SAP).
   const baseRes = await resolveCopyFromBases(input.entitySet, postLines)
   if (!baseRes.ok) {
-    return { status: 'error', blocked: true, error: baseRes.error }
+    return { status: 'error', blocked: true, errorKind: 'business', error: baseRes.error }
   }
 
   const payload = buildSapDocPayload({ ...input, lines: postLines }, withUdf, baseRes.bases)
   const res = await sapPost<SapDocResponse>(settings, `/${input.entitySet}`, payload)
   if (!res.ok) {
-    return { status: 'pending', error: res.error ?? `Lỗi không xác định (HTTP ${res.status})` }
+    return {
+      status: 'pending',
+      errorKind: withMarker(classifySapPostFailure(res), withUdf),
+      udf: withUdf,
+      error: res.error ?? `Lỗi không xác định (HTTP ${res.status})`,
+    }
   }
   if (fresh.size > 0) {
     const docEntry = res.data?.DocEntry
     const docNum = typeof res.data?.DocNum === 'number' ? res.data.DocNum : undefined
-    if (typeof docEntry !== 'number') return { status: 'pending', error: 'SAP không trả về DocEntry — sẽ thử đẩy lại' }
+    if (typeof docEntry !== 'number') {
+      // POST đã thành công → chứng từ có thể đã tạo: chỉ tự thử lại khi có UDF tra lại được
+      return { status: 'pending', errorKind: withMarker('unknown', withUdf), udf: withUdf, error: 'SAP không trả về DocEntry — sẽ thử đẩy lại' }
+    }
     const created = res.data?.DocumentLines
     const sapLines = (Array.isArray(created) ? created : created?.results ?? []) as SapDocLine[]
     const rec = await reconcileTemplateBoms(settings, input.entitySet, docEntry, input.lines, postIdx, sapLines)
@@ -708,13 +737,14 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
       // Không có marker → KHÔNG để pending (đẩy lại sẽ tạo trùng chứng từ): ghi
       // nhận đã tạo kèm cảnh báo để sửa định mức trực tiếp trên SAP.
       return withUdf
-        ? { status: 'pending', error: rec.error }
-        : { status: 'synced', docEntry, docNum, error: `${rec.error} — chứng từ đã tạo trên SAP với định mức gốc, cần sửa trực tiếp trên SAP B1.` }
+        ? { status: 'pending', errorKind: 'safe', udf: true, error: rec.error }
+        : { status: 'synced', udf: false, docEntry, docNum, error: `${rec.error} — chứng từ đã tạo trên SAP với định mức gốc, cần sửa trực tiếp trên SAP B1.` }
     }
-    return { status: 'synced', docEntry, docNum, lineNums: rec.lineNums }
+    return { status: 'synced', udf: withUdf, docEntry, docNum, lineNums: rec.lineNums }
   }
   return {
     status: 'synced',
+    udf: withUdf,
     docEntry: typeof res.data?.DocEntry === 'number' ? res.data.DocEntry : undefined,
     docNum: typeof res.data?.DocNum === 'number' ? res.data.DocNum : undefined,
     lineNums: extractLineNums(res.data),

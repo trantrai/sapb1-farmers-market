@@ -1,6 +1,7 @@
 'use client'
 
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
+import { useShowLockedBomChildren } from './bom-lines'
 
 interface PrintLine {
   itemCode: string
@@ -41,6 +42,7 @@ interface Props {
  * Chỉ hiển thị khi in (class fm-print-area).
  */
 export default function OrderPrintView({ order, partner }: Props) {
+  const showLockedBom = useShowLockedBomChildren()
   const today = new Date()
 
   return (
@@ -105,9 +107,9 @@ export default function OrderPrintView({ order, partner }: Props) {
             const visible = order.lines.filter((l) => {
               if (!l.isBomChild) return true
               const pt = parentType.get(l.bomGroupKey as string)
-              if (pt === 'production' || pt === 'assembly') return false
+              if (pt === 'production' || pt === 'assembly') return showLockedBom
               if (pt === 'template') return true
-              return l.bomEditable !== false
+              return showLockedBom || l.bomEditable !== false
             })
             return visible.map((line, i) => {
             const afterDisc = line.unitPrice * line.quantity * (1 - line.discPct / 100)

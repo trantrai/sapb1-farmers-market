@@ -6,6 +6,7 @@ import { acquirePushLock, releasePushLock } from '@/lib/order-push-lock'
 import { pushDeliveryToSap } from '@/lib/sap-push-delivery'
 import { headerExtrasFromRecord } from '@/lib/sap-push-document'
 import { clearSapDeliveriesCache } from '@/lib/sap-deliveries'
+import { isSapDeliveryLine } from '@/lib/delivery-bom'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -73,7 +74,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       ...headerExtrasFromRecord(delivery),
       headerDiscPct: delivery.headerDiscPct ?? 0,
       pickAndPackNotes: delivery.pickAndPackNotes ?? null,
-      lines: delivery.lines.map((l) => ({
+      // BOM: chỉ gửi dòng cha + hàng thường — SAP tự bung thành phần theo công thức
+      lines: delivery.lines.filter(isSapDeliveryLine).map((l) => ({
         itemCode: l.itemCode,
         quantity: l.quantity,
         unitPrice: l.unitPrice,

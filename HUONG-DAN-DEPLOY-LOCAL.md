@@ -165,6 +165,7 @@ Các thay đổi schema gần đây (đều **chỉ thêm** cột/bảng, `prism
 | Người liên hệ, địa chỉ giao/ghi hóa đơn của khách hàng (`contactsJson`, `shipToDefault`, `billToDefault`…) | Chọn người liên hệ + địa chỉ trên chứng từ → gửi SAP `ContactPersonCode`, `ShipToCode`, `BillToCode` |
 | `AppSettings.assistant*` | Cấu hình trợ lý sale admin (Bước 14) |
 | Bảng `UserSalesPerson` | Gắn người dùng ↔ nhân viên kinh doanh theo từng DB SAP (Bước 15) |
+| `DeliveryLine.isBomChild`, `bomGroupKey`, `bomEditable`, `bomQtyPerParent` | Phiếu giao hàng lưu nhóm BOM (dòng cha + thành phần con) như đơn hàng |
 
 Sau khi cập nhật lần đầu lên bản có người liên hệ/địa chỉ: vào **Đồng bộ dữ liệu › Đối tác kinh doanh** bấm đồng bộ lại để có danh sách người liên hệ và địa chỉ.
 

@@ -11,6 +11,7 @@
 // buildSapLines: cha TreeType=iNotATree, con U_BOMID = mã cha).
 // ============================================================
 
+import { useEffect, useState } from 'react'
 import { ArrowLeftRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/fm-client'
 import { formatNum } from '@/lib/fm-shared'
@@ -123,20 +124,58 @@ export function bomChildCounts(lines: BomLineFields[]): Map<string, number> {
   return m
 }
 
+/** Loại BOM của dòng cha theo nhóm (bomGroupKey → bomType) */
+export function bomParentTypes(lines: BomLineFields[]): Map<string, BomKind | undefined> {
+  return new Map(lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.bomType]))
+}
+
+/** Dòng con khóa SL theo công thức: con của BOM Production/Assembly (hoặc đã đánh dấu bomEditable=false) */
+export function isLockedBomChild(l: BomLineFields, parentTypes: Map<string, BomKind | undefined>): boolean {
+  if (!l.isBomChild) return false
+  const pt = parentTypes.get(l.bomGroupKey as string)
+  return pt === 'production' || pt === 'assembly' || (pt !== 'template' && l.bomEditable === false)
+}
+
 /**
- * Dòng hiển thị trên bảng: ẩn con của BOM Production/Assembly (khóa theo
- * công thức, vẫn giữ trong data để lưu) và con của nhóm đang thu gọn.
+ * Dòng hiển thị trên bảng: ẩn con của nhóm đang thu gọn; con của BOM
+ * Production/Assembly (khóa theo công thức, vẫn giữ trong data để lưu) chỉ
+ * hiện khi bật thiết lập "Hiện thành phần con BOM Production" (showLocked).
  */
-export function visibleBomLines<T extends BomLineFields>(lines: T[], collapsed: ReadonlySet<string>): T[] {
-  const pType = new Map(lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.bomType]))
+export function visibleBomLines<T extends BomLineFields>(lines: T[], collapsed: ReadonlySet<string>, showLocked = false): T[] {
+  const pType = bomParentTypes(lines)
   return lines.filter((x) => {
     if (!x.isBomChild) return true
-    const gk = x.bomGroupKey as string
-    if (collapsed.has(gk)) return false
-    const pt = pType.get(gk)
-    if (pt === 'production' || pt === 'assembly') return false
-    return pt === 'template' || x.bomEditable !== false
+    if (collapsed.has(x.bomGroupKey as string)) return false
+    return showLocked || !isLockedBomChild(x, pType)
   })
+}
+
+let showLockedCache: boolean | null = null
+let showLockedReq: Promise<boolean> | null = null
+
+/**
+ * Thiết lập Cài đặt → "Hiện thành phần con BOM Production" (GET /api/app-config,
+ * mọi người dùng đã đăng nhập). Cache theo phiên tab; mặc định false (ẩn).
+ */
+export function useShowLockedBomChildren(): boolean {
+  const [v, setV] = useState<boolean>(showLockedCache ?? false)
+  useEffect(() => {
+    if (showLockedCache !== null) return
+    let alive = true
+    showLockedReq ??= api('/api/app-config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => Boolean(j?.showBomProductionChildren))
+      .catch(() => false)
+      .then((b) => { showLockedCache = b; showLockedReq = null; return b })
+    showLockedReq.then((b) => { if (alive) setV(b) })
+    return () => { alive = false }
+  }, [])
+  return v
+}
+
+/** Gọi sau khi lưu Cài đặt để form mở sau đó đọc lại thiết lập */
+export function resetShowLockedBomChildrenCache(next?: boolean): void {
+  showLockedCache = next ?? null
 }
 
 /** Nút thu gọn / mở rộng nhóm thành phần con (đặt ở ô # của dòng cha) */
@@ -156,12 +195,11 @@ export function BomToggle({ collapsed, count, onToggle, parentLabel }: {
       onClick={onToggle}
     >
       {collapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
-      <span className="fm-bom-toggle__count">{count}</span>
     </button>
   )
 }
 
-/** Ô mặt hàng của dòng con: mã, tên, định mức và mã BOM cha (U_BOMID) */
+/** Ô mặt hàng của dòng con (gọn 1 dòng): mã · định mức/1 cha · nút hoán đổi. Tên hàng nằm ở cột riêng. */
 export function BomChildCell({ code, name, qtyPerParent, uom, parentCode, onSwap, disabled }: {
   code?: string
   name?: string
@@ -172,31 +210,29 @@ export function BomChildCell({ code, name, qtyPerParent, uom, parentCode, onSwap
   onSwap?: () => void
   disabled?: boolean
 }) {
+  const norm = `${formatNum(qtyPerParent ?? 0)}${uom ? ` ${uom}` : ''}/1 cha`
   return (
-    <div className="fm-bom-child-cell">
-      <span className="fm-bom-child-cell__branch" aria-hidden>└─</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="fm-bom-child-cell__top">
-          <b>{code}</b>
-          {onSwap && (
-            <button
-              type="button"
-              className="fm-bom-swap-btn"
-              title="Hoán đổi thành phần với mặt hàng khác"
-              aria-label={`Hoán đổi thành phần ${code ?? ''}`}
-              onClick={onSwap}
-              disabled={disabled}
-            >
-              <ArrowLeftRight size={13} aria-hidden /> Hoán đổi
-            </button>
-          )}
-        </div>
-        <div className="fm-bom-child-cell__name">{name}</div>
-        <div className="fm-bom-child-cell__meta">
-          Định mức: <span className="fm-num-inline">{formatNum(qtyPerParent ?? 0)}</span>{uom ? ` ${uom}` : ''} / 1 cha
-          {parentCode ? <> · BOM: {parentCode}</> : null}
-        </div>
-      </div>
+    <div
+      className="fm-bom-child-cell"
+      title={[name, `Định mức: ${norm}`, parentCode && `Thành phần BOM của ${parentCode}`].filter(Boolean).join(' — ')}
+    >
+      <span className="fm-bom-child-cell__branch" aria-hidden>└</span>
+      <b className="fm-bom-child-cell__code">{code}</b>
+      <span className="fm-bom-child-cell__meta">
+        <span className="fm-sr-only">Định mức: </span>×<span className="fm-num-inline">{formatNum(qtyPerParent ?? 0)}</span>
+      </span>
+      {onSwap && (
+        <button
+          type="button"
+          className="fm-bom-swap-btn"
+          title="Hoán đổi thành phần với mặt hàng khác"
+          aria-label={`Hoán đổi thành phần ${code ?? ''}`}
+          onClick={onSwap}
+          disabled={disabled}
+        >
+          <ArrowLeftRight size={12} aria-hidden />
+        </button>
+      )}
     </div>
   )
 }

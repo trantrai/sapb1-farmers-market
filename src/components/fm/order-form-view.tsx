@@ -13,17 +13,20 @@ import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import CopyFromPicker from './copy-from-picker'
 import type { PrefillDoc } from '@/lib/copy-from'
 import { B2BPartyFields, useBpB2BInfo } from './b2b-party-fields'
-import { BomChildCell, BomToggle, bomChildCounts, visibleBomLines } from './bom-lines'
+import { BomChildCell, BomToggle, bomChildCounts, bomParentTypes, isLockedBomChild, useShowLockedBomChildren, visibleBomLines } from './bom-lines'
 import BomSwapDialog, { useCanSwapBom } from './bom-swap-dialog'
 import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
-import PrecheckDialog from './precheck-dialog'
-import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
+import { CheckNotices, CheckStatusChip, LineIssueBadge, OrderCheckPanel, focusLineByKey, revealCheckPanel, type CheckNotice } from './order-check-panel'
+import { precheckOrder, type OrderInsights, type PrecheckIssue } from '@/lib/order-precheck'
+import { DEFAULT_ORDER_CHECK_CONFIG, historyNeeds, isIssueEnabled, parseOrderCheckConfig, type OrderCheckConfig } from '@/lib/order-check-config'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
 import CustomerBasket from './customer-basket'
 import DeliveryHint from './delivery-hint'
 import type { OrderDraft as AssistantDraftData } from '@/lib/assistant/agent'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
+import { IMPORT_MAX_ROWS, parseImportRows, type ImportMatch } from '@/lib/order-import'
+import OrderImportPreview, { type ImportPick, type ImportPreviewData } from './order-import-preview'
 
 /** Nháp đơn từ Trợ lý sale admin + nonce (đổi nonce để áp dụng lại) */
 export type AssistantOrderDraft = AssistantDraftData & { nonce: number }
@@ -670,6 +673,15 @@ const clampPct = (n: number) => Math.min(100, Math.max(0, Number.isFinite(n) ? n
 
 let keyCounter = 0
 const nextKey = () => ++keyCounter
+/** Số cột bảng dòng hàng (đồng bộ cột màn chi tiết + ô xóa) */
+const LINE_COLS = 14
+
+/** Viền trái dòng hàng theo mức vấn đề nặng nhất */
+const lineIssueClass = (list?: PrecheckIssue[]) =>
+  !list?.length ? '' : list.some((i) => i.level === 'error') ? ' has-error' : ' has-warning'
+
+/** Cảnh báo từ lịch sử khách — hiện thông báo nổi khi vừa phát hiện */
+const NOTICE_CODES = new Set<PrecheckIssue['code']>(['dup-order', 'qty-anomaly', 'price-change'])
 
 export default function OrderFormView({
   onSaved,
@@ -678,8 +690,9 @@ export default function OrderFormView({
   userId,
   prefill,
   onPrefillApplied,
+  onOpenOrder,
 }: {
-  onSaved: (result: { id?: string | null; docNum: number; sapStatus: string; sapDocNum?: number | null; sapError?: string | null }) => void
+  onSaved: (result: { id?: string | null; docNum: number | null; isDraft?: boolean; sapStatus: string; sapDocNum?: number | null; sapError?: string | null; warningsIgnored?: number }) => void
   /** Đơn hàng cần sửa (Open) — có nghĩa là đang ở chế độ CẬP NHẬT */
   editOrder?: EditOrderData | null
   /** Nút hủy ở chế độ sửa → quay lại danh sách */
@@ -690,6 +703,8 @@ export default function OrderFormView({
   prefill?: AssistantOrderDraft | null
   /** Đã đổ nháp trợ lý vào form → cha xoá để mở lại form không áp dụng lại */
   onPrefillApplied?: () => void
+  /** Mở chi tiết 1 đơn khác (đơn trùng ở vùng Kiểm tra đơn) — form vẫn giữ nháp */
+  onOpenOrder?: (orderId: string) => void
 }) {
   const [partner, setPartner] = useState<ACOption | null>(null)
   const [partnerErr, setPartnerErr] = useState('')
@@ -754,6 +769,8 @@ export default function OrderFormView({
   const [importErrors, setImportErrors] = useState<string[] | null>(null)
   /** Tiến trình tra cứu mã hàng từ master data (null = không chạy) */
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null)
+  /** Kết quả khớp chờ người dùng duyệt ở hộp xem trước (null = đóng) */
+  const [importPreview, setImportPreview] = useState<ImportPreviewData | null>(null)
 
   // ---- Mẫu đơn hàng (Order Template) ----
   interface TemplateLine {
@@ -937,34 +954,16 @@ export default function OrderFormView({
     setPriceHistFor(null)
   }
 
-  /** Parse số từ ô Excel: chấp nhận "1.234,56" (vi), "1,234.56" (en), "1,5".
-   *  Trả null khi ô trống, NaN khi không phải số. */
-  const parseExcelNum = (v: string): number | null => {
-    const s = v.trim().replace(/\s/g, '')
-    if (s === '') return null
-    let norm = s
-    if (norm.includes(',') && norm.includes('.')) {
-      norm =
-        norm.lastIndexOf(',') > norm.lastIndexOf('.')
-          ? norm.replace(/\./g, '').replace(',', '.')
-          : norm.replace(/,/g, '')
-    } else if (norm.includes(',')) {
-      norm = norm.replace(',', '.')
-    }
-    const n = Number(norm)
-    return Number.isFinite(n) ? n : NaN
-  }
-
+  /** Bước 1: đọc file theo template → khớp danh mục (1 request) → mở hộp xem trước */
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
 
+    setImportMsg(null)
+    setImportErrors(null)
+    setImportProgress({ current: 0, total: 0 })
     try {
-      // Reset banner cũ + bắt đầu hiển thị tiến trình
-      setImportMsg(null)
-      setImportErrors(null)
-
       // 1) Lấy template mặc định
       const tRes = await api('/api/excel-templates')
       const tJson = await tRes.json()
@@ -974,11 +973,9 @@ export default function OrderFormView({
         setImportMsg({ type: 'error', text: 'Chưa có template Excel nào. Vào "Mẫu Excel" để tạo template trước.' })
         return
       }
-      const mapping: Record<string, string> = template.mapping
 
-      // 2) Đọc file Excel
+      // 2) Đọc file Excel — lazy load xlsx (~7MB) chỉ khi dùng nhập Excel
       const buf = await file.arrayBuffer()
-      // B4: lazy load xlsx (~7MB) chỉ khi dùng nhập Excel
       const XLSX = await import('xlsx')
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
@@ -988,163 +985,107 @@ export default function OrderFormView({
         return
       }
 
-      // Đảo mapping: fieldKey -> excelColumn
-      const fieldToCol: Record<string, string> = {}
-      for (const [col, field] of Object.entries(mapping)) fieldToCol[field] = col
-
-      // 3) Parse + validate từng dòng (mã hàng, số lượng, số học)
-      interface ParsedRow {
-        excelRow: number // số dòng trên file (1-based, đã + header)
-        itemCode: string
-        itemName: string
-        quantity: number
-        unitPrice: number | null // null = Excel không khai → lấy từ master data
-        discPct: number | null
-        uom: string
-        taxCode: string
-        warehouseCode: string
-      }
-      const parsed: ParsedRow[] = []
-      const errors: string[] = []
-      rows.forEach((row, idx) => {
-        const excelRow = idx + 2
-        const get = (field: string): string => {
-          const col = fieldToCol[field]
-          if (!col) return ''
-          return String(row[col] ?? '').trim()
-        }
-        const itemCode = get('itemCode')
-        if (!itemCode) {
-          errors.push(`Dòng ${excelRow}: thiếu Mã hàng`)
-          return
-        }
-        const quantity = parseExcelNum(get('quantity'))
-        if (quantity === null || Number.isNaN(quantity)) {
-          errors.push(`Dòng ${excelRow}: Số lượng trống hoặc không phải số`)
-          return
-        }
-        if (quantity <= 0) {
-          errors.push(`Dòng ${excelRow}: Số lượng phải > 0`)
-          return
-        }
-        const unitPrice = parseExcelNum(get('unitPrice'))
-        if (unitPrice !== null && (Number.isNaN(unitPrice) || unitPrice < 0)) {
-          errors.push(`Dòng ${excelRow}: Đơn giá không hợp lệ`)
-          return
-        }
-        const discPct = parseExcelNum(get('discPct'))
-        if (discPct !== null && (Number.isNaN(discPct) || discPct < 0 || discPct > 100)) {
-          errors.push(`Dòng ${excelRow}: Chiết khấu % phải từ 0 đến 100`)
-          return
-        }
-        parsed.push({
-          excelRow,
-          itemCode,
-          itemName: get('itemName'),
-          quantity,
-          unitPrice,
-          discPct,
-          uom: get('uom'),
-          taxCode: get('taxCode'),
-          warehouseCode: get('warehouseCode'),
-        })
-      })
-
-      // 4) Tra cứu master data cho các mã hàng distinct — điền thông tin còn thiếu
-      //    (tên hàng, đơn vị, đơn giá, mã thuế, VAT%) mà template không khai báo
-      interface MasterItem {
-        itemCode: string
-        itemName?: string
-        uom?: string
-        price?: number
-        taxCode?: string
-        vatRate?: number
-        barcode?: string
-      }
-      const master = new Map<string, MasterItem>()
-      const distinctCodes = [...new Set(parsed.map((p) => p.itemCode))]
-      for (const [idx, code] of distinctCodes.entries()) {
-        // Hiển thị tiến trình tra cứu để người dùng biết không bị treo
-        setImportProgress({ current: idx + 1, total: distinctCodes.length })
-        try {
-          // Timeout dài: lần đầu cache SAP lạnh phải tải toàn bộ danh mục phân trang
-          const res = await api(`/api/items?q=${encodeURIComponent(code)}`, { timeoutMs: 120_000 })
-          if (!res.ok) continue
-          const json = await res.json()
-          const items = (json.data ?? []) as MasterItem[]
-          const found = items.find(
-            (it) => String(it.itemCode ?? '').trim().toLowerCase() === code.toLowerCase(),
-          )
-          if (found) master.set(code, found)
-        } catch {
-          /* lỗi mạng/timeout → coi như không tìm thấy, báo ở bước sau */
-        }
-      }
-
-      // 5) Dựng dòng đơn + validate mã hàng tồn tại trong danh mục
-      const newLines: DraftLine[] = []
-      for (const p of parsed) {
-        const m = master.get(p.itemCode)
-        if (!m) {
-          errors.push(`Dòng ${p.excelRow}: Mã hàng "${p.itemCode}" không có trong danh mục`)
-          continue
-        }
-        const item: ACOption = {
-          code: m.itemCode,
-          name: p.itemName || m.itemName || m.itemCode,
-          uom: m.uom ?? '',
-          taxCode: m.taxCode ?? '',
-          vatRate: typeof m.vatRate === 'number' ? m.vatRate : undefined,
-          price: typeof m.price === 'number' && m.price > 0 ? m.price : undefined,
-          barcode: m.barcode ?? '',
-        }
-        newLines.push({
-          key: nextKey(),
-          item,
-          quantity: p.quantity,
-          // Ưu tiên đơn giá trên Excel; thiếu → giá Price List 1 từ master data
-          unitPrice: p.unitPrice ?? item.price ?? 0,
-          discPct: p.discPct ?? 0,
-          // Template không có VAT% → lấy thuế suất theo mã thuế của mặt hàng
-          vatPct: item.vatRate ?? 8,
-          uom: p.uom || item.uom || undefined,
-          taxCode: p.taxCode || item.taxCode || undefined,
-          warehouseCode: p.warehouseCode || headerWh || undefined,
-        })
-      }
-
-      if (newLines.length === 0) {
-        setImportMsg({ type: 'error', text: 'Không nhập được dòng nào' })
-        setImportErrors(errors.length > 0 ? errors : null)
+      // 3) Parse + kiểm số học từng dòng
+      const { parsed, errors } = parseImportRows(rows, template.mapping as Record<string, string>)
+      if (parsed.length > IMPORT_MAX_ROWS) {
+        setImportMsg({ type: 'error', text: `File có ${parsed.length} dòng — tối đa ${IMPORT_MAX_ROWS} dòng mỗi lần nhập` })
         return
       }
 
-      // Thay dòng trống đầu tiên nếu chưa có dữ liệu
-      setLines((ls) => {
-        const hasData = ls.some((l) => l.item)
-        const base = hasData ? ls : []
-        return [...base, ...newLines]
-      })
-      // Tự động resolve giá đặc biệt/VAT/tồn kho cho từng dòng đã nhập
-      newLines.forEach((l) => {
-        if (l.item) {
-          void resolvePrice(l.key, l.item.code, partner?.code ?? null)
-          void checkAtp(l.key, l.item.code, l.warehouseCode)
-          // M2: bung dòng con BOM cho mặt hàng nhập từ Excel
-          void expandBom(l.key, l.item.code)
+      // 4) Khớp danh mục: mã hàng → mã vạch → tên gần đúng (máy chủ, chỉ đọc)
+      let matches: ImportMatch[] = []
+      if (parsed.length > 0) {
+        setImportProgress({ current: 0, total: parsed.length })
+        // Timeout dài: mirror trống → máy chủ phải tải danh mục SAP lần đầu
+        const res = await api('/api/orders/import-match', {
+          method: 'POST',
+          body: JSON.stringify({ rows: parsed.map((p) => ({ code: p.code, name: p.name })) }),
+          timeoutMs: 120_000,
+        })
+        const json = await res.json().catch(() => null)
+        if (!res.ok || !json?.ok) {
+          setImportMsg({ type: 'error', text: json?.error ?? 'Không khớp được danh mục mặt hàng' })
+          return
         }
+        if (json.catalogSize === 0) {
+          setImportMsg({ type: 'error', text: 'Danh mục mặt hàng trống — vào Đồng bộ Mặt hàng trước khi nhập Excel' })
+          return
+        }
+        matches = json.matches as ImportMatch[]
+      }
+      setImportPreview({
+        fileName: file.name,
+        templateName: template.name,
+        rows: parsed.map((p, i) => ({ parsed: p, match: matches[i] })),
+        errors,
       })
-
-      const msg = `Đã nhập ${newLines.length} dòng từ Excel (template "${template.name}").`
-      // Banner kết quả tách 2: success (số dòng OK) + error riêng (số dòng lỗi + chi tiết)
-      setImportMsg({ type: 'success', text: msg })
-      setImportErrors(errors.length > 0 ? errors : null)
     } catch {
       setImportMsg({ type: 'error', text: 'Không đọc được file Excel' })
-      setImportErrors(null)
     } finally {
       setImportProgress(null)
     }
+  }
+
+  /** Bước 2: điền các dòng người dùng đã chọn ở hộp xem trước vào đơn */
+  const applyImportPicks = (picks: ImportPick[]) => {
+    const data = importPreview
+    setImportPreview(null)
+    if (!data || picks.length === 0) return
+    const newLines: DraftLine[] = picks.map(({ parsed: p, item: m }) => {
+      const item: ACOption = {
+        code: m.itemCode,
+        name: m.itemName || p.name || m.itemCode,
+        uom: m.uom ?? '',
+        taxCode: m.taxCode ?? '',
+        vatRate: typeof m.vatRate === 'number' ? m.vatRate : undefined,
+        price: typeof m.price === 'number' && m.price > 0 ? m.price : undefined,
+        barcode: m.barcode ?? '',
+      }
+      return {
+        key: nextKey(),
+        item,
+        quantity: p.quantity,
+        // Ưu tiên đơn giá trên Excel (giữ cố định như giá nhập tay); thiếu → giá Price List 1 từ master data
+        unitPrice: p.unitPrice ?? item.price ?? 0,
+        ...(p.unitPrice !== null ? { priceSource: 'manual' } : {}),
+        discPct: p.discPct ?? 0,
+        // Template không có VAT% → lấy thuế suất theo mã thuế của mặt hàng
+        vatPct: item.vatRate ?? 8,
+        uom: p.uom || item.uom || undefined,
+        taxCode: p.taxCode || item.taxCode || undefined,
+        warehouseCode: p.warehouseCode || headerWh || undefined,
+      }
+    })
+
+    // Thay dòng trống đầu tiên nếu chưa có dữ liệu
+    setLines((ls) => {
+      const hasData = ls.some((l) => l.item)
+      const base = hasData ? ls : []
+      return [...base, ...newLines]
+    })
+    // Tự động resolve giá đặc biệt/VAT/tồn kho cho từng dòng đã nhập
+    newLines.forEach((l) => {
+      if (l.item) {
+        // Giá có trên Excel → chỉ lấy giá danh mục làm giá tham chiếu (cảnh báo bán dưới giá), không đè
+        void resolvePrice(l.key, l.item.code, partner?.code ?? null, l.priceSource === 'manual')
+        void checkAtp(l.key, l.item.code, l.warehouseCode)
+        // M2: bung dòng con BOM cho mặt hàng nhập từ Excel
+        void expandBom(l.key, l.item.code)
+      }
+    })
+
+    const pickedRows = new Set(picks.map((p) => p.parsed.excelRow))
+    const skipped = [
+      ...data.errors.map((er) => ({ excelRow: er.excelRow, text: `Dòng ${er.excelRow}: ${er.message}` })),
+      ...data.rows
+        .filter((r) => !pickedRows.has(r.parsed.excelRow))
+        .map((r) => ({
+          excelRow: r.parsed.excelRow,
+          text: `Dòng ${r.parsed.excelRow}: ${r.match.kind === 'none' ? `"${r.parsed.code || r.parsed.name}" không có trong danh mục` : 'bỏ qua'}`,
+        })),
+    ].sort((x, y) => x.excelRow - y.excelRow).map((x) => x.text)
+    setImportMsg({ type: 'success', text: `Đã nhập ${newLines.length} dòng từ Excel (template "${data.templateName}").` })
+    setImportErrors(skipped.length > 0 ? skipped : null)
   }
 
   // ---- ATP check: tồn kho khả dụng của mặt hàng (theo kho của dòng nếu có) ----
@@ -1692,6 +1633,8 @@ export default function OrderFormView({
 
   /** Nhóm BOM đang thu gọn (ẩn dòng con trên bảng — vẫn lưu/đẩy SAP bình thường) */
   const [bomCollapsed, setBomCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  /** Cài đặt: hiện con BOM Production/Assembly (SL luôn khóa) */
+  const showLockedBom = useShowLockedBomChildren()
   const toggleBomGroup = (gk: string) =>
     setBomCollapsed((cur) => {
       const next = new Set(cur)
@@ -1806,7 +1749,8 @@ export default function OrderFormView({
 
   // Giải đơn giá theo quy tắc: GIÁ ĐẶC BIỆT theo Mặt hàng + Khách hàng (OSPP) →
   // tìm thấy thì dùng; không tìm thấy → giá từ Price List 1 (source 'special' | 'pricelist')
-  const resolvePrice = async (key: number, itemCode: string, cardCode: string | null) => {
+  /** keepPrice: giữ đơn giá đang có (giá nhập tay/Excel), chỉ cập nhật giá tham chiếu refPrice */
+  const resolvePrice = async (key: number, itemCode: string, cardCode: string | null, keepPrice = false) => {
     try {
       const qs = new URLSearchParams({ itemCode })
       if (cardCode) qs.set('cardCode', cardCode)
@@ -1815,7 +1759,11 @@ export default function OrderFormView({
       if (json?.ok && typeof json.price === 'number' && json.price > 0) {
         setLines((ls) =>
           ls.map((l) =>
-            l.key === key && l.item?.code === itemCode ? { ...l, unitPrice: json.price, priceSource: json.source, refPrice: json.price } : l,
+            l.key !== key || l.item?.code !== itemCode
+              ? l
+              : keepPrice
+                ? { ...l, refPrice: json.price }
+                : { ...l, unitPrice: json.price, priceSource: json.source, refPrice: json.price },
           ),
         )
       }
@@ -1831,32 +1779,68 @@ export default function OrderFormView({
     disabled: saving,
   })
 
-  /** Kiểm tra trước khi lưu: danh sách lỗi + cảnh báo đang hiển thị (null = đóng) */
-  const [precheck, setPrecheck] = useState<PrecheckIssue[] | null>(null)
+  // ---- Kiểm tra đơn trực tiếp (vùng "Kiểm tra đơn" — không hộp xác nhận) ----
+  /** Lịch sử khách (đơn trùng, SL, giá) — gắn cardCode + ngày giao để bỏ kết quả cũ khi đổi */
+  const [insights, setInsights] = useState<{ cardCode: string; docDueDate: string; data: OrderInsights } | null>(null)
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  /** Cảnh báo người dùng đã "Bỏ qua" (khóa đổi khi SL/giá/ngày đổi → hiện lại) */
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
+  const [notices, setNotices] = useState<CheckNotice[]>([])
+  const noticedRef = useRef<Set<string>>(new Set())
+  /** Thiết lập bật/tắt cảnh báo (Cài đặt) — mặc định bật hết tới khi tải xong */
+  const [checkCfg, setCheckCfg] = useState<OrderCheckConfig>(DEFAULT_ORDER_CHECK_CONFIG)
+  useEffect(() => {
+    const ctrl = new AbortController()
+    api('/api/orders/check-config', { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.ok) setCheckCfg(parseOrderCheckConfig(j.config)) })
+      .catch(() => { /* giữ mặc định */ })
+    return () => ctrl.abort()
+  }, [])
+  const needHistory = historyNeeds(checkCfg)
+  const historyOn = needHistory.duplicates || needHistory.items
+  const insightCodesKey = [...new Set(lines.filter((l) => l.item && !l.isBomChild).map((l) => l.item!.code))].sort().join('|')
+  useEffect(() => {
+    const cardCode = partner?.code
+    if (!cardCode || !historyOn) return
+    const ctrl = new AbortController()
+    const t = window.setTimeout(async () => {
+      setInsightsLoading(true)
+      try {
+        const res = await api('/api/orders/insights', {
+          method: 'POST',
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            cardCode,
+            docDueDate,
+            itemCodes: insightCodesKey ? insightCodesKey.split('|') : [],
+            excludeOrderId: isEdit ? editOrder?.id ?? null : null,
+          }),
+        })
+        const json = await res.json().catch(() => null)
+        if (res.ok && json?.ok) setInsights({ cardCode, docDueDate, data: { duplicates: json.duplicates ?? [], items: json.items ?? {} } })
+      } catch { /* lỗi mạng/hủy → bỏ qua, chỉ mất cảnh báo lịch sử */ }
+      finally { if (!ctrl.signal.aborted) setInsightsLoading(false) }
+    }, 600)
+    return () => { ctrl.abort(); window.clearTimeout(t) }
+  }, [partner?.code, docDueDate, insightCodesKey, isEdit, editOrder?.id, historyOn])
 
   /** Phase 2 — asDraft=true → gọi API với ?draft=true (lưu nháp) */
-  const save = async (asDraft = false, opts?: { skipPrecheck?: boolean }) => {
-    // Lưu chính thức: gom mọi lỗi/cảnh báo 1 lần trước khi gửi (nháp thì bỏ qua)
-    if (!asDraft && !opts?.skipPrecheck) {
-      const issues = precheckOrder({
-        hasPartner: Boolean(partner),
-        docDate,
-        docDueDate,
-        today: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
-        lines: lines.filter((l) => l.item).map((l) => ({
-          key: l.key,
-          itemCode: l.item!.code,
-          itemName: l.item!.name,
-          quantity: l.quantity,
-          unitPrice: l.isBomChild ? 0 : l.unitPrice,
-          refPrice: l.refPrice,
-          priceSource: l.priceSource,
-          isBomChild: l.isBomChild,
-          warehouseCode: l.warehouseCode || headerWh || null,
-          atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
-        })),
-      })
-      if (issues.length > 0) { setPrecheck(issues); return }
+  const save = async (asDraft = false) => {
+    // Lưu chính thức: còn lỗi → đưa người dùng tới lỗi đầu tiên, không lưu.
+    // Cảnh báo không chặn (đã hiển thị trực tiếp ở vùng Kiểm tra đơn).
+    let warningsIgnored = 0
+    if (!asDraft) {
+      const firstError = visibleIssues.find((i) => i.level === 'error')
+      if (firstError) {
+        if (firstError.lineKey != null) focusLineByKey(firstError.lineKey)
+        else {
+          revealCheckPanel(firstError.key)
+          if (firstError.code === 'due-before-doc') document.getElementById('fm-doc-due-date')?.focus({ preventScroll: true })
+        }
+        return
+      }
+      warningsIgnored = visibleIssues.length
     }
     setError('')
     setVersionConflict(false)
@@ -1932,10 +1916,12 @@ export default function OrderFormView({
       clearDraft() // lưu thành công → xóa nháp
       onSaved({
         id: o.id ?? null,
-        docNum: o.docNum,
+        docNum: o.docNum ?? null,
+        isDraft: Boolean(o.isDraft),
         sapStatus: o.sapSyncStatus ?? 'none',
         sapDocNum: o.sapDocNum ?? null,
         sapError: o.sapSyncError ?? null,
+        warningsIgnored,
       })
     } catch {
       setError('Không thể kết nối máy chủ')
@@ -2006,6 +1992,52 @@ export default function OrderFormView({
       ? { warehouseCode: '', ...info.totals }
       : info.warehouses?.[0] ?? null
   }
+  const checkIssues: PrecheckIssue[] = precheckOrder({
+    hasPartner: Boolean(partner),
+    docDate,
+    docDueDate,
+    today: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
+    insights: partner && insights?.cardCode === partner.code && insights.docDueDate === docDueDate ? insights.data : null,
+    lines: lines.filter((l) => l.item).map((l) => ({
+      key: l.key,
+      itemCode: l.item!.code,
+      itemName: l.item!.name,
+      quantity: l.quantity,
+      unitPrice: l.isBomChild ? 0 : l.unitPrice,
+      refPrice: l.refPrice,
+      priceSource: l.priceSource,
+      isBomChild: l.isBomChild,
+      uom: l.uom?.trim() || l.item!.uom?.trim() || null,
+      warehouseCode: l.warehouseCode || headerWh || null,
+      atpAvailable: atp[l.key]?.status === 'ok' ? (pickAtpRow(atp[l.key], l, headerWh)?.available ?? 0) : null,
+    })),
+  })
+  const enabledIssues = checkIssues.filter((i) => isIssueEnabled(checkCfg, i))
+  const visibleIssues = enabledIssues.filter((i) => i.level === 'error' || !dismissed.has(i.key))
+  const dismissedCount = enabledIssues.length - visibleIssues.length
+  const issuesByLine = new Map<number, PrecheckIssue[]>()
+  for (const i of visibleIssues) if (i.lineKey != null) issuesByLine.set(i.lineKey, [...(issuesByLine.get(i.lineKey) ?? []), i])
+  const errorCount = visibleIssues.filter((i) => i.level === 'error').length
+  // Thông báo nổi: chỉ cảnh báo lịch sử khách VỪA xuất hiện (mỗi khóa 1 lần), tự ẩn sau 8s.
+  // Chờ form đứng yên 1,2s và lịch sử đã tải xong → không báo khi đang gõ SL/giá.
+  const noticeIssues = checkCfg.notices ? visibleIssues.filter((i) => NOTICE_CODES.has(i.code)) : []
+  const noticeSig = noticeIssues.map((i) => i.key).join('§')
+  const announceNotices = useEffectEvent(() => {
+    const fresh = noticeIssues.filter((i) => !noticedRef.current.has(i.key))
+    if (fresh.length === 0) return
+    for (const i of fresh) noticedRef.current.add(i.key)
+    const keys = new Set(fresh.map((i) => i.key))
+    setNotices((prev) => [
+      ...fresh.map((i) => ({ key: i.key, message: i.message, lineKey: i.lineKey })),
+      ...prev.filter((n) => !keys.has(n.key)),
+    ].slice(0, 3))
+    window.setTimeout(() => setNotices((prev) => prev.filter((n) => !keys.has(n.key))), 8000)
+  })
+  useEffect(() => {
+    if (!noticeSig || insightsLoading) return
+    const t = window.setTimeout(announceNotices, 1200)
+    return () => window.clearTimeout(t)
+  }, [noticeSig, insightsLoading])
   const atpTooltip = (info: AtpState | undefined, row: StockRow): string => {
     const perWh = (info?.warehouses ?? []).map(
       (w) => `Kho ${w.warehouseCode || '(local)'}: Tồn ${formatNum(w.inStock)} · Cam kết ${formatNum(w.committed)} · Đang về ${formatNum(w.onOrder)} → ATP ${formatNum(w.available)}`,
@@ -2022,11 +2054,14 @@ export default function OrderFormView({
   }
 
   // M4: paddingBottom = chỗ cuộn thêm để sticky action bar không che nội dung cuối form
+  // Đơn nháp chưa được cấp số chứng từ (docNum = null)
+  const editDocRef = editOrder?.docNum != null ? `#${editOrder.docNum}` : '(nháp)'
+
   return (
     <div style={{ paddingBottom: 96 }}>
       <PageHeader
-        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng bán #${editOrder?.docNum}` : 'Tạo đơn hàng bán mới']}
-        title={isEdit ? `Cập nhật đơn hàng bán #${editOrder?.docNum}` : 'Tạo đơn hàng bán mới'}
+        breadcrumb={['Chức năng chính', isEdit ? `Sửa đơn hàng bán ${editDocRef}` : 'Tạo đơn hàng bán mới']}
+        title={isEdit ? `Cập nhật đơn hàng bán ${editDocRef}` : 'Tạo đơn hàng bán mới'}
 />
       {error && (
         <div className="fm-alert fm-alert--error" role="alert">
@@ -2092,7 +2127,7 @@ export default function OrderFormView({
       {isEdit && editOrder && (
         <div className="fm-alert fm-alert--success" style={{ marginBottom: 14 }}>
           <div>
-            <b>Đang sửa đơn hàng bán #{editOrder.docNum}</b>
+            <b>Đang sửa đơn hàng bán {editDocRef}</b>
             {editOrder.sapSyncStatus === 'synced'
               ? ' — Lưu thay đổi sẽ cập nhật trực tiếp chứng từ trên SAP B1 (PATCH /Orders). Chỉ được sửa khi chứng từ còn Mở trên SAP.'
               : ' — Đơn chưa đẩy sang SAP B1, lưu thay đổi chỉ áp dụng trên hệ thống này.'}
@@ -2277,21 +2312,28 @@ export default function OrderFormView({
             <thead>
               <tr>
                 <th className="fm-col-no">#</th>
-                <th style={{ minWidth: 240 }}>Hàng hóa</th>
+                <th className="fm-col-code">Mã hàng</th>
+                <th className="fm-col-name">Tên hàng</th>
                 <th className="fm-col-barcode" title="Mã vạch (BarCode) của mặt hàng — quét/gõ mã vạch ở ô tìm để chọn nhanh">Barcode</th>
                 <th className="fm-col-qty fm-num">Số lượng</th>
-                <th className="fm-col-price fm-num" style={{ width: 170 }}>Đơn giá (₫)</th>
+                <th className="fm-col-uom" title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">Đơn vị tính</th>
+                <th className="fm-col-wh" title="Kho xuất của dòng (WarehouseCode) — mặc định theo header">Kho</th>
+                <th className="fm-col-price fm-num">Đơn giá</th>
                 <th className="fm-col-disc fm-num" title="Chiết khấu áp dụng riêng cho dòng này">CK (%)</th>
-                <th className="fm-col-total fm-num">Thành tiền (₫)</th>
+                <th className="fm-col-money fm-num">Sau chiết khấu</th>
+                <th className="fm-col-tax" title="Mã nhóm thuế · thuế suất (có thể sửa tay thuế suất)">Thuế</th>
+                <th className="fm-col-money fm-num">Tiền thuế</th>
+                <th className="fm-col-total fm-num">Tiền dòng (sau thuế)</th>
                 <th className="fm-col-del"><span className="fm-sr-only">Xóa dòng</span></th>
               </tr>
             </thead>
             <tbody>
               {(() => {
-                // Chỉ vẽ dòng con của BOM Template (Production/Assembly ẩn — vẫn
-                // giữ trong data để submit/validate) và nhóm đang mở rộng.
-                const vis = visibleBomLines(lines, bomCollapsed)
+                // Dòng con BOM Template luôn vẽ; con Production/Assembly chỉ vẽ khi
+                // bật thiết lập (vẫn giữ trong data để submit/validate); bỏ nhóm thu gọn.
+                const vis = visibleBomLines(lines, bomCollapsed, showLockedBom)
                 const childCounts = bomChildCounts(lines)
+                const parentTypes = bomParentTypes(lines)
                 const parentCodes = new Map(
                   lines.filter((x) => !x.isBomChild && x.bomGroupKey).map((x) => [x.bomGroupKey as string, x.item?.code ?? '']),
                 )
@@ -2302,13 +2344,17 @@ export default function OrderFormView({
                 const qtyInvalid = Boolean(l.item) && l.quantity <= 0
                 /** Đơn giá âm: không cho lưu */
                 const priceInvalid = !l.isBomChild && l.unitPrice < 0
-                const lineTotal = l.quantity * l.unitPrice
+                const lineTotal = Math.round(l.quantity * l.unitPrice)
                 const discAmt = Math.round((lineTotal * clampPct(l.discPct)) / 100)
                 const afterDisc = lineTotal - discAmt
+                /** Tiền thuế dòng (chưa gồm CK đầu chứng từ) — cùng công thức màn chi tiết */
+                const vatAmt = Math.round((afterDisc * clampPct(l.vatPct ?? 8)) / 100)
                 const isChild = Boolean(l.isBomChild)
+                /** Con BOM Production/Assembly: SL luôn khóa theo công thức */
+                const locked = isLockedBomChild(l, parentTypes)
                 if (!isChild) stt += 1
-                /** Dòng cha BOM Template có thành phần hiển thị → nút thu gọn/mở rộng */
-                const showToggle = !isChild && l.bomType === 'template' && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
+                /** Dòng cha BOM có thành phần hiển thị → nút thu gọn/mở rộng */
+                const showToggle = !isChild && (l.bomType === 'template' || (showLockedBom && Boolean(l.bomType))) && (childCounts.get(l.bomGroupKey as string) ?? 0) > 0
                 const detailId = `fm-line-detail-${l.key}`
                 const expanded = expandedLines.isOpen(l.key)
                 const atpLow = (() => {
@@ -2319,17 +2365,9 @@ export default function OrderFormView({
                 })()
                 return (
                   <Fragment key={l.key}>
-                  <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${showToggle ? ' is-bom-parent' : ''}`}>
+                  <tr data-line-key={l.key} className={`${l.item ? '' : 'is-draft'}${isChild ? ' is-bom-child' : ''}${!isChild && l.bomGroupKey ? ' is-bom-parent' : ''}${lineIssueClass(issuesByLine.get(l.key))}`}>
                     <td data-label="Dòng">
                       <div className="fm-bom-parent-no">
-                        <LineExpandButton
-                          expanded={expanded}
-                          onToggle={() => expandedLines.toggle(l.key)}
-                          lineNo={stt}
-                          controls={detailId}
-                          hideNo={isChild}
-                          hasIssue={Boolean(l.vatOverridden) || atpLow}
-                        />
                         {showToggle && (
                           <BomToggle
                             collapsed={bomCollapsed.has(l.bomGroupKey as string)}
@@ -2338,55 +2376,71 @@ export default function OrderFormView({
                             onToggle={() => toggleBomGroup(l.bomGroupKey as string)}
                           />
                         )}
+                        <LineExpandButton
+                          expanded={expanded}
+                          onToggle={() => expandedLines.toggle(l.key)}
+                          lineNo={stt}
+                          controls={detailId}
+                          hideNo={isChild}
+                          hasIssue={atpLow}
+                          title="Tồn kho khả dụng (ATP) của dòng"
+                        />
+                        <LineIssueBadge issues={issuesByLine.get(l.key) ?? []} />
                       </div>
                     </td>
-                    <td data-label="Hàng hóa" data-full>
+                    <td data-label="Mã hàng" data-full className="fm-line-code">
                       {isChild ? (
                         <BomChildCell
                           code={l.item?.code}
-                          name={l.item?.name}
                           qtyPerParent={l.bomQtyPerParent}
                           uom={l.uom || l.item?.uom}
                           parentCode={parentCodes.get(l.bomGroupKey as string)}
-                          onSwap={canSwapBom && l.bomEditable !== false ? () => setSwapKey(l.key) : undefined}
+                          onSwap={canSwapBom && !locked ? () => setSwapKey(l.key) : undefined}
                           disabled={saving}
                         />
                       ) : (
-                      <>
-                      <Autocomplete
-                        label="Hàng hóa"
-                        hideLabel
-                        placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
-                        fetchUrl="/api/items"
-                        disabled={saving}
-                        minChars={2}
-                        minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
-                        value={l.item}
-                        onChange={(v) => selectItem(l.key, v)}
-                        error={invalid ? 'Chưa chọn hàng hóa' : undefined}
-                      />
-                      </>
-                    )}
-                      {l.item && !expanded && (
-                        <div className="fm-line-summary">
-                          {[l.uom || l.item.uom, (l.warehouseCode || headerWh) && `Kho ${l.warehouseCode || headerWh}`, l.taxCode && `${l.taxCode} · ${l.vatPct ?? '?'}%`].filter(Boolean).join(' · ')}
-                          {(() => {
-                            const a = atp[l.key]
-                            if (a?.status !== 'ok') return null
-                            const row = pickAtpRow(a, l, headerWh)
-                            if (!row) return null
-                            const enough = row.available - l.quantity >= 0
-                            return (
-                              <span className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`} style={{ marginLeft: 6 }} title={atpTooltip(a, row)}>
-                                {enough ? 'ATP ' : 'Thiếu '}{formatNum(enough ? row.available : -(row.available - l.quantity))}
-                              </span>
-                            )
-                          })()}
+                        <div className="fm-line-code__pick">
+                          <Autocomplete
+                            label="Hàng hóa"
+                            hideLabel
+                            placeholder="Gõ mã hàng, tên hàng hoặc quét barcode…"
+                            fetchUrl="/api/items"
+                            disabled={saving}
+                            minChars={2}
+                            minCharsHint="Nhập tối thiểu 2 ký tự để tìm mặt hàng (chỉ MẶT HÀNG BÁN ĐƯỢC)…"
+                            value={l.item}
+                            onChange={(v) => selectItem(l.key, v)}
+                            error={invalid ? 'Chưa chọn hàng hóa' : undefined}
+                          />
                         </div>
                       )}
+                      {l.item && !expanded && (() => {
+                        const a = atp[l.key]
+                        if (a?.status !== 'ok') return null
+                        const row = pickAtpRow(a, l, headerWh)
+                        if (!row) return null
+                        const enough = row.available - l.quantity >= 0
+                        return (
+                          <div className="fm-line-summary">
+                            <span className={`fm-line-meta ${enough ? 'fm-atp--ok' : 'fm-atp--low'}`} title={atpTooltip(a, row)}>
+                              {enough ? 'ATP ' : 'Thiếu '}{formatNum(enough ? row.available : -(row.available - l.quantity))}
+                            </span>
+                          </div>
+                        )
+                      })()}
                     </td>
+                    <td data-label="Tên hàng" className="fm-line-name" title={l.item?.name || undefined}>{l.item?.name || '—'}</td>
                     <td data-label="Barcode" className="fm-line-barcode">{l.item?.barcode || '—'}</td>
                     <td data-label="Số lượng" className="fm-num">
+                      {locked ? (
+                        <span
+                          className="fm-line-locked-qty"
+                          title="BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)"
+                          aria-label={`Số lượng dòng ${l.key} (khóa theo BOM)`}
+                        >
+                          {formatNum(l.quantity)}
+                        </span>
+                      ) : (
                       <input
                         type="number"
                         min={0}
@@ -2398,21 +2452,54 @@ export default function OrderFormView({
                         className="fm-line-input"
                         style={{ ...(qtyInvalid ? { borderColor: 'var(--fm-coral)', background: 'var(--fm-coral-soft)' } : {}) }}
                         value={l.quantity || ''}
-                        disabled={saving || (l.isBomChild && l.bomEditable === false)}
-                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : l.isBomChild && l.bomEditable === false ? 'BOM Production/Assembly: số lượng khóa theo công thức (đổi số lượng dòng cha để quy đổi)' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
+                        disabled={saving}
+                        title={qtyInvalid ? 'Số lượng phải lớn hơn 0' : l.isBomChild ? 'BOM Template: được chỉnh số lượng thành phần' : undefined}
                         onChange={(e) => updateLine(l.key, { quantity: Number(e.target.value) || 0 })}
                       />
+                      )}
                       {qtyInvalid && (
                         <span id={`fm-line-${l.key}-qty-err`} className="fm-sr-only">
                           Số lượng dòng {l.key} phải lớn hơn 0 thì dòng mới được lưu
                         </span>
                       )}
                     </td>
-                    <td data-label="Đơn giá (₫)" className="fm-num">
-                      {l.isBomChild ? (
-                        <span className="fm-line-meta" title="Thành phần BOM: giá bán luôn = 0đ">0</span>
+                    <td data-label="Đơn vị tính">
+                      {l.item ? (
+                        <input
+                          className="fm-line-input fm-line-input--uom"
+                          value={l.uom || l.item.uom || ''}
+                          onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
+                          disabled={saving}
+                          title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
+                          aria-label={`Đơn vị tính dòng ${l.key}`}
+                        />
                       ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        '—'
+                      )}
+                    </td>
+                    <td data-label="Kho">
+                      <select
+                        className="fm-line-select"
+                        value={l.warehouseCode ?? headerWh ?? ''}
+                        title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
+                        aria-label={`Kho dòng ${l.key}`}
+                        disabled={saving || warehouses.length === 0}
+                        onChange={(e) => {
+                          updateLine(l.key, { warehouseCode: e.target.value || undefined })
+                          if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
+                        }}
+                      >
+                        <option value="">—</option>
+                        {warehouses.map((w) => (
+                          <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td data-label="Đơn giá" className="fm-num">
+                      {l.isBomChild ? (
+                        <span title="Thành phần BOM: giá bán luôn = 0đ">{formatVND(0)}</span>
+                      ) : (
+                      <div className="fm-line-price">
                         <input
                           type="number"
                           min={0}
@@ -2455,6 +2542,9 @@ export default function OrderFormView({
                       )}
                     </td>
                     <td data-label="CK (%)" className="fm-num">
+                      {l.isBomChild ? (
+                        <span title="Thành phần BOM: không chiết khấu (giá = 0)">0%</span>
+                      ) : (
                       <input
                         type="number"
                         min={0}
@@ -2464,12 +2554,35 @@ export default function OrderFormView({
                         aria-label={`Chiết khấu % dòng ${l.key}`}
                         className="fm-line-input fm-line-input--pct"
                         value={l.discPct || ''}
-                        disabled={saving || Boolean(l.isBomChild)}
-                        title={l.isBomChild ? 'Thành phần BOM: không chiết khấu (giá = 0)' : undefined}
+                        placeholder="0"
+                        disabled={saving}
                         onChange={(e) => updateLine(l.key, { discPct: clampPct(Number(e.target.value)) })}
                       />
+                      )}
                     </td>
-                    <td className="fm-num fm-line-total" data-label="Thành tiền (₫)">{l.item ? formatVND(afterDisc) : '—'}</td>
+                    <td data-label="Sau chiết khấu" className="fm-num">{l.item ? formatVND(afterDisc) : '—'}</td>
+                    <td data-label="Thuế" className="fm-line-tax">
+                      {l.isBomChild ? (
+                        <span>{[l.taxCode, `${l.vatPct ?? 0}%`].filter(Boolean).join(' · ')}</span>
+                      ) : (
+                      <div className="fm-line-tax__edit">
+                        {l.taxCode && <span title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>{l.taxCode} ·</span>}
+                        <input
+                          type="number"
+                          aria-label={`VAT % dòng ${l.key}`}
+                          className="fm-line-input fm-line-input--pct"
+                          value={l.vatPct || ''}
+                          disabled={saving}
+                          title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
+                          onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
+                        />
+                        <span aria-hidden>%</span>
+                      </div>
+                      )}
+                      {l.vatOverridden && <div className="fm-line-tax__note">Đã ghi đè thuế suất</div>}
+                    </td>
+                    <td data-label="Tiền thuế" className="fm-num">{l.item ? formatVND(vatAmt) : '—'}</td>
+                    <td className="fm-num fm-line-total" data-label="Tiền dòng (sau thuế)">{l.item ? formatVND(afterDisc + vatAmt) : '—'}</td>
                     <td data-label="Xóa dòng">
                       {l.isBomChild ? (
                         <span className="fm-line-meta" title="Xóa dòng cha để gỡ cả nhóm BOM">—</span>
@@ -2481,39 +2594,7 @@ export default function OrderFormView({
                     </td>
                   </tr>
                   {expanded && (
-                    <LineDetailRow id={detailId} colSpan={8}>
-                        <LineDetailField label="Đơn vị tính" title="Đơn vị tính (MeasureUnit) — để trống để SAP dùng mặc định của mặt hàng">
-                          {l.item ? (
-                            <input
-                              className="fm-line-input"
-                              style={{ maxWidth: 80 }}
-                              value={l.uom || l.item.uom || ''}
-                              onChange={(e) => updateLine(l.key, { uom: e.target.value || undefined })}
-                              disabled={saving}
-                              title="Đơn vị tính (MeasureUnit) — có thể sửa; để trống để SAP dùng mặc định của mặt hàng"
-                              aria-label={`Đơn vị tính dòng ${l.key}`}
-                            />
-                          ) : (
-                            '—'
-                          )}
-                        </LineDetailField>
-                        <LineDetailField label="Kho" title="Kho xuất của dòng (WarehouseCode) — mặc định theo header">
-                          <select
-                            className="fm-line-select"
-                            value={l.warehouseCode ?? headerWh ?? ''}
-                            title="Kho xuất của dòng (WarehouseCode) — mặc định theo header"
-                            disabled={saving || warehouses.length === 0}
-                            onChange={(e) => {
-                              updateLine(l.key, { warehouseCode: e.target.value || undefined })
-                              if (l.item) void checkAtp(l.key, l.item.code, e.target.value || undefined)
-                            }}
-                          >
-                            <option value="">—</option>
-                            {warehouses.map((w) => (
-                              <option key={w.warehouseCode} value={w.warehouseCode}>{w.warehouseCode}</option>
-                            ))}
-                          </select>
-                        </LineDetailField>
+                    <LineDetailRow id={detailId} colSpan={LINE_COLS}>
                         <LineDetailField label="Tồn kho (ATP)" title="ATP — tồn kho khả dụng: Tồn − đã cam kết + đang đặt">
                           {!l.item ? (
                             '—'
@@ -2550,32 +2631,6 @@ export default function OrderFormView({
                             </div>
                           )}
                         </LineDetailField>
-                        <LineDetailField label="Mã thuế" title="Mã nhóm thuế (SalesVATGroup) của mặt hàng trong SAP B1">
-                          {l.item && l.taxCode ? (
-                            <span className="fm-line-meta" title={`Mã nhóm thuế SAP (SalesVATGroup) — thuế suất ${l.vatPct ?? '?'}%`}>
-                              {l.taxCode}
-                              <small style={{ color: 'var(--fm-text-3)' }}> · {l.vatPct ?? '?'}%</small>
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </LineDetailField>
-                        <LineDetailField label="Thuế (%)" title="Thuế suất VAT của dòng — tự điền theo mã thuế, có thể sửa tay">
-                          <input
-                            type="number"
-                            aria-label={`VAT % dòng ${l.key}`}
-                            className="fm-line-input fm-line-input--pct"
-                            value={l.vatPct || ''}
-                            disabled={saving}
-                            title={l.vatOverridden ? 'Đã ghi đè thuế suất từ mã thuế' : 'VAT % tự điền theo mã thuế — có thể sửa tay'}
-                            onChange={(e) => updateLine(l.key, { vatPct: clampPct(Number(e.target.value)), vatOverridden: true })}
-                          />
-                          {l.vatOverridden && (
-                            <div style={{ fontSize: 11, color: 'var(--fm-gold-ink)', lineHeight: 1.3, marginTop: 2 }}>
-                              Đã ghi đè thuế suất từ mã thuế
-                            </div>
-                          )}
-                        </LineDetailField>
                     </LineDetailRow>
                   )}
                   </Fragment>
@@ -2583,16 +2638,29 @@ export default function OrderFormView({
                 })
               })()}
             </tbody>
+            <tfoot className="fm-line-foot">
+              {([
+                ['before', 'Tổng trước chiết khấu:', formatVND(totals.totalBeforeDisc)],
+                ['disc', 'Chiết khấu các dòng:', totals.discountAmt > 0 ? `−${formatVND(totals.discountAmt)}` : formatVND(0)],
+                ...(totals.headerDiscAmt > 0 ? [['hdisc', `Chiết khấu đầu chứng từ (${headerDiscPct}%):`, `−${formatVND(totals.headerDiscAmt)}`]] : []),
+                ['after', 'Sau chiết khấu:', formatVND(totals.afterDisc)],
+                ['vat', 'Thuế các dòng:', formatVND(totals.vatAmt)],
+              ] as [string, string, string][]).map(([k, label, value]) => (
+                <tr key={k}>
+                  <td colSpan={LINE_COLS - 2} className="fm-num">{label}</td>
+                  <td className="fm-num">{value}</td>
+                  <td />
+                </tr>
+              ))}
+              <tr className="fm-detail-total">
+                <td colSpan={LINE_COLS - 2} className="fm-num"><b>Tổng chứng từ:</b></td>
+                <td className="fm-num"><b>{formatVND(totals.grand)}</b></td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </div>
 
-        {precheck && (
-          <PrecheckDialog
-            issues={precheck}
-            onClose={() => setPrecheck(null)}
-            onProceed={() => { setPrecheck(null); void save(isEdit && Boolean(editOrder?.isDraft), { skipPrecheck: true }) }}
-          />
-        )}
         <LineQuickAdd
           onAdd={quickAddLine}
           onAddMany={(entries) => {
@@ -2623,9 +2691,12 @@ export default function OrderFormView({
             onChange={handleExcelImport}
           />
         </div>
+        {importPreview && (
+          <OrderImportPreview data={importPreview} onConfirm={applyImportPicks} onCancel={() => setImportPreview(null)} />
+        )}
         {importProgress && (
           <div className="fm-alert fm-alert--info" style={{ marginTop: 10 }} role="status">
-            <div>Đang tra cứu mã hàng {importProgress.current}/{importProgress.total}…</div>
+            <div>{importProgress.total ? `Đang khớp ${importProgress.total} dòng với danh mục mặt hàng…` : 'Đang đọc file Excel…'}</div>
           </div>
         )}
         {importMsg && (
@@ -2637,7 +2708,7 @@ export default function OrderFormView({
         {importErrors && importErrors.length > 0 && (
           <div className="fm-alert fm-alert--error" style={{ marginTop: 10 }} role="alert">
             <div>
-              <b>{importErrors.length} dòng lỗi:</b>{' '}
+              <b>{importErrors.length} dòng không nhập:</b>{' '}
               {importErrors.slice(0, 5).join('; ')}
               {importErrors.length > 5 ? ` (+${importErrors.length - 5} dòng nữa)` : ''}
             </div>
@@ -2652,6 +2723,16 @@ export default function OrderFormView({
           <BadgeCheck size={18} /> Bước 3 — Tổng kết
         </h2>
 
+        <OrderCheckPanel
+          issues={visibleIssues}
+          dismissedCount={dismissedCount}
+          checking={insightsLoading && historyOn && Boolean(partner)}
+          warningsOff={!checkCfg.enabled}
+          onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
+          onRestore={() => setDismissed(new Set())}
+          onOpenOrder={onOpenOrder}
+        />
+
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
           <div style={{ flex: '1 1 220px', minWidth: 220 }}>
             <div className="fm-field">
@@ -2662,7 +2743,7 @@ export default function OrderFormView({
             </div>
           </div>
 
-          <div className="fm-totals">
+          <div className="fm-totals fm-totals--mobile">
             <div className="fm-totals__row"><span>Tổng trước chiết khấu</span><b>{formatVND(totals.totalBeforeDisc)}</b></div>
             <div className="fm-totals__row"><span>Chiết khấu các dòng</span><b>{totals.discountAmt > 0 ? `−${formatVND(totals.discountAmt)}` : formatVND(0)}</b></div>
             {totals.headerDiscAmt > 0 && (
@@ -2747,6 +2828,7 @@ export default function OrderFormView({
         )}
         {/* Phase 2 — Lưu nháp: gọi API với ?draft=true (chỉ khi tạo mới; khi sửa
             bản nháp, nút Lưu chính đã giữ trạng thái nháp) */}
+        <span className="fm-check-chip-slot"><CheckStatusChip errors={errorCount} warnings={visibleIssues.length - errorCount} /></span>
         <ShortcutHelp open={shortcuts.helpOpen} onOpen={shortcuts.openHelp} onClose={shortcuts.closeHelp} />
         {!isEdit && (
           <button className="fm-btn fm-btn--secondary" onClick={() => save(true)} disabled={saving}>
@@ -2757,8 +2839,10 @@ export default function OrderFormView({
         <button className="fm-btn fm-btn--primary" onClick={() => save(isEdit && Boolean(editOrder?.isDraft))} disabled={saving}>
           <Save size={16} />
           {saving ? 'Đang lưu…' : isEdit ? (editOrder?.isDraft ? 'Lưu bản nháp' : 'Lưu thay đổi') : 'Lưu đơn hàng bán'}
+          {!saving && errorCount > 0 && ` (${errorCount} lỗi)`}
         </button>
       </div>
+      <CheckNotices notices={notices} onClose={(k) => setNotices((prev) => prev.filter((n) => n.key !== k))} />
 
       {/* Modal lưu thành mẫu đơn hàng */}
       {tplModal && (
