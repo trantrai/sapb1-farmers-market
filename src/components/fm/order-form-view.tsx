@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, Sparkles, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy, Paperclip } from 'lucide-react'
+import { Plus, Trash2, Save, ShoppingCart, ShoppingBasket, BadgeCheck, RefreshCw, Upload, ChevronDown, ChevronUp, History, BookmarkPlus, X, Copy, Paperclip } from 'lucide-react'
 import Autocomplete, { ACOption } from './autocomplete'
 import PageHeader from './page-header'
 import { formatVND, formatNum, formatDateVN } from '@/lib/fm-shared'
@@ -18,6 +18,7 @@ import { ShortcutHelp, useFormShortcuts } from './form-shortcuts'
 import PrecheckDialog from './precheck-dialog'
 import { precheckOrder, type PrecheckIssue } from '@/lib/order-precheck'
 import RecentOrdersPanel, { recentLineToOption, type RecentOrder } from './recent-orders'
+import CustomerBasket from './customer-basket'
 import { LineDetailField, LineDetailRow, LineExpandButton, LineQuickAdd, useExpandedLines } from './line-items'
 import type { B2BPartySelection, BpB2BInfo } from '@/lib/bp-b2b'
 
@@ -885,22 +886,6 @@ export default function OrderFormView({
     }
   }
 
-  // ---- Gợi ý mặt hàng theo lịch sử mua hàng của khách ----
-  interface SuggestItem {
-    itemCode: string
-    itemName: string
-    orderCount: number
-    totalQty: number
-    lastPrice: number
-    lastDate: string
-    uom?: string
-    taxCode?: string
-    warehouseCode?: string
-  }
-  const [suggests, setSuggests] = useState<SuggestItem[]>([])
-  const [suggestLoading, setSuggestLoading] = useState(false)
-  const [suggestOpen, setSuggestOpen] = useState(true)
-
   // ---- Lịch sử giá theo khách hàng ----
   interface PriceHistRow {
     docNum: number
@@ -935,43 +920,6 @@ export default function OrderFormView({
     if (!priceHistFor) return
     updateLine(priceHistFor.key, { unitPrice: row.unitPrice, discPct: row.discPct, priceSource: 'manual' })
     setPriceHistFor(null)
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    const code = partner?.code
-    if (!code) { setSuggests([]); return }
-    setSuggestLoading(true)
-    api(`/api/orders/suggest-items?cardCode=${encodeURIComponent(code)}`)
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}))
-        if (!cancelled && res.ok && json.ok) setSuggests(json.data ?? [])
-        else if (!cancelled) setSuggests([])
-      })
-      .catch(() => { if (!cancelled) setSuggests([]) })
-      .finally(() => { if (!cancelled) setSuggestLoading(false) })
-    return () => { cancelled = true }
-  }, [partner?.code])
-
-  const addSuggested = (s: SuggestItem) => {
-    const key = nextKey()
-    const line: DraftLine = {
-      key,
-      item: { code: s.itemCode, name: s.itemName } as ACOption,
-      quantity: 1,
-      unitPrice: s.lastPrice || 0,
-      discPct: 0,
-      vatPct: 8,
-      uom: s.uom,
-      taxCode: s.taxCode,
-      warehouseCode: s.warehouseCode || headerWh || undefined,
-    }
-    setLines((ls) => {
-      const hasData = ls.some((l) => l.item)
-      return hasData ? [...ls, line] : [line]
-    })
-    void resolvePrice(key, s.itemCode, partner?.code ?? null)
-    void checkAtp(key, s.itemCode, line.warehouseCode)
   }
 
   /** Parse số từ ô Excel: chấp nhận "1.234,56" (vi), "1,234.56" (en), "1,5".
@@ -2255,53 +2203,13 @@ export default function OrderFormView({
         {/* Đặt lại đơn gần nhất của khách (chỉ khi TẠO đơn mới) */}
         {!isEdit && <RecentOrdersPanel cardCode={partner?.code} disabled={saving} onUse={applyRecentOrder} />}
 
-        {/* Gợi ý mặt hàng theo lịch sử mua hàng của khách */}
-        {partner?.code && (suggestLoading || suggests.length > 0) && (
-          <div style={{ marginBottom: 14, border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', background: 'var(--fm-cream)', padding: '10px 12px' }}>
-            <button className="fm-collapse-toggle"
-              type="button"
-              onClick={() => setSuggestOpen((v) => !v)}
-              disabled={saving}
-            >
-              <Sparkles size={16} style={{ color: 'var(--fm-primary)' }} />
-              Gợi ý theo lịch sử mua hàng
-              {suggestLoading
-                ? <span style={{ fontWeight: 400, color: 'var(--fm-text-2)' }}> — đang tải…</span>
-                : <span className="fm-chip fm-chip--role" style={{ marginLeft: 4 }}>{suggests.length} mặt hàng</span>}
-              <span style={{ marginLeft: 'auto', color: 'var(--fm-text-2)' }}>
-                {suggestOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </span>
-            </button>
-            {suggestOpen && !suggestLoading && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                {suggests.map((s) => (
-                  <div
-                    key={s.itemCode}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--fm-surface)', border: '1px solid var(--fm-line)', borderRadius: 'var(--fm-r-md)', padding: '6px 8px 6px 10px', maxWidth: 320 }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.itemName}>
-                        {s.itemName}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--fm-text-2)' }}>
-                        {s.itemCode} · đã mua {s.orderCount} lần
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="fm-btn fm-btn--secondary fm-btn--sm"
-                      onClick={() => addSuggested(s)}
-                      disabled={saving}
-                      title={`Thêm ${s.itemName} vào đơn`}
-                    >
-                      <Plus size={14} /> Thêm
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Giỏ hàng quen: nhập SL nhiều mặt hàng khách hay mua → thêm 1 lượt */}
+        <CustomerBasket
+          cardCode={partner?.code}
+          disabled={saving}
+          inOrder={new Set(lines.filter((l) => l.item && !l.isBomChild).map((l) => l.item!.code))}
+          onAdd={(entries) => addItemsBatch(entries)}
+        />
 
         <div className="fm-table-wrap fm-scroll" style={{ overflowX: 'auto' }}>
           <table className="fm-table fm-stack-table fm-stack-table--form fm-line-table">
