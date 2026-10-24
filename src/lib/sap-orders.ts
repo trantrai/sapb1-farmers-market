@@ -47,6 +47,8 @@ interface SapOrderLine {
   DeliveredQuantity?: number | string
   /** UDF mã BOM cha của dòng thành phần BOM Template */
   U_BOMID?: string | null
+  /** Vai trò BOM của dòng do SAP tự bung: cha iSalesTree/iTemplateTree/…, con iIngredient */
+  TreeType?: string | null
 }
 
 // ---------- Kiểu dữ liệu UI (khớp Order trong orders-list-view) ----------
@@ -104,6 +106,8 @@ export interface SapOrderLineRow {
   sapOpenQty?: number
   /** U_BOMID của dòng (mã BOM cha) — dòng thành phần BOM Template */
   bomId?: string | null
+  /** TreeType của dòng trên SAP (iIngredient = thành phần do SAP bung) */
+  treeType?: string | null
 }
 
 /**
@@ -200,6 +204,7 @@ function mapLine(l: SapOrderLine, idx: number, ctx: MapLineCtx): SapOrderLineRow
     grandTotal: Math.round(afterDisc + vatAmt),
     sapOpenQty: Math.round(remOpen * 1000) / 1000,
     bomId: typeof l.U_BOMID === 'string' && l.U_BOMID.trim() ? l.U_BOMID.trim() : null,
+    treeType: typeof l.TreeType === 'string' && l.TreeType.trim() ? l.TreeType.trim() : null,
   }
 }
 
