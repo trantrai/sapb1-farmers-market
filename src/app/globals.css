@@ -282,22 +282,6 @@
 .fm-menu-item.is-disabled { opacity: .4; cursor: not-allowed; } /* ẩn theo RBAC thì render none */
 .fm-menu-item .fm-chip { margin-left: auto; }
 
-/* Box trạng thái SAP Service Layer — gọn 1 dòng */
-.fm-sap-status {
-  display: flex; align-items: center; justify-content: space-between;
-  background: var(--fm-navy-soft); color: var(--fm-navy);
-  border-radius: var(--fm-r-md); padding: 6px 10px; margin: 10px 0 2px;
-  font-size: 11.5px; font-weight: 600;
-}
-.fm-sap-status__icon { display: inline-flex; align-items: center; }
-.fm-sap-status__live {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-weight: 700; color: var(--fm-navy);
-}
-.fm-sap-status__dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--fm-navy); animation: fm-pulse 2s infinite;
-}
 @keyframes fm-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: .4; }
@@ -973,10 +957,6 @@
   .fm-sidebar.is-collapsed .fm-menu-item.is-active::before { left: -6px; }
   .fm-sidebar.is-collapsed .fm-menu-item .fm-badge-dot { position: absolute; top: 2px; right: 2px; margin-left: 0; }
   .fm-sidebar.is-collapsed .fm-menu-group { padding: 10px 0 4px; font-size: 0; gap: 0; }
-  .fm-sidebar.is-collapsed .fm-sap-status { background: transparent; padding: 8px 0; margin: 8px 0 4px; justify-content: center; }
-  .fm-sidebar.is-collapsed .fm-sap-status > div:first-child { display: none; }
-  .fm-sidebar.is-collapsed .fm-sap-status__live { font-size: 0; gap: 0; }
-  .fm-sidebar.is-collapsed .fm-sidebar-footer-note { display: none; }
 }
 /* Tablet/mobile đã tự thu gọn / dùng drawer → ẩn nút */
 @media (max-width: 900px) {
@@ -991,10 +971,6 @@
   .fm-menu-item.is-active::before { left: -6px; }
   .fm-menu-item .fm-badge-dot { position: absolute; top: 2px; right: 2px; margin-left: 0; }
   .fm-menu-group, .fm-session-info, .fm-sidebar__footer { display: none; }
-  /* Tablet rail: GIỮ dot trạng thái SAP (ẩn chữ + icon ⇄), icon menu có title tooltip (xem app-shell.tsx) */
-  .fm-sap-status { background: transparent; padding: 8px 0; margin: 8px 0 4px; justify-content: center; }
-  .fm-sap-status > div:first-child { display: none; }
-  .fm-sap-status__live { font-size: 0; gap: 0; }
   .fm-form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -1176,7 +1152,7 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
 @media (prefers-reduced-motion: reduce) {
   .fm-view, .fm-modal, .fm-backdrop, .fm-toast, .fm-login__panel, .fm-autocomplete__panel { animation: none !important; }
   /* Tắt nốt các animation lặp: spinner, dot trạng thái, skeleton */
-  .fm-spin, .fm-sap-status__dot, .fm-live-badge__dot, .fm-login__live-dot, .fm-skeleton { animation: none !important; }
+  .fm-spin, .fm-live-badge__dot, .fm-login__live-dot, .fm-skeleton { animation: none !important; }
 }
 
 /* ---------- 14.4 Toast + Modal + Backdrop ---------- */
