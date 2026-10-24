@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { loadSapSettings } from '@/lib/sap-service-layer'
-import { createLlmCall, LlmError } from '@/lib/assistant/llm'
+import { createLlmCall, isExternalUrl, LlmError } from '@/lib/assistant/llm'
 import { runAssistant, type ChatTurn } from '@/lib/assistant/agent'
 import { createToolRegistry } from '@/lib/assistant/tools'
 import { buildSystemPrompt, loadAssistantSettings, takeRateLimit, toLlmConfig } from '@/lib/assistant/config'
 
 // ============================================================
 // POST /api/assistant/chat  { messages: [{ role: 'user'|'assistant', content }] }
-// Trợ lý sale admin: LLM ON-PREMISE (máy chủ nội bộ, API chuẩn OpenAI) +
-// công cụ chỉ đọc DB nội bộ theo RBAC. Trả { reply, draft? }.
+// Trợ lý sale admin: LLM nội bộ hoặc cloud (API chuẩn OpenAI) + công cụ chỉ
+// đọc DB nội bộ theo RBAC. Cloud: che SĐT/địa chỉ/ghi chú. Trả { reply, draft? }.
 // Không log nội dung hội thoại — chỉ log số token / công cụ đã dùng.
 // ============================================================
 
@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
 
   const s = await loadSapSettings(user.databaseId)
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' })
-  const tools = createToolRegistry({ permissions: user.permissions, dbId: s?.dbId ?? null, today })
+  // LLM ở cloud → che dữ liệu cá nhân trong kết quả công cụ
+  const tools = createToolRegistry({ permissions: user.permissions, dbId: s?.dbId ?? null, today, redactPii: isExternalUrl(cfg.baseUrl) })
 
   try {
     const out = await runAssistant({

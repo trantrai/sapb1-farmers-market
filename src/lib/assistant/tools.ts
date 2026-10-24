@@ -3,6 +3,7 @@
 // trên hệ thống), theo đúng quyền RBAC và database đăng nhập của người hỏi.
 // Không gọi SAP, không ghi dữ liệu. "prepare_order_draft" chỉ soạn nháp để
 // UI đổ vào form tạo đơn — người dùng tự kiểm tra và bấm Lưu.
+// LLM ở cloud (redactPii): không đưa SĐT, địa chỉ, ghi chú đơn vào kết quả.
 // ============================================================
 
 import { db as prisma } from '@/lib/db'
@@ -21,6 +22,15 @@ export interface ToolContext {
   dbId: string | null
   /** yyyy-mm-dd hôm nay (giờ VN) */
   today: string
+  /** LLM bên ngoài mạng nội bộ → bỏ dữ liệu cá nhân (SĐT, địa chỉ, ghi chú tự do) khỏi kết quả */
+  redactPii?: boolean
+}
+
+/** Bỏ trường cá nhân khỏi bản ghi khách hàng khi gửi ra LLM cloud */
+function redactCustomer<T extends { phone?: string | null; address?: string | null }>(c: T, on: boolean | undefined) {
+  if (!on) return c
+  const { phone: _p, address: _a, ...rest } = c
+  return rest
 }
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []): LlmToolSpec => ({
@@ -159,7 +169,7 @@ export function createToolRegistry(ctx: ToolContext): ToolRegistry {
         const hay = norm(`${r.cardCode} ${r.cardName} ${r.phone ?? ''}`)
         return words.every((w) => hay.includes(w))
       })
-      return { result: { total: hits.length, customers: hits.slice(0, 8) } }
+      return { result: { total: hits.length, customers: hits.slice(0, 8).map((h) => redactCustomer(h, ctx.redactPii)) } }
     },
 
     async customer_summary(a) {
@@ -179,7 +189,7 @@ export function createToolRegistry(ctx: ToolContext): ToolRegistry {
       })
       const pattern = deliveryPattern(orders)
       const result: Record<string, unknown> = {
-        customer: c,
+        customer: redactCustomer(c, ctx.redactPii),
         recentOrders: orders.slice(0, 5).map((o) => ({
           docNum: o.docNum, docDate: ymd(o.docDate), docDueDate: ymd(o.docDueDate), status: o.status, grandTotal: o.grandTotal,
           items: o.lines.length,
@@ -253,7 +263,8 @@ export function createToolRegistry(ctx: ToolContext): ToolRegistry {
         },
       }) : null
       if (!o) return { result: { error: `Không tìm thấy đơn hàng #${docNum}` } }
-      return { result: { ...o, docDate: ymd(o.docDate), docDueDate: ymd(o.docDueDate) } }
+      const { remarks, ...rest } = o
+      return { result: { ...rest, ...(ctx.redactPii ? {} : { remarks }), docDate: ymd(o.docDate), docDueDate: ymd(o.docDueDate) } }
     },
 
     async prepare_order_draft(a) {

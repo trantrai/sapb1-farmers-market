@@ -8,19 +8,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const bpFindFirst = vi.fn()
+const bpFindMany = vi.fn()
 const itemFindMany = vi.fn()
 vi.mock('@/lib/db', () => ({
   db: {
-    businessPartner: { findFirst: (...a: unknown[]) => bpFindFirst(...a), findMany: vi.fn() },
+    businessPartner: { findFirst: (...a: unknown[]) => bpFindFirst(...a), findMany: (...a: unknown[]) => bpFindMany(...a) },
     item: { findMany: (...a: unknown[]) => itemFindMany(...a) },
     vatGroup: { findMany: async () => [{ code: 'S8', rate: 8, category: 'S' }] },
   },
 }))
 
-import { createLlmCall, listModels, normalizeBaseUrl, parseReply, stripThinking, type LlmCall, type LlmReply } from '@/lib/assistant/llm'
+import { createLlmCall, httpError, isExternalUrl, isPrivateHost, listModels, normalizeBaseUrl, parseReply, stripThinking, type LlmCall, type LlmReply } from '@/lib/assistant/llm'
 import { runAssistant, type ToolRegistry } from '@/lib/assistant/agent'
 import { allowedTools, createToolRegistry } from '@/lib/assistant/tools'
-import { takeRateLimit } from '@/lib/assistant/config'
+import { takeRateLimit, toLlmConfig } from '@/lib/assistant/config'
 import type { PermMap } from '@/lib/fm-shared'
 
 const perm = (p: Partial<Record<string, Partial<Record<'view' | 'create' | 'edit' | 'delete', boolean>>>>) => p as unknown as PermMap
@@ -74,6 +75,33 @@ describe('llm client', () => {
 
     const bad = createLlmCall({ baseUrl: 'http://llm/v1', model: 'm' }, (async () => new Response('secret stack', { status: 500 })) as unknown as typeof fetch)
     await expect(bad([{ role: 'user', content: 'x' }], [])).rejects.toThrow('HTTP 500')
+  })
+})
+
+describe('LLM cloud miễn phí', () => {
+  it('nhận diện máy chủ nội bộ / bên ngoài', () => {
+    for (const h of ['localhost', '127.0.0.1', '10.1.2.3', '192.168.1.5', '172.20.0.9', 'llm-box', 'ai.lan', 'gpu.internal', '::1', 'fd12:3456::1']) expect(isPrivateHost(h)).toBe(true)
+    for (const h of ['openrouter.ai', 'api.groq.com', '8.8.8.8', '172.32.0.1', 'open.bigmodel.cn']) expect(isPrivateHost(h)).toBe(false)
+    expect(isExternalUrl('https://openrouter.ai/api/v1')).toBe(true)
+    expect(isExternalUrl('http://localhost:11434/v1')).toBe(false)
+  })
+
+  it('cloud bắt buộc https; nội bộ cho phép http', () => {
+    expect(normalizeBaseUrl('https://open.bigmodel.cn/api/paas/v4/')).toBe('https://open.bigmodel.cn/api/paas/v4')
+    expect(normalizeBaseUrl('http://api.groq.com/openai/v1')).toBeNull()
+    expect(normalizeBaseUrl('http://192.168.1.10:11434/v1')).toBe('http://192.168.1.10:11434/v1')
+  })
+
+  it('URL cloud chỉ chạy khi admin đã xác nhận allowCloud', () => {
+    const base = { enabled: true, baseUrl: 'https://openrouter.ai/api/v1', model: 'm:free', hasKey: true, apiKey: 'k', external: true }
+    expect(toLlmConfig({ ...base, allowCloud: false })).toBeNull()
+    expect(toLlmConfig({ ...base, allowCloud: true })).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'k' })
+    expect(toLlmConfig({ ...base, baseUrl: 'http://localhost:11434/v1', allowCloud: false, external: false })).not.toBeNull()
+  })
+
+  it('lỗi 429/401 của gói free → thông điệp dễ hiểu', () => {
+    expect(httpError(429).message).toMatch(/giới hạn lượt gọi/)
+    expect(httpError(401).message).toMatch(/API key/)
   })
 })
 
@@ -169,6 +197,17 @@ describe('công cụ & quyền', () => {
     ])
     bpFindFirst.mockResolvedValue(null)
     expect((await reg.run('prepare_order_draft', { cardCode: 'X', lines: [{ item: 'a', quantity: 1 }] })).result).toMatchObject({ error: expect.stringContaining('Không tìm thấy khách hàng') })
+  })
+})
+
+describe('che dữ liệu cá nhân khi dùng LLM cloud', () => {
+  it('find_customers bỏ SĐT/địa chỉ khi redactPii (vẫn tìm được theo SĐT)', async () => {
+    bpFindMany.mockResolvedValue([{ cardCode: 'C20001', cardName: 'Cửa hàng A', phone: '0903123456', address: '12 Nguyễn Trãi' }])
+    const ctx = { permissions: perm({ orders: { view: true } }), dbId: 'db1', today: '2026-10-24' }
+    const local = await createToolRegistry(ctx).run('find_customers', { query: '0903123456' })
+    expect((local.result as { customers: object[] }).customers[0]).toMatchObject({ phone: '0903123456', address: '12 Nguyễn Trãi' })
+    const cloud = await createToolRegistry({ ...ctx, redactPii: true }).run('find_customers', { query: '0903123456' })
+    expect((cloud.result as { customers: object[] }).customers[0]).toEqual({ cardCode: 'C20001', cardName: 'Cửa hàng A' })
   })
 })
 

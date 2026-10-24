@@ -1,23 +1,28 @@
 // ============================================================
 // CẤU HÌNH TRỢ LÝ (AppSettings.assistant*) + system prompt + giới hạn lượt hỏi.
-// API key máy chủ LLM nội bộ lưu mã hoá AES-256-GCM (fm-crypto), không log.
+// API key máy chủ LLM lưu mã hoá AES-256-GCM (fm-crypto), không log.
+// Máy chủ ngoài mạng nội bộ (cloud) chỉ dùng được khi admin đã xác nhận allowCloud.
 // ============================================================
 
 import { db as prisma } from '@/lib/db'
 import { decryptSecret } from '@/lib/fm-crypto'
-import { normalizeBaseUrl, type LlmConfig } from './llm'
+import { isExternalUrl, normalizeBaseUrl, type LlmConfig } from './llm'
 
 export interface AssistantSettings {
   enabled: boolean
   baseUrl: string
   model: string
   hasKey: boolean
+  /** Admin đã xác nhận cho gửi dữ liệu ra dịch vụ LLM bên ngoài */
+  allowCloud: boolean
+  /** URL hiện tại trỏ ra ngoài mạng nội bộ */
+  external: boolean
 }
 
 export async function loadAssistantSettings(): Promise<AssistantSettings & { apiKey: string }> {
   const s = await prisma.appSettings.findUnique({
     where: { id: 'main' },
-    select: { assistantEnabled: true, assistantBaseUrl: true, assistantModel: true, assistantKeyEnc: true },
+    select: { assistantEnabled: true, assistantBaseUrl: true, assistantModel: true, assistantKeyEnc: true, assistantAllowCloud: true },
   })
   const apiKey = decryptSecret(s?.assistantKeyEnc)
   return {
@@ -25,6 +30,8 @@ export async function loadAssistantSettings(): Promise<AssistantSettings & { api
     baseUrl: s?.assistantBaseUrl ?? '',
     model: s?.assistantModel ?? '',
     hasKey: apiKey !== '',
+    allowCloud: Boolean(s?.assistantAllowCloud),
+    external: s?.assistantBaseUrl ? isExternalUrl(s.assistantBaseUrl) : false,
     apiKey,
   }
 }
@@ -33,6 +40,7 @@ export async function loadAssistantSettings(): Promise<AssistantSettings & { api
 export function toLlmConfig(s: AssistantSettings & { apiKey: string }): LlmConfig | null {
   const baseUrl = normalizeBaseUrl(s.baseUrl)
   if (!s.enabled || !baseUrl || !s.model.trim()) return null
+  if (isExternalUrl(baseUrl) && !s.allowCloud) return null // cloud chưa được admin cho phép
   return { baseUrl, model: s.model.trim(), apiKey: s.apiKey || undefined }
 }
 

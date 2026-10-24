@@ -1,7 +1,8 @@
 // ============================================================
-// CLIENT LLM ON-PREMISE — gọi máy chủ nội bộ có API chuẩn OpenAI
-// (POST {baseUrl}/chat/completions: vLLM, Ollama, llama.cpp server, LM Studio…).
-// Không gửi dữ liệu ra ngoài: baseUrl do admin cấu hình, trỏ vào mạng nội bộ.
+// CLIENT LLM — gọi máy chủ có API chuẩn OpenAI (POST {baseUrl}/chat/completions):
+// nội bộ (Ollama, vLLM, llama.cpp, LM Studio) hoặc dịch vụ cloud miễn phí
+// (OpenRouter, Groq, Gemini, Zhipu GLM…). Cloud: bắt buộc HTTPS + admin xác nhận
+// cho phép gửi dữ liệu ra ngoài (xem config.ts), dữ liệu cá nhân được che (tools.ts).
 // ============================================================
 
 export interface LlmToolCall {
@@ -43,6 +44,32 @@ export class LlmError extends Error {
   }
 }
 
+/** Lỗi HTTP → thông điệp tiếng Việt (không trả nguyên body: có thể chứa thông tin máy chủ) */
+export function httpError(status: number): LlmError {
+  if (status === 401 || status === 403) return new LlmError(`API key máy chủ LLM không hợp lệ hoặc hết quyền (HTTP ${status})`, status)
+  if (status === 429) return new LlmError('Dịch vụ LLM đang giới hạn lượt gọi (gói miễn phí) — thử lại sau ít phút', status)
+  if (status === 404) return new LlmError('Không tìm thấy model hoặc đường dẫn API (HTTP 404) — kiểm tra URL và tên model', status)
+  return new LlmError(`Máy chủ LLM trả lỗi HTTP ${status}`, status)
+}
+
+/** Máy chủ trong mạng nội bộ? (localhost, IP private, tên 1 nhãn, .local/.lan/.internal/.home.arpa) */
+export function isPrivateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h === '::1' || !h.includes('.') && !h.includes(':')) return true
+  if (/\.(local|lan|internal|intranet|home\.arpa)$/.test(h)) return true
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/)
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])]
+    return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254)
+  }
+  return /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h)
+}
+
+/** URL trỏ ra dịch vụ bên ngoài (cloud) — dữ liệu rời mạng nội bộ */
+export function isExternalUrl(baseUrl: string): boolean {
+  try { return !isPrivateHost(new URL(baseUrl).hostname) } catch { return true }
+}
+
 /** Chuẩn hoá baseUrl: http(s) hợp lệ, bỏ "/" cuối, bỏ hậu tố /chat/completions nếu admin dán nhầm */
 export function normalizeBaseUrl(raw: string): string | null {
   const s = raw.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '')
@@ -50,6 +77,8 @@ export function normalizeBaseUrl(raw: string): string | null {
     const u = new URL(s)
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
     if (u.username || u.password) return null // không nhận credential trong URL
+    // Dịch vụ bên ngoài bắt buộc HTTPS (API key + dữ liệu đi qua Internet)
+    if (u.protocol === 'http:' && !isPrivateHost(u.hostname)) return null
     return s
   } catch {
     return null
@@ -94,7 +123,7 @@ export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: typeo
       headers: cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {},
       signal: ctrl.signal,
     })
-    if (!res.ok) throw new LlmError(`Máy chủ LLM nội bộ trả lỗi HTTP ${res.status}`, res.status)
+    if (!res.ok) throw httpError(res.status)
     const j = (await res.json()) as { data?: { id?: unknown }[] }
     return (Array.isArray(j?.data) ? j.data : [])
       .map((m) => (typeof m?.id === 'string' ? m.id : ''))
@@ -102,8 +131,8 @@ export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: typeo
       .sort()
   } catch (e) {
     if (e instanceof LlmError) throw e
-    if ((e as Error)?.name === 'AbortError') throw new LlmError('Máy chủ LLM nội bộ phản hồi quá lâu (timeout)')
-    throw new LlmError('Không kết nối được máy chủ LLM nội bộ')
+    if ((e as Error)?.name === 'AbortError') throw new LlmError('Máy chủ LLM phản hồi quá lâu (timeout)')
+    throw new LlmError('Không kết nối được máy chủ LLM')
   } finally {
     clearTimeout(timer)
   }
@@ -131,13 +160,13 @@ export function createLlmCall(cfg: LlmConfig, fetchImpl: typeof fetch = fetch): 
       })
       if (!res.ok) {
         // Không trả nguyên body lỗi lên UI (có thể chứa thông tin máy chủ) — chỉ mã HTTP
-        throw new LlmError(`Máy chủ LLM nội bộ trả lỗi HTTP ${res.status}`, res.status)
+        throw httpError(res.status)
       }
       return parseReply(await res.json())
     } catch (e) {
       if (e instanceof LlmError) throw e
-      if ((e as Error)?.name === 'AbortError') throw new LlmError('Máy chủ LLM nội bộ phản hồi quá lâu (timeout)')
-      throw new LlmError('Không kết nối được máy chủ LLM nội bộ')
+      if ((e as Error)?.name === 'AbortError') throw new LlmError('Máy chủ LLM phản hồi quá lâu (timeout)')
+      throw new LlmError('Không kết nối được máy chủ LLM')
     } finally {
       clearTimeout(timer)
     }

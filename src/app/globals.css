@@ -1492,6 +1492,10 @@ body::-webkit-scrollbar-thumb:hover { background: var(--fm-text-3); }
   .fm-assistant-fab { right: 12px; bottom: calc(132px + env(safe-area-inset-bottom, 0px)); }
   .fm-assistant { left: 8px; right: 8px; width: auto; max-width: none; top: 64px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); height: auto; }
 }
+.fm-assistant__intro .fm-assistant__privacy { font-size: 11.5px; color: var(--fm-text-3); }
+.fm-assistant__intro .fm-assistant__privacy.is-external { padding: 6px 8px; border-radius: var(--fm-r-md); background: var(--fm-gold-faint); color: var(--fm-gold-ink); }
+.fm-ai-options { margin: 0 0 12px; padding-left: 18px; }
+.fm-ai-options li { margin-bottom: 4px; }
 .fm-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; min-height: 40px; font-size: 13px; }
 
 /* ---------- Kiểm tra trước khi lưu ---------- */

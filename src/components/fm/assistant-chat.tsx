@@ -2,7 +2,7 @@
 
 // ============================================================
 // TRỢ LÝ SALE ADMIN — nút chat nổi + khung hội thoại (không chặn màn hình).
-// Gọi /api/assistant/chat (LLM on-premise, công cụ chỉ đọc theo RBAC).
+// Gọi /api/assistant/chat (LLM nội bộ hoặc cloud, công cụ chỉ đọc theo RBAC).
 // Nháp đơn trợ lý soạn → nút "Mở trong form tạo đơn" (người dùng tự Lưu).
 // Hội thoại giữ trong phiên tab (sessionStorage), không lưu lên server.
 // ============================================================
@@ -33,6 +33,7 @@ const loadStored = (): Msg[] => {
 
 export default function AssistantChat({ onOpenDraft }: { onOpenDraft: (draft: OrderDraft) => void }) {
   const [enabled, setEnabled] = useState(false)
+  const [external, setExternal] = useState(false)
   const [open, setOpen] = useState(false)
   const [msgs, setMsgs] = useState<Msg[]>(loadStored)
   const [input, setInput] = useState('')
@@ -45,7 +46,11 @@ export default function AssistantChat({ onOpenDraft }: { onOpenDraft: (draft: Or
     let cancelled = false
     api('/api/assistant/settings')
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled) setEnabled(Boolean(j?.data?.enabled)) })
+      .then((j) => {
+        if (cancelled) return
+        setEnabled(Boolean(j?.data?.enabled))
+        setExternal(Boolean(j?.data?.external))
+      })
       .catch(() => { /* chưa cấu hình → ẩn nút */ })
     return () => { cancelled = true }
   }, [])
@@ -128,7 +133,12 @@ export default function AssistantChat({ onOpenDraft }: { onOpenDraft: (draft: Or
           <div className="fm-assistant__list fm-scroll" ref={listRef} aria-live="polite">
             {msgs.length === 0 && (
               <div className="fm-assistant__intro">
-                <p>Hỏi nhanh về khách hàng, đơn hàng, công nợ, giá và tồn kho — hoặc nhờ soạn nháp đơn. Dữ liệu chỉ xử lý trên máy chủ nội bộ.</p>
+                <p>Hỏi nhanh về khách hàng, đơn hàng, công nợ, giá và tồn kho — hoặc nhờ soạn nháp đơn.</p>
+                <p className={external ? 'fm-assistant__privacy is-external' : 'fm-assistant__privacy'}>
+                  {external
+                    ? 'Trợ lý dùng dịch vụ AI bên ngoài: câu hỏi và dữ liệu tra cứu được gửi ra nhà cung cấp (đã che SĐT, địa chỉ). Không gõ thông tin cá nhân vào câu hỏi.'
+                    : 'Dữ liệu chỉ xử lý trên máy chủ nội bộ của công ty.'}
+                </p>
                 <div className="fm-assistant__chips">
                   {SUGGESTIONS.map((s) => (
                     <button key={s} type="button" className="fm-assistant__chip" onClick={() => void send(s)}>{s}</button>

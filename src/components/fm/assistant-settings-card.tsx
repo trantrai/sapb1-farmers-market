@@ -1,22 +1,29 @@
 'use client'
 
 // ============================================================
-// CÀI ĐẶT → TRỢ LÝ SALE ADMIN: máy chủ LLM nội bộ (API chuẩn OpenAI).
-// Không gửi dữ liệu ra ngoài — URL phải trỏ tới máy chủ trong mạng nội bộ.
+// CÀI ĐẶT → TRỢ LÝ SALE ADMIN: máy chủ LLM có API chuẩn OpenAI — nội bộ
+// (Ollama…) hoặc dịch vụ cloud miễn phí (OpenRouter, Groq, Gemini, Zhipu GLM).
+// Cloud: bắt buộc HTTPS + admin tick xác nhận gửi dữ liệu ra ngoài.
 // ============================================================
 
 import { useEffect, useState } from 'react'
 import { Bot, ListRestart, PlugZap, Save } from 'lucide-react'
 import { api } from '@/lib/fm-client'
+import { isExternalUrl } from '@/lib/assistant/llm'
 
-interface Cfg { enabled: boolean; baseUrl: string; model: string; hasKey: boolean }
+interface Cfg { enabled: boolean; baseUrl: string; model: string; hasKey: boolean; allowCloud: boolean; external?: boolean }
 
-/** Máy chủ LLM miễn phí, tự chạy nội bộ (cổng mặc định). "localhost" = chính máy chạy hệ thống này. */
+/** Máy chủ LLM miễn phí. Nội bộ: "localhost" = chính máy chạy hệ thống này.
+ *  Cloud: cần đăng ký lấy API key; gói miễn phí giới hạn lượt gọi, model free thay đổi theo thời gian. */
 const PRESETS = [
-  { key: 'ollama', label: 'Ollama (miễn phí, dễ cài nhất)', url: 'http://localhost:11434/v1', model: 'qwen2.5:7b' },
-  { key: 'lmstudio', label: 'LM Studio (miễn phí, có giao diện)', url: 'http://localhost:1234/v1', model: '' },
-  { key: 'llamacpp', label: 'llama.cpp server', url: 'http://localhost:8080/v1', model: '' },
-  { key: 'vllm', label: 'vLLM (máy chủ GPU)', url: 'http://localhost:8000/v1', model: '' },
+  { key: 'ollama', group: 'local', label: 'Ollama (dễ cài nhất)', url: 'http://localhost:11434/v1', model: 'qwen2.5:7b' },
+  { key: 'lmstudio', group: 'local', label: 'LM Studio (có giao diện)', url: 'http://localhost:1234/v1', model: '' },
+  { key: 'llamacpp', group: 'local', label: 'llama.cpp server', url: 'http://localhost:8080/v1', model: '' },
+  { key: 'vllm', group: 'local', label: 'vLLM (máy chủ GPU)', url: 'http://localhost:8000/v1', model: '' },
+  { key: 'zhipu', group: 'cloud', label: 'Zhipu GLM (bigmodel.cn)', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  { key: 'openrouter', group: 'cloud', label: 'OpenRouter (model đuôi ":free")', url: 'https://openrouter.ai/api/v1', model: '' },
+  { key: 'groq', group: 'cloud', label: 'Groq', url: 'https://api.groq.com/openai/v1', model: '' },
+  { key: 'gemini', group: 'cloud', label: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: '' },
 ] as const
 
 export default function AssistantSettingsCard({ canEdit }: { canEdit: boolean }) {
@@ -33,7 +40,7 @@ export default function AssistantSettingsCard({ canEdit }: { canEdit: boolean })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (cancelled || !j?.data) return
-        const c: Cfg = { enabled: Boolean(j.data.enabled), baseUrl: j.data.baseUrl ?? '', model: j.data.model ?? '', hasKey: Boolean(j.data.hasKey) }
+        const c: Cfg = { enabled: Boolean(j.data.enabled), baseUrl: j.data.baseUrl ?? '', model: j.data.model ?? '', hasKey: Boolean(j.data.hasKey), allowCloud: Boolean(j.data.allowCloud) }
         setCfg(c); setSaved(c)
       })
       .catch(() => {})
@@ -52,7 +59,8 @@ export default function AssistantSettingsCard({ canEdit }: { canEdit: boolean })
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`)
-      setCfg(j.data); setSaved(j.data); setApiKey('')
+      const c: Cfg = { enabled: j.data.enabled, baseUrl: j.data.baseUrl, model: j.data.model, hasKey: j.data.hasKey, allowCloud: j.data.allowCloud }
+      setCfg(c); setSaved(c); setApiKey('')
       setMsg({ type: 'ok', text: 'Đã lưu cấu hình trợ lý. Tải lại trang để hiện/ẩn nút trợ lý.' })
     } catch (e) {
       setMsg({ type: 'error', text: e instanceof Error ? e.message : 'Không lưu được' })
@@ -89,48 +97,54 @@ export default function AssistantSettingsCard({ canEdit }: { canEdit: boolean })
 
   const applyPreset = (key: string) => {
     const p = PRESETS.find((x) => x.key === key)
-    if (p) setCfg({ ...cfg, baseUrl: p.url, model: cfg.model || p.model })
+    // Đổi nhà cung cấp → tên model cũ thường không còn đúng
+    if (p) setCfg({ ...cfg, baseUrl: p.url, model: p.model })
   }
+  const external = cfg.baseUrl.trim() !== '' && isExternalUrl(cfg.baseUrl.trim())
 
   return (
     <div className="fm-card fm-mt-3">
       <div className="fm-card__head">
-        <Bot size={18} /> Trợ lý sale admin (LLM nội bộ)
+        <Bot size={18} /> Trợ lý sale admin (LLM miễn phí)
         {saved?.enabled ? <span className="fm-chip fm-chip--ok">Đang bật</span> : <span className="fm-chip fm-chip--role">Đang tắt</span>}
       </div>
       <div className="fm-card__body">
         <p className="fm-hint">
-          Trợ lý chạy trên máy chủ LLM <b>nội bộ</b> có API chuẩn OpenAI (vLLM, Ollama, llama.cpp…), ví dụ
-          <code> http://10.0.0.5:8000/v1</code>. Dữ liệu chỉ đi giữa hệ thống này và máy chủ đó. Trợ lý chỉ đọc dữ liệu
-          theo quyền người dùng và soạn nháp đơn — không lưu hay đẩy chứng từ lên SAP.
+          Trợ lý dùng máy chủ LLM có API chuẩn OpenAI — <b>miễn phí</b>, chọn 1 trong 2 cách. Trợ lý chỉ đọc dữ liệu theo quyền
+          người dùng và soạn nháp đơn — không lưu hay đẩy chứng từ lên SAP. Model phải hỗ trợ <b>tool calling</b>.
         </p>
-        <p className="fm-hint">
-          Dùng model <b>miễn phí, mã nguồn mở</b> chạy trên máy nội bộ — không tốn phí API, không gửi dữ liệu ra ngoài.
-          Đề xuất: cài <b>Ollama</b> rồi tải <code>qwen2.5:7b</code> (tiếng Việt tốt, hỗ trợ gọi công cụ; cần ~8 GB RAM/VRAM)
-          hoặc <code>qwen2.5:14b</code> nếu máy mạnh hơn. Model phải hỗ trợ <b>tool calling</b> để tra cứu dữ liệu.
-        </p>
+        <ul className="fm-hint fm-ai-options">
+          <li><b>Nội bộ (khuyến nghị):</b> cài Ollama + model mã nguồn mở <code>qwen2.5:7b</code> — dữ liệu không rời mạng công ty.</li>
+          <li><b>Cloud miễn phí:</b> Zhipu GLM, OpenRouter, Groq, Gemini — đăng ký lấy API key; không cần máy mạnh nhưng dữ liệu được
+            gửi ra nhà cung cấp, gói free giới hạn lượt gọi và có thể dùng dữ liệu để huấn luyện.</li>
+        </ul>
         <div className="fm-form-grid">
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-ai-preset">Mẫu nhanh</label>
             <select id="fm-ai-preset" className="fm-input" value="" onChange={(e) => applyPreset(e.target.value)} disabled={!canEdit || busy}>
               <option value="">— Chọn máy chủ LLM miễn phí —</option>
-              {PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              <optgroup label="Nội bộ (dữ liệu không rời mạng công ty)">
+                {PRESETS.filter((p) => p.group === 'local').map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </optgroup>
+              <optgroup label="Cloud miễn phí (cần API key, dữ liệu gửi ra ngoài)">
+                {PRESETS.filter((p) => p.group === 'cloud').map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </optgroup>
             </select>
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-ai-url">URL máy chủ (OpenAI-compatible)</label>
-            <input id="fm-ai-url" className="fm-input" placeholder="http://<máy-chủ-nội-bộ>:8000/v1" value={cfg.baseUrl}
+            <input id="fm-ai-url" className="fm-input" placeholder="http://<máy-nội-bộ>:11434/v1 hoặc https://…/v1" value={cfg.baseUrl}
               onChange={(e) => setCfg({ ...cfg, baseUrl: e.target.value })} disabled={!canEdit || busy} />
           </div>
           <div className="fm-field">
             <label className="fm-label" htmlFor="fm-ai-model">Tên model</label>
-            <input id="fm-ai-model" className="fm-input" placeholder="vd qwen2.5:7b — hoặc bấm Tải danh sách model" value={cfg.model}
+            <input id="fm-ai-model" className="fm-input" placeholder="vd qwen2.5:7b, glm-4-flash — hoặc bấm Tải danh sách model" value={cfg.model}
               list="fm-ai-model-list" autoComplete="off"
               onChange={(e) => setCfg({ ...cfg, model: e.target.value })} disabled={!canEdit || busy} />
             <datalist id="fm-ai-model-list">{models.map((m) => <option key={m} value={m} />)}</datalist>
           </div>
           <div className="fm-field">
-            <label className="fm-label" htmlFor="fm-ai-key">API key (nếu máy chủ yêu cầu)</label>
+            <label className="fm-label" htmlFor="fm-ai-key">API key {external ? '(bắt buộc với cloud)' : '(nếu máy chủ yêu cầu)'}</label>
             <input id="fm-ai-key" type="password" autoComplete="new-password" className="fm-input"
               placeholder={cfg.hasKey ? '••••••••  (để trống = giữ key cũ)' : 'Để trống nếu máy chủ không cần key'}
               value={apiKey} onChange={(e) => setApiKey(e.target.value)} disabled={!canEdit || busy} />
@@ -143,6 +157,19 @@ export default function AssistantSettingsCard({ canEdit }: { canEdit: boolean })
             </label>
           </div>
         </div>
+        {external && (
+          <div className="fm-alert fm-alert--warning fm-mt-2" role="note">
+            <div>
+              <b>Máy chủ nằm ngoài mạng nội bộ.</b> Câu hỏi của người dùng và dữ liệu tra cứu (tên khách, mặt hàng, số lượng, giá,
+              công nợ) sẽ được gửi tới nhà cung cấp này. Hệ thống tự che SĐT, địa chỉ, ghi chú đơn; người dùng không nên gõ thông tin
+              cá nhân vào câu hỏi. Gói miễn phí có thể dùng dữ liệu để huấn luyện — xem điều khoản của nhà cung cấp.
+              <label className="fm-check">
+                <input type="checkbox" checked={cfg.allowCloud} onChange={(e) => setCfg({ ...cfg, allowCloud: e.target.checked })} disabled={!canEdit || busy} />
+                Tôi xác nhận cho phép gửi dữ liệu nghiệp vụ tới dịch vụ LLM bên ngoài
+              </label>
+            </div>
+          </div>
+        )}
         <div className="fm-actions fm-mt-2">
           <button type="button" className="fm-btn fm-btn--primary" onClick={() => void save()} disabled={!canEdit || busy || !dirty}>
             <Save size={16} aria-hidden /> {busy ? 'Đang xử lý…' : 'Lưu'}
