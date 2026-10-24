@@ -362,7 +362,9 @@ async function baseFromSourceLine(
   }
   // BaseLine = LineNum của dòng nguồn TRÊN SAP (đếm từ 0). Có sapLineNum (SAP
   // trả về khi đẩy/sửa) → dùng luôn; thiếu (DeliveryLine, chứng từ đẩy trước
-  // khi có cột) → suy từ lineNum local (đếm từ 1).
+  // khi có cột) → suy từ lineNum local (đếm từ 1). Phiếu giao hàng lưu dòng con
+  // BOM ngay sau dòng cha — cùng vị trí SAP tự bung khi nhận dòng cha — nên
+  // lineNum local vẫn khớp LineNum trên SAP.
   const baseLine =
     spec.hasSapLineNum && typeof line.sapLineNum === 'number'
       ? line.sapLineNum

@@ -232,6 +232,11 @@ model DeliveryLine {
   sourceQuotationLineId String?
   // Kho xuất của dòng (SAP DocumentLines.WarehouseCode) — mặc định theo kho header
   warehouseCode String?
+  // BOM (giống SalesOrderLine): dòng cha + các dòng con cùng bomGroupKey
+  isBomChild      Boolean @default(false)
+  bomGroupKey     String?
+  bomEditable     Boolean @default(true)
+  bomQtyPerParent Float?
 
   batchNumber String? // Số lô (SAP BatchNumbers) — truy xuất nguồn gốc
   @@index([deliveryId])

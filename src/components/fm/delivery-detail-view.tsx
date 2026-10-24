@@ -34,6 +34,11 @@ interface DeliveryLine {
   barcode?: string | null
   /** Thuế suất theo mã thuế (API bổ sung từ nhóm thuế) */
   vatPct?: number | null
+  /** BOM: dòng thành phần con (SL theo dòng cha) */
+  isBomChild?: boolean | null
+  bomGroupKey?: string | null
+  bomEditable?: boolean | null
+  bomType?: string | null
 }
 
 interface Delivery {
@@ -276,7 +281,8 @@ export default function DeliveryDetailView({ deliveryId, onBack, onGoOrder, onCo
           }
         }
       }
-      setEditRows(delivery.lines.map((l) => ({
+      // Thành phần BOM không sửa riêng — server quy đổi theo SL dòng cha
+      setEditRows(delivery.lines.filter((l) => !l.isBomChild).map((l) => ({
         id: l.id,
         itemCode: l.itemCode,
         itemName: l.itemName,

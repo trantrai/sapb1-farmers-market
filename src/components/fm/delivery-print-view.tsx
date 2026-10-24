@@ -1,6 +1,7 @@
 'use client'
 
 import { formatVND, formatDateVN } from '@/lib/fm-shared'
+import { useShowLockedBomChildren } from './bom-lines'
 
 interface PrintLine {
   itemCode: string
@@ -9,6 +10,10 @@ interface PrintLine {
   uom: string
   unitPrice: number
   lineTotal: number
+  isBomChild?: boolean | null
+  bomGroupKey?: string | null
+  bomEditable?: boolean | null
+  bomType?: string | null
 }
 
 interface PrintDelivery {
@@ -34,7 +39,21 @@ interface Props {
  */
 export default function DeliveryPrintView({ delivery }: Props) {
   const today = new Date()
-  const totalQty = delivery.lines.reduce((s, l) => s + (l.quantity || 0), 0)
+  const showLockedBom = useShowLockedBomChildren()
+  // Tổng SL: chỉ dòng cha/hàng thường (thành phần BOM khác đơn vị, đã nằm trong dòng cha)
+  const totalQty = delivery.lines.reduce((s, l) => s + (l.isBomChild ? 0 : l.quantity || 0), 0)
+  // BOM: giống phiếu in đơn hàng — con Template luôn hiện, con Production/Assembly theo thiết lập
+  const parentType = new Map(
+    delivery.lines.filter((l) => !l.isBomChild && l.bomGroupKey).map((l) => [l.bomGroupKey as string, l.bomType ?? 'none']),
+  )
+  const visible = delivery.lines.filter((l) => {
+    if (!l.isBomChild) return true
+    const pt = parentType.get(l.bomGroupKey as string)
+    if (pt === 'production' || pt === 'assembly') return showLockedBom
+    if (pt === 'template') return true
+    return showLockedBom || l.bomEditable !== false
+  })
+  const sttOf = (i: number) => visible.slice(0, i + 1).filter((l) => !l.isBomChild).length
 
   return (
     <div className="fm-print-area">
@@ -82,17 +101,20 @@ export default function DeliveryPrintView({ delivery }: Props) {
           </tr>
         </thead>
         <tbody>
-          {delivery.lines.map((line, i) => (
+          {visible.map((line, i) => {
+            const isChild = Boolean(line.isBomChild)
+            return (
             <tr key={i}>
-              <td>{i + 1}</td>
-              <td><b>{line.itemCode}</b></td>
+              <td>{isChild ? '' : sttOf(i)}</td>
+              <td>{isChild && <span aria-hidden>└─ </span>}<b>{line.itemCode}</b>{!isChild && line.bomGroupKey && ' (BOM)'}</td>
               <td>{line.itemName}</td>
               <td className="fm-num">{line.quantity}</td>
               <td>{line.uom}</td>
               <td className="fm-num">{formatVND(line.unitPrice)}</td>
               <td className="fm-num"><b>{formatVND(line.lineTotal)}</b></td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
         <tfoot>
           <tr>

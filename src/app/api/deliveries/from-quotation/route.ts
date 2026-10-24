@@ -3,6 +3,7 @@ import { db as prisma } from '@/lib/db'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
+import { bomFieldsOf, pickWithBomChildren } from '@/lib/delivery-bom'
 
 // POST /api/deliveries/from-quotation — tạo Delivery từ Báo giá bán hàng
 // (theo ma trận copy-from SAP B1: Delivery ← Quotation)
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
 
   const run = async (): Promise<{ body: unknown; status: number }> => {
     type QuotationLineRow = (typeof quotation.lines)[number]
-    let picked: Array<{ line: QuotationLineRow; qty: number }>
+    let picked: Array<{ line: QuotationLineRow; qty: number; bomQtyPerParent?: number | null }>
     if (Array.isArray(body.lines)) {
       const byId = new Map(quotation.lines.map((l) => [l.id, l]))
       picked = []
@@ -93,6 +94,11 @@ export async function POST(req: NextRequest) {
         return { body: { error: 'Báo giá không còn dòng nào để giao' }, status: 400 }
       }
     }
+    // BOM: dòng con đi theo dòng cha đã chọn (SL con = SL giao cha × định mức)
+    picked = pickWithBomChildren(quotation.lines, picked)
+    if (picked.length === 0) {
+      return { body: { error: 'Chưa chọn dòng nào để giao (dòng thành phần BOM đi theo dòng cha)' }, status: 400 }
+    }
 
     // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo phiếu, chỉ trả dữ liệu ----
     if (req.nextUrl.searchParams.get('prefill') === '1') {
@@ -118,6 +124,7 @@ export async function POST(req: NextRequest) {
               discPct: x.line.discPct ?? 0,
               vatPct: x.line.vatPct ?? 0,
               sourceLineId: x.line.id,
+              ...bomFieldsOf({ ...x.line, bomQtyPerParent: x.bomQtyPerParent ?? x.line.bomQtyPerParent }),
             })),
             sourceType: 'quotation',
             sourceId: quotationId,
@@ -167,6 +174,7 @@ export async function POST(req: NextRequest) {
                 discPct: clampPct(Number(x.line.discPct ?? 0)),
                 sourceQuotationLineId: x.line.id,
                 warehouseCode: x.line.warehouseCode ?? quotation.warehouseCode ?? null,
+                ...bomFieldsOf({ ...x.line, bomQtyPerParent: x.bomQtyPerParent ?? x.line.bomQtyPerParent }),
               })),
             },
           },

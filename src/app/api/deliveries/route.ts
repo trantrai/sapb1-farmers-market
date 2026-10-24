@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db as prisma } from '@/lib/db'
 import { cleanBarcode } from '@/lib/order-calc'
+import { normalizeBomLines, type BomLineInput } from '@/lib/order-bom'
+import { normalizeDeliveryBom } from '@/lib/delivery-bom'
 import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
@@ -258,7 +260,9 @@ export async function POST(req: NextRequest) {
     pickAndPackNotes?: string
     /** CK đầu chứng từ % (SAP DiscountPercent) */
     headerDiscPct?: number
-    lines?: Array<{ itemCode: string; itemName: string; barcode?: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string }>
+    lines?: Array<{ itemCode: string; itemName: string; barcode?: string; quantity: number; uom?: string; unitPrice?: number; taxCode?: string; discPct?: number; sourceOrderLineId?: string; warehouseCode?: string; batchNumber?: string
+      /** BOM (giống đơn hàng): dòng cha + dòng con cùng bomGroupKey */
+      isBomChild?: boolean; bomGroupKey?: string | null; bomEditable?: boolean; bomQtyPerParent?: number | null }>
   }
   try {
     body = await req.json()
@@ -307,7 +311,7 @@ export async function POST(req: NextRequest) {
   // unitPrice phải là số hữu hạn và >= 0 (tránh string lọt vào Prisma gây 500).
   // lineTotal = thành tiền SAU chiết khấu dòng (làm tròn từng dòng, đồng bộ với order-calc).
   const clampPct = (n: number) => (Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0)
-  const lines = (Array.isArray(body.lines) ? body.lines : [])
+  const rawLines = (Array.isArray(body.lines) ? body.lines : [])
     .map((l) => ({
       itemCode: String(l?.itemCode ?? '').trim(),
       itemName: String(l?.itemName ?? l?.itemCode ?? '').trim(),
@@ -321,6 +325,10 @@ export async function POST(req: NextRequest) {
       warehouseCode: String(l?.warehouseCode ?? '').trim() || headerWarehouseCode,
       /** Số lô (SAP BatchNumbers) — truy xuất nguồn gốc */
       batchNumber: String(l?.batchNumber ?? '').trim().slice(0, 50) || null,
+      isBomChild: l?.isBomChild,
+      bomGroupKey: l?.bomGroupKey,
+      bomEditable: l?.bomEditable,
+      bomQtyPerParent: l?.bomQtyPerParent,
       lineTotal: 0,
     }))
     .filter(
@@ -329,12 +337,22 @@ export async function POST(req: NextRequest) {
         Number.isFinite(l.quantity) && l.quantity > 0 &&
         Number.isFinite(l.unitPrice) && l.unitPrice >= 0,
     )
+  // BOM: chuẩn hóa nhóm (SL con = SL cha × định mức), dòng con giá/CK = 0
+  const lines = normalizeDeliveryBom(rawLines)
+    .map((l) => (l.isBomChild ? { ...l, unitPrice: 0, discPct: 0 } : l))
     .map((l) => {
       const lt = Math.round(l.quantity * l.unitPrice)
       return { ...l, lineTotal: lt - Math.round((lt * l.discPct) / 100) }
     })
   if (lines.length === 0) {
     return NextResponse.json({ error: 'Phiếu giao hàng cần ít nhất 1 dòng' }, { status: 400 })
+  }
+  // BOM: dòng cha phải có công thức, dòng con thuộc công thức (Production: đúng định mức)
+  const { error: bomError } = await normalizeBomLines(user.databaseId ?? null, lines as unknown as BomLineInput[], {
+    allowSwap: Boolean(user.permissions.bomSwap?.edit),
+  })
+  if (bomError) {
+    return NextResponse.json({ error: bomError }, { status: 400 })
   }
   // docDate sai định dạng → từ chối 400 thay vì để Prisma ném 500 (Invalid Date)
   let docDate = new Date()
@@ -387,6 +405,10 @@ export async function POST(req: NextRequest) {
               sourceOrderLineId: l.sourceOrderLineId,
               warehouseCode: l.warehouseCode,
               batchNumber: l.batchNumber,
+              isBomChild: l.isBomChild,
+              bomGroupKey: l.bomGroupKey,
+              bomEditable: l.bomEditable,
+              bomQtyPerParent: l.bomQtyPerParent,
             })),
           },
         },

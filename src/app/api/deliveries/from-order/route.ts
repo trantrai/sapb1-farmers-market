@@ -5,6 +5,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import { dedupeRequest, acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapOrderDetail, type SapOrderLineRow } from '@/lib/sap-orders'
+import { bomFieldsOf, pickWithBomChildren } from '@/lib/delivery-bom'
 
 // POST /api/deliveries/from-order — tạo Delivery từ Sale Order
 export async function POST(req: NextRequest) {
@@ -279,7 +280,7 @@ export async function POST(req: NextRequest) {
 
     // Copy dòng (bỏ dòng con BOM — delivery chỉ giao mặt hàng cha/hàng thường)
     type OrderLineRow = (typeof order.lines)[number]
-    let picked: Array<{ line: OrderLineRow; qty: number }>
+    let picked: Array<{ line: OrderLineRow; qty: number; bomQtyPerParent?: number | null }>
     if (Array.isArray(body.lines)) {
       // Chế độ chỉ định: chỉ lấy các dòng được gửi lên, SL giao phải ≤ OpenQty
       const byId = new Map(order.lines.map((l) => [l.id, l]))
@@ -315,6 +316,8 @@ export async function POST(req: NextRequest) {
         return { body: { error: 'Đơn hàng không còn dòng nào mở (OpenQty = 0) để giao' }, status: 400 }
       }
     }
+    // BOM: gắn kèm dòng con của các dòng cha đã chọn (SL con = SL giao cha × định mức)
+    picked = pickWithBomChildren(order.lines, picked)
 
     // ---- ?prefill=1: chế độ "Sao chép từ" — KHÔNG tạo phiếu, chỉ trả dữ
     // liệu (dòng theo OpenQty còn mở, SL giao = SL còn mở từng dòng) ----
@@ -342,6 +345,7 @@ export async function POST(req: NextRequest) {
               discPct: x.line.discPct ?? 0,
               vatPct: x.line.vatPct ?? 0,
               sourceLineId: x.line.id,
+              ...bomFieldsOf({ ...x.line, bomQtyPerParent: x.bomQtyPerParent ?? x.line.bomQtyPerParent }),
             })),
             sourceType: 'order',
             sourceId: orderId,
@@ -393,6 +397,7 @@ export async function POST(req: NextRequest) {
             discPct: clampPct2(Number(x.line.discPct ?? 0)),
             sourceOrderLineId: x.line.id,
             warehouseCode: x.line.warehouseCode ?? order.warehouseCode ?? null,
+            ...bomFieldsOf({ ...x.line, bomQtyPerParent: x.bomQtyPerParent ?? x.line.bomQtyPerParent }),
           })),
         },
         },

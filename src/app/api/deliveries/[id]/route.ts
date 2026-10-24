@@ -6,6 +6,7 @@ import { acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
 import { fetchSapDocDetail } from '@/lib/sap-orders'
 import { parseB2BHeader } from '../route'
+import { childQtyFor } from '@/lib/delivery-bom'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -74,7 +75,21 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     })
     for (const g of vg) if (g.rate != null && (g.category === 'S' || !rate.has(g.code))) rate.set(g.code, g.rate)
   }
-  const lines = delivery.lines.map((l) => ({ ...l, vatPct: l.taxCode ? rate.get(l.taxCode) ?? null : null }))
+  // bomType thật của dòng cha BOM (mirror Item) — để UI ẩn/hiện dòng con Production đúng cấu hình
+  const parentCodes = [...new Set(delivery.lines.filter((l) => l.bomGroupKey && !l.isBomChild).map((l) => l.itemCode))]
+  const bomTypeMap = new Map<string, string>()
+  if (parentCodes.length > 0) {
+    const items = await prisma.item.findMany({
+      where: { itemCode: { in: parentCodes }, ...(vgDb ? { sapDatabaseId: vgDb } : {}) },
+      select: { itemCode: true, bomType: true },
+    })
+    for (const it of items) bomTypeMap.set(it.itemCode, it.bomType)
+  }
+  const lines = delivery.lines.map((l) => ({
+    ...l,
+    vatPct: l.taxCode ? rate.get(l.taxCode) ?? null : null,
+    bomType: !l.isBomChild && l.bomGroupKey ? (bomTypeMap.get(l.itemCode) ?? 'none') : undefined,
+  }))
   // Phiếu lưu createdBy = id người dùng → hiển thị tên đăng nhập (giống đơn hàng)
   const creator = delivery.createdBy
     ? await prisma.user.findUnique({ where: { id: delivery.createdBy }, select: { username: true } }).catch(() => null)
@@ -288,10 +303,34 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: 'Phiếu đã hủy — không thể sửa' }, { status: 400 })
   }
 
-  const reqLines = Array.isArray(body.lines) ? body.lines : []
-  if (reqLines.length === 0) {
+  const reqLines0 = Array.isArray(body.lines) ? body.lines : []
+  if (reqLines0.length === 0) {
     return NextResponse.json({ error: 'Chưa có dòng nào để sửa' }, { status: 400 })
   }
+  // BOM: SL dòng con luôn = SL cha (mới) × định mức — không tin SL con client gửi;
+  // đổi SL cha thì cập nhật luôn các dòng con không gửi kèm
+  const reqById = new Map(reqLines0.map((r) => [String(r?.id ?? '').trim(), r]))
+  const bomParentQty = new Map<string, number>()
+  for (const l of del.lines) {
+    if (l.bomGroupKey && !l.isBomChild) bomParentQty.set(l.bomGroupKey, Number(reqById.get(l.id)?.quantity ?? l.quantity))
+  }
+  const bomChildQty = (l: (typeof del.lines)[number]) =>
+    l.isBomChild && l.bomGroupKey && l.bomQtyPerParent != null && bomParentQty.has(l.bomGroupKey)
+      ? childQtyFor(bomParentQty.get(l.bomGroupKey)!, l.bomQtyPerParent)
+      : undefined
+  const reqLines: typeof reqLines0 = [
+    ...reqLines0.map((r) => {
+      const line = del.lines.find((l) => l.id === String(r?.id ?? '').trim())
+      const q = line ? bomChildQty(line) : undefined
+      return q === undefined ? r : { ...r, quantity: q }
+    }),
+    ...del.lines
+      .filter((l) => !reqById.has(l.id))
+      .flatMap((l) => {
+        const q = bomChildQty(l)
+        return q === undefined || q === l.quantity ? [] : [{ id: l.id, quantity: q }]
+      }),
+  ]
 
   // So sánh số lượng dùng epsilon + round 3 decimals (tránh lỗi float
   // khi user nhập đúng OpenQty vẫn bị báo vượt)

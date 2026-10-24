@@ -1518,7 +1518,8 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
     // dữ liệu đã validate/tính toán để form điền vào (CopyFromPicker) ----
     if (req.nextUrl.searchParams.get('prefill') === '1') {
       const now0 = new Date()
-      const spanMs0 = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime())
+      // Phiếu giao hàng không có docDueDate → NaN → hạn = ngày chứng từ mới
+      const spanMs0 = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime()) || 0
       const rawLines = calcLines as unknown as Array<Record<string, unknown>>
       return {
         body: {
@@ -1576,7 +1577,7 @@ export async function salesDocFromSource(req: NextRequest, target: SalesDocConfi
 
     const docNum = isDraftCopy ? null : await nextDocNum(target.docType)
     const now = new Date()
-    const spanMs = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime())
+    const spanMs = Math.max(0, new Date(src.docDueDate).getTime() - new Date(src.docDate).getTime()) || 0
     const extraFields = target.hooks?.extraCreateFields?.({ grandTotal, body: {} }) ?? {}
     // Đợt 2 — mang theo Thông tin B2B của chứng từ nguồn (taxDate: lấy của
     // nguồn, thiếu thì mặc định = ngày chứng từ mới)
