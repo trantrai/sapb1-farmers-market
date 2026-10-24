@@ -4,7 +4,7 @@ import { getSessionUser, unauthorized } from '@/lib/fm-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { acquireOrderLock, releaseOrderLock } from '@/lib/idempotency'
 import { loadSapSettings, isSapConfigured } from '@/lib/sap-service-layer'
-import { fetchSapDeliveryDetail } from '@/lib/sap-deliveries'
+import { fetchSapDocDetail } from '@/lib/sap-orders'
 import { parseB2BHeader } from '../route'
 
 interface Ctx {
@@ -18,22 +18,37 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (!user.permissions.deliveries?.view) {
     return NextResponse.json({ error: 'Bạn không có quyền xem giao hàng' }, { status: 403 })
   }
-  const { id } = await ctx.params
-  // Phiếu SAP trực tiếp (id = sap-{DocEntry}): lấy thẳng từ Service Layer
+  const { id: idParam } = await ctx.params
+  let id = idParam
+  const s = await loadSapSettings(user.databaseId)
+  // Phiếu SAP trực tiếp (id = sap-{DocEntry}): có bản local đã đẩy cùng DocEntry
+  // → mở bản local (đủ thao tác); không có → đọc thẳng Service Layer (chỉ xem)
   if (id.startsWith('sap-')) {
     const docEntry = Number(id.slice(4))
     if (!Number.isInteger(docEntry) || docEntry <= 0) {
       return NextResponse.json({ error: 'ID phiếu SAP không hợp lệ' }, { status: 400 })
     }
-    const s = await loadSapSettings(user.databaseId)
-    if (!isSapConfigured(s)) {
-      return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+    const dbId = s?.dbId ?? null
+    const local = await prisma.delivery.findFirst({
+      where: {
+        sapDocEntry: docEntry,
+        sapSyncStatus: 'synced',
+        ...(dbId ? { OR: [{ sapDatabaseId: dbId }, { sapDatabaseId: '' }] } : {}),
+      },
+      select: { id: true },
+    })
+    if (local) {
+      id = local.id
+    } else {
+      if (!isSapConfigured(s)) {
+        return NextResponse.json({ error: 'Chưa cấu hình SAP B1 Service Layer' }, { status: 400 })
+      }
+      const det = await fetchSapDocDetail(s, 'DeliveryNotes', docEntry, 'phiếu giao hàng')
+      if (!det.ok || !det.order) {
+        return NextResponse.json({ error: det.error ?? 'Không lấy được chi tiết phiếu từ SAP B1' }, { status: 502 })
+      }
+      return NextResponse.json({ ok: true, delivery: { ...det.order, id: idParam, source: 'sap' } })
     }
-    const det = await fetchSapDeliveryDetail(s, docEntry)
-    if (!det.ok || !det.delivery) {
-      return NextResponse.json({ error: det.error ?? 'Không lấy được chi tiết phiếu từ SAP B1' }, { status: 502 })
-    }
-    return NextResponse.json({ ok: true, delivery: det.delivery })
   }
   const delivery = await prisma.delivery.findUnique({
     where: { id },
@@ -47,7 +62,24 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (user.databaseId && delivery.sapDatabaseId && delivery.sapDatabaseId !== user.databaseId) {
     return NextResponse.json({ error: 'Không tìm thấy phiếu giao hàng' }, { status: 404 })
   }
-  return NextResponse.json({ ok: true, delivery })
+  // Dòng phiếu chỉ lưu mã thuế → bổ sung thuế suất (OVTG mirror) để màn chi tiết
+  // hiện Thuế % / tiền thuế giống các chứng từ khác
+  const vgDb = delivery.sapDatabaseId || s?.dbId || null
+  const codes = [...new Set(delivery.lines.map((l) => l.taxCode).filter((c): c is string => !!c))]
+  const rate = new Map<string, number>()
+  if (codes.length) {
+    const vg = await prisma.vatGroup.findMany({
+      where: { code: { in: codes }, ...(vgDb ? { sapDatabaseId: vgDb } : {}) },
+      select: { code: true, rate: true, category: true },
+    })
+    for (const g of vg) if (g.rate != null && (g.category === 'S' || !rate.has(g.code))) rate.set(g.code, g.rate)
+  }
+  const lines = delivery.lines.map((l) => ({ ...l, vatPct: l.taxCode ? rate.get(l.taxCode) ?? null : null }))
+  // Phiếu lưu createdBy = id người dùng → hiển thị tên đăng nhập (giống đơn hàng)
+  const creator = delivery.createdBy
+    ? await prisma.user.findUnique({ where: { id: delivery.createdBy }, select: { username: true } }).catch(() => null)
+    : null
+  return NextResponse.json({ ok: true, delivery: { ...delivery, createdBy: creator?.username ?? delivery.createdBy, lines } })
 }
 
 // DELETE /api/deliveries/[id] — xóa (chỉ khi chưa đẩy SAP)

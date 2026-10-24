@@ -65,6 +65,8 @@ export interface SalesDocLine {
   sourceLineId?: string | null
   /** Số lô (SAP BatchNumbers) — chỉ dòng Phiếu trả hàng bán */
   batchNumber?: string | null
+  /** Tài khoản kế toán (hóa đơn dịch vụ — SAP AccountCode) */
+  accountCode?: string | null
   /** BOM: dòng con + khóa nhóm + sửa được SL + định mức */
   isBomChild?: boolean
   bomGroupKey?: string | null

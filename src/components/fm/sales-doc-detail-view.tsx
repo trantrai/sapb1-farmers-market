@@ -10,22 +10,21 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, Pencil, Lock, LockOpen, Trash2, FileText, BadgeCheck } from 'lucide-react'
-import { formatVND, formatDateVN } from '@/lib/fm-shared'
+import { formatVND } from '@/lib/fm-shared'
 import { api } from '@/lib/fm-client'
 import PageHeader from './page-header'
 import CopyToMenu, { copyTargetIcon, copyTargetName } from './copy-to-menu'
+import { DocField, DocInfoCards, DocLinesCard } from './doc-detail-sections'
 import ConfirmDialog, { type ConfirmTone } from './confirm-dialog'
 import PaymentHistory from './payment-history'
 import {
-  DOC_STATUS_LABEL,
+  INVOICE_DOC_TYPE_OPTIONS,
   docLabelFor,
   docNumLabel,
-  PAYMENT_STATUS_LABEL,
   unwrapDoc,
   type CopyTarget,
   type DocKindConfig,
   type SalesDoc,
-  type SalesDocLine,
 } from './sales-doc-shared'
 
 interface Props {
@@ -37,30 +36,10 @@ interface Props {
   onCopyTo?: (target: CopyTarget, sourceId: string) => void
 }
 
-/** Đợt 2 — Chip trạng thái thanh toán (unpaid | partial | paid) */
-function paymentChip(status?: string | null) {
-  const s = status ?? 'unpaid'
-  if (s === 'paid') return <span className="fm-chip fm-chip--open">{PAYMENT_STATUS_LABEL.paid}</span>
-  if (s === 'partial') return <span className="fm-chip fm-chip--warn">{PAYMENT_STATUS_LABEL.partial}</span>
-  return <span className="fm-chip fm-chip--overdue">{PAYMENT_STATUS_LABEL.unpaid}</span>
-}
 
-/** Đợt 2 — Parse attachmentsJson [{name,url}] để hiển thị danh sách đính kèm */
-function parseAttachments(raw?: string | null): { name: string; url: string }[] {
-  if (!raw) return []
-  try {
-    const arr: unknown = JSON.parse(raw)
-    if (!Array.isArray(arr)) return []
-    return (arr as Record<string, unknown>[])
-      .map((a) => ({ name: String(a?.name ?? ''), url: String(a?.url ?? '') }))
-      .filter((a) => a.name || a.url)
-  } catch {
-    return []
-  }
-}
 
 export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyTo }: Props) {
-  const { apiBase, docLabel, copyButtons, showRemaining, showBatchNumberCol, showPaymentStatus } = config
+  const { apiBase, docLabel, copyButtons, showRemaining, showPaymentStatus } = config
   const [doc, setDoc] = useState<SalesDoc | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -273,17 +252,6 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
   /** Chứng từ đọc trực tiếp từ SAP B1 (không có bản trên hệ thống) → chỉ xem */
   const readOnly = doc.source === 'sap'
   const dl = docLabelFor(config, doc.docType)
-  /** Đợt 2 — số cột nhãn trong tfoot (cột Số lô chỉ ở phiếu trả hàng) */
-  const footSpan = showBatchNumberCol ? 11 : 10
-  /** BOM: chỉ hiện dòng con của BOM Template (SL sửa được); Production/Assembly
-   *  (bomEditable=false) ẩn như màn đơn hàng. STT chỉ đếm dòng không phải con. */
-  const bomView = (() => {
-    const visible = (doc.lines ?? []).filter((l) => !l.isBomChild || l.bomEditable !== false)
-    const stt = new Map<SalesDocLine, number>()
-    let n = 0
-    for (const l of visible) if (!l.isBomChild) stt.set(l, ++n)
-    return { visible, stt }
-  })()
 
   return (
     <div>
@@ -380,222 +348,37 @@ export default function SalesDocDetailView({ config, id, onBack, onEdit, onCopyT
         </div>
       )}
 
-      {/* Thông tin chung */}
-      <div className="fm-card" style={{ marginBottom: 16 }}>
-        <h2 className="fm-card__title">Thông tin chung</h2>
-        <dl className="fm-view-detail">
-          <div><dt>Mã khách hàng</dt><dd>{doc.cardCode}</dd></div>
-          <div><dt>Tên khách hàng</dt><dd>{doc.cardName}</dd></div>
-          <div><dt>Ngày chứng từ</dt><dd>{formatDateVN(doc.docDate)}</dd></div>
-          <div><dt>Hạn</dt><dd>{formatDateVN(doc.docDueDate)}</dd></div>
-          <div><dt>Kho hàng</dt><dd>{doc.warehouseCode || '—'}</dd></div>
-          <div><dt>Người tạo</dt><dd>{doc.createdBy || '—'}</dd></div>
-          <div>
-            <dt>Trạng thái</dt>
-            <dd>
-              {isOpen ? <span className="fm-chip fm-chip--open">Mở</span>
-                : isCancelled ? <span className="fm-chip fm-chip--cancelled">Đã hủy</span>
-                : <span className="fm-chip fm-chip--closed">{DOC_STATUS_LABEL[doc.status] ?? doc.status}</span>}
-            </dd>
-          </div>
-          <div><dt>Chiết khấu đầu chứng từ</dt><dd>{(doc.headerDiscPct ?? 0) > 0 ? `${doc.headerDiscPct}% (${formatVND(doc.headerDiscAmt ?? 0)})` : '—'}</dd></div>
-          {/* Phase 2 — Số dư chưa khấu trừ (chỉ Hóa đơn đặt cọc phải thu).
-              API trả Decimal serialize thành chuỗi → Number() để chắc chắn */}
-          {showRemaining && doc.remainingAmount != null && (
-            <div><dt>Số dư chưa khấu trừ</dt><dd><b style={{ color: 'var(--fm-navy)' }}>{formatVND(Number(doc.remainingAmount ?? 0))}</b></dd></div>
-          )}
-          <div>
-            <dt>Đồng bộ SAP B1</dt>
-            <dd>
-              {doc.sapSyncStatus === 'synced' ? (
-                <span className="fm-chip fm-chip--sap" title={doc.sapSyncedAt ? `Đẩy thành công lúc ${new Date(doc.sapSyncedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}` : undefined}>
-                  Đã đẩy{doc.sapDocNum ? ` — DocNum ${doc.sapDocNum}` : ''}
-                </span>
-              ) : doc.sapSyncStatus === 'pending' ? (
-                <span className="fm-chip fm-chip--overdue">Chờ đẩy / đẩy lỗi</span>
-              ) : (
-                <span className="fm-chip fm-chip--role">Chưa đẩy</span>
-              )}
-            </dd>
-          </div>
-          <div><dt>Ghi chú</dt><dd>{doc.remarks || '—'}</dd></div>
-        </dl>
-      </div>
+      <DocInfoCards
+        doc={doc}
+        dueLabel="Hạn"
+        showReqDate={false}
+        generalExtra={
+          <>
+            {config.enableDocType && (
+              <DocField label="Loại hóa đơn">
+                {INVOICE_DOC_TYPE_OPTIONS.find((o) => o.value === (doc.docType || 'Item'))?.label ?? doc.docType}
+              </DocField>
+            )}
+            {/* Phase 2 — Số dư chưa khấu trừ (chỉ Hóa đơn đặt cọc). API trả Decimal dạng chuỗi → Number() */}
+            {showRemaining && doc.remainingAmount != null && (
+              <DocField label="Số dư chưa khấu trừ"><b className="fm-text-navy">{formatVND(Number(doc.remainingAmount ?? 0))}</b></DocField>
+            )}
+          </>
+        }
+      />
 
-      {/* Đợt 2 — Thông tin B2B / SAP B1 (chỉ hiện khi có dữ liệu) */}
-      {(() => {
-        const attList = parseAttachments(doc.attachmentsJson)
-        const hasB2b =
-          doc.salesPersonCode != null ||
-          doc.paymentGroupCode != null ||
-          !!doc.numAtCard ||
-          !!doc.taxDate ||
-          !!doc.projectCode ||
-          !!doc.shipToCode ||
-          !!doc.billToCode ||
-          (doc.docCurrency != null && doc.docCurrency !== 'VND') ||
-          (doc.docRate != null && doc.docRate !== 1) ||
-          attList.length > 0
-        if (!hasB2b) return null
-        return (
-          <div className="fm-card" style={{ marginBottom: 16 }}>
-            <h2 className="fm-card__title">Thông tin B2B / SAP B1</h2>
-            <dl className="fm-view-detail">
-              {doc.salesPersonCode != null && <div><dt>Nhân viên bán hàng</dt><dd>{doc.salesPersonCode}</dd></div>}
-              {doc.paymentGroupCode != null && <div><dt>Điều khoản thanh toán</dt><dd>{doc.paymentGroupCode}</dd></div>}
-              {doc.numAtCard && <div><dt>Số PO của khách hàng</dt><dd>{doc.numAtCard}</dd></div>}
-              {doc.taxDate && <div><dt>Ngày tính thuế</dt><dd>{formatDateVN(doc.taxDate)}</dd></div>}
-              {((doc.docCurrency != null && doc.docCurrency !== 'VND') || (doc.docRate != null && doc.docRate !== 1)) && (
-                <div><dt>Tiền tệ / Tỷ giá</dt><dd>{doc.docCurrency || 'VND'} — {doc.docRate ?? 1}</dd></div>
-              )}
-              {doc.projectCode && <div><dt>Mã dự án</dt><dd>{doc.projectCode}</dd></div>}
-              {doc.shipToCode && <div><dt>Địa chỉ giao hàng</dt><dd>{doc.shipToCode}</dd></div>}
-              {doc.billToCode && <div><dt>Địa chỉ ghi hóa đơn</dt><dd>{doc.billToCode}</dd></div>}
-              {attList.length > 0 && (
-                <div>
-                  <dt>Đính kèm</dt>
-                  <dd>
-                    <ul style={{ margin: 0, paddingLeft: 18 }}>
-                      {attList.map((a, i) => (
-                        <li key={i}>
-                          {a.url
-                            ? <a href={a.url} target="_blank" rel="noreferrer">{a.name || a.url}</a>
-                            : (a.name || '—')}
-                        </li>
-                      ))}
-                    </ul>
-                  </dd>
-                </div>
-              )}
-            </dl>
-          </div>
-        )
-      })()}
-
-      {/* Dòng hàng */}
-      <div className="fm-card" style={{ marginBottom: 16 }}>
-        <h2 className="fm-card__title">Hàng hóa & chi tiết</h2>
-        <div className="fm-table-wrap">
-          <table className="fm-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Mã hàng</th>
-                <th>Tên hàng</th>
-                <th className="fm-num">Số lượng</th>
-                <th>Đơn vị tính</th>
-                <th>Kho</th>
-                {showBatchNumberCol && <th title="Số lô (SAP BatchNumbers) — truy xuất nguồn gốc">Số lô</th>}
-                <th className="fm-num">Đơn giá</th>
-                <th className="fm-num">Chiết khấu (%)</th>
-                <th className="fm-num">Sau chiết khấu</th>
-                <th className="fm-num">Thuế (%)</th>
-                <th className="fm-num">Tiền dòng (sau thuế)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bomView.visible.map((line, i) => {
-                const afterDisc = line.unitPrice * line.quantity * (1 - (line.discPct ?? 0) / 100)
-                const vatAmt = afterDisc * ((line.vatPct ?? 0) / 100)
-                const isChild = Boolean(line.isBomChild)
-                const isBomParent = !isChild && Boolean(line.bomGroupKey)
-                return (
-                  <tr key={line.id || i} className={isChild ? 'is-bom-child' : isBomParent ? 'is-bom-parent' : undefined}>
-                    <td>{isChild ? '' : bomView.stt.get(line)}</td>
-                    <th scope="row">
-                      {isChild && <span className="fm-bom-branch" aria-hidden>└─ </span>}
-                      <b>{line.itemCode}</b>
-                      {isBomParent && (
-                        <span className="fm-chip fm-chip--bom" title="Mặt hàng BOM — các dòng con bên dưới thuộc công thức của mặt hàng này">BOM</span>
-                      )}
-                    </th>
-                    <td>{line.itemName}</td>
-                    <td className="fm-num">{line.quantity}</td>
-                    <td>{line.uom || '—'}</td>
-                    <td>{line.warehouseCode || '—'}</td>
-                    {showBatchNumberCol && <td>{line.batchNumber || '—'}</td>}
-                    <td className="fm-num">{formatVND(line.unitPrice)}</td>
-                    <td className="fm-num">{line.discPct ?? 0}%</td>
-                    <td className="fm-num">{formatVND(afterDisc)}</td>
-                    <td className="fm-num">{line.vatPct ?? 0}%</td>
-                    <td className="fm-num"><b>{formatVND(afterDisc + vatAmt)}</b></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Tổng trước chiết khấu:</td>
-                <td className="fm-num">{formatVND(doc.totalBeforeDisc)}</td>
-              </tr>
-              <tr>
-                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Chiết khấu các dòng:</td>
-                <td className="fm-num">{doc.discountAmt > 0 ? `−${formatVND(doc.discountAmt)}` : formatVND(0)}</td>
-              </tr>
-              {(doc.headerDiscAmt ?? 0) > 0 && (
-                <tr>
-                  <td colSpan={footSpan} style={{ textAlign: 'right' }}>Chiết khấu đầu chứng từ ({doc.headerDiscPct ?? 0}%):</td>
-                  <td className="fm-num">−{formatVND(doc.headerDiscAmt ?? 0)}</td>
-                </tr>
-              )}
-              <tr>
-                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Sau chiết khấu:</td>
-                <td className="fm-num">{formatVND(doc.totalBeforeDisc - doc.discountAmt - (doc.headerDiscAmt ?? 0))}</td>
-              </tr>
-              <tr>
-                <td colSpan={footSpan} style={{ textAlign: 'right' }}>Thuế các dòng:</td>
-                <td className="fm-num">{formatVND(doc.vatAmt)}</td>
-              </tr>
-              <tr>
-                <td colSpan={footSpan} style={{ textAlign: 'right' }}><b>Tổng chứng từ:</b></td>
-                <td className="fm-num"><b>{formatVND(doc.grandTotal)}</b></td>
-              </tr>
-            </tfoot>
-          </table>
-          {/* Mobile (<=640px): card thay cho bảng 11 cột cuộn ngang */}
-          <div className="fm-lcard-list">
-            {bomView.visible.filter((l) => !l.isBomChild).map((line, i) => {
-              const afterDisc = line.unitPrice * line.quantity * (1 - (line.discPct ?? 0) / 100)
-              const vatAmt = afterDisc * ((line.vatPct ?? 0) / 100)
-              const isBomParent = Boolean(line.bomGroupKey)
-              const children = isBomParent ? bomView.visible.filter((l) => l.isBomChild && l.bomGroupKey === line.bomGroupKey) : []
-              return (
-                <div key={line.id || i} className="fm-lcard">
-                  <div className="fm-lcard__head">
-                    <span className="fm-lcard__num">{i + 1}</span>
-                    <div>
-                      <div className="fm-lcard__name">{line.itemName}
-                        {isBomParent && <span className="fm-chip fm-chip--bom">BOM</span>}
-                      </div>
-                      <div className="fm-lcard__code">{line.itemCode} · {line.uom || '—'} · Kho {line.warehouseCode || '—'}{showBatchNumberCol && line.batchNumber ? ` · Lô ${line.batchNumber}` : ''}</div>
-                    </div>
-                  </div>
-                  <div className="fm-lcard__grid">
-                    <div><span className="k">Số lượng</span><span className="v">{line.quantity}</span></div>
-                    <div><span className="k">Đơn giá</span><span className="v">{formatVND(line.unitPrice)}</span></div>
-                    <div><span className="k">CK</span><span className="v">{line.discPct ?? 0}%</span></div>
-                    <div><span className="k">VAT</span><span className="v">{line.vatPct ?? 0}%</span></div>
-                  </div>
-                  {children.length > 0 && (
-                    <div className="fm-lcard__bom">
-                      <div className="fm-lcard__bom-title">Thành phần ({children.length}):</div>
-                      {children.map((c, ci) => (
-                        <div key={c.id || ci} className="fm-lcard__bom-row">
-                          <span aria-hidden>└─ </span>{c.itemCode} — {c.itemName} × {c.quantity} {c.uom}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="fm-lcard__total">
-                    <span>Thành tiền (sau thuế)</span>
-                    <b>{formatVND(afterDisc + vatAmt)}</b>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
+      <DocLinesCard
+        lines={doc.lines ?? []}
+        defaultWarehouse={doc.warehouseCode}
+        totals={{
+          totalBeforeDisc: doc.totalBeforeDisc,
+          discountAmt: doc.discountAmt,
+          headerDiscPct: doc.headerDiscPct ?? 0,
+          headerDiscAmt: doc.headerDiscAmt ?? 0,
+          vatAmt: doc.vatAmt,
+          grandTotal: doc.grandTotal,
+        }}
+      />
 
       {/* Đợt 2 — Ghi nhận thanh toán (hóa đơn / ghi có / đặt cọc):
           lịch sử + form ghi nhận qua PaymentHistory */}
