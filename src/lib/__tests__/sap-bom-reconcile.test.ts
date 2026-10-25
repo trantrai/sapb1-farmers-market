@@ -157,6 +157,31 @@ describe('pushDocumentToSap / patchDocumentToSap — gọi Service Layer', () =>
     expect(r.error).toMatch(/chưa áp được định mức/)
   })
 
+  it('SAP báo 1470000840 (SL ĐVT kho) khi sửa dòng bung → thử lại: bỏ dòng bung, gửi dòng con mới', async () => {
+    sapGet.mockImplementation(routeGet([sl(0, CB), sl(3, 'N0000148', CB), sl(4, 'N0002669', CB)]))
+    sapPost.mockResolvedValue({ ok: true, data: { DocEntry: 80, DocNum: 1002, DocumentLines: [sl(0, CB), sl(1, 'N0002669'), sl(2, 'N0000148')] } })
+    sapPatch
+      .mockResolvedValueOnce({ ok: false, status: 400, error: '1470000840 - Incorrect "Qty (Inventory UoM)" in line 2' })
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+    const r = await pushDocumentToSap({
+      entitySet: 'Orders', cardCode: 'C1', docDate: '2026-10-24', docDueDate: '2026-10-25', localId: 'loc4',
+      lines: [
+        { itemCode: CB, quantity: 2, unitPrice: 300000, isBomChild: false, bomGroupKey: 'g1' },
+        { itemCode: 'N0000148', quantity: 2, unitPrice: 0, uom: 'Kg', isBomChild: true, bomGroupKey: 'g1', bomEditable: true },
+        { itemCode: 'N0002669', quantity: 1, unitPrice: 0, isBomChild: true, bomGroupKey: 'g1', bomEditable: true },
+      ],
+    })
+    expect(sapPatch).toHaveBeenCalledTimes(2)
+    expect(sapPatch.mock.calls[1][2]).toEqual({
+      DocumentLines: [
+        { LineNum: 0 },
+        { ItemCode: 'N0000148', MeasureUnit: 'Kg', Quantity: 2, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB },
+        { ItemCode: 'N0002669', Quantity: 1, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB },
+      ],
+    })
+    expect(r).toMatchObject({ status: 'synced', docEntry: 80, lineNums: [0, 3, 4] })
+  })
+
   it('đơn không có BOM Template: giữ nguyên 1 lần POST, không PATCH', async () => {
     sapGet.mockImplementation(routeGet([]))
     sapPost.mockResolvedValue({ ok: true, data: { DocEntry: 79, DocNum: 5, DocumentLines: [sl(0, 'RAU')] } })
