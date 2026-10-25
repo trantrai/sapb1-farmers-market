@@ -69,8 +69,8 @@ export interface SapPushLine {
    * BOM: dòng cha và các dòng con cùng `bomGroupKey`. Nhóm BOM Template
    * (con sửa được — bomEditable ≠ false): SAP LUÔN tự bung công thức khi nhận
    * dòng cha (TreeType=iNotATree bị bỏ qua — đã xác nhận trên SAP thật), nên
-   * đẩy 2 bước (sap-bom-reconcile.ts): gửi cha → sửa các dòng SAP vừa bung
-   * thành dòng con của người dùng (SL đã chỉnh, giá 0, U_BOMID = mã cha).
+   * đẩy 2 bước (sap-bom-reconcile.ts): gửi cha + dòng con người dùng (SL đã
+   * chỉnh, giá 0, U_BOMID = mã cha) → xoá khối định mức gốc SAP chèn sau cha.
    */
   isBomChild?: boolean
   bomGroupKey?: string | null
@@ -658,11 +658,12 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
   const settings = await loadSapSettings(input.databaseId)
   if (!isSapConfigured(settings)) return { status: 'none' }
 
-  // BOM Template: bước 1 chỉ gửi dòng cha (bỏ dòng con) — SAP tự bung,
-  // bước 2 (reconcileTemplateBoms) sửa thành đúng dòng con người dùng nhập.
+  // BOM Template: bước 1 gửi cả dòng cha + dòng con người dùng (giá 0, U_BOMID);
+  // SAP vẫn chèn định mức gốc sau cha → bước 2 (reconcileTemplateBoms) xoá khối đó.
   const fresh = freshTemplateGroups(input.lines)
-  const postIdx = input.lines.map((_, i) => i).filter((i) => !isFreshTplChild(input.lines[i], fresh))
-  const postLines = postIdx.map((i) => input.lines[i])
+  const postIdx = input.lines.map((_, i) => i)
+  // Con Template không liên kết dòng nguồn (giữ như trước: chỉ cha mang BaseLine)
+  const postLines = input.lines.map((l) => (isFreshTplChild(l, fresh) ? { ...l, sourceLineId: null } : l))
 
   // Idempotency: trước khi POST, kiểm tra SAP đã có chứng từ mang marker
   // localId chưa — tránh tạo trùng khi retry sau timeout/response mất.
@@ -756,11 +757,11 @@ export async function pushDocumentToSap(input: SapPushDocumentInput): Promise<Sa
  * KHÔNG bao giờ ném exception. Trả về status 'synced' (OK) hoặc 'error'.
  */
 export async function patchDocumentToSap(settings: SapConfig, input: SapPatchDocumentInput): Promise<SapPushResult> {
-  // Nhóm BOM Template MỚI thêm khi sửa: bước 1 chỉ gửi dòng cha (SAP tự bung),
-  // bước 2 sửa các dòng vừa bung thành dòng con người dùng nhập.
+  // Nhóm BOM Template MỚI thêm khi sửa: bước 1 gửi cả cha + con người dùng,
+  // bước 2 xoá khối định mức gốc SAP vừa bung sau cha.
   const fresh = freshTemplateGroups(input.lines)
-  const sendIdx = input.lines.map((_, i) => i).filter((i) => !isFreshTplChild(input.lines[i], fresh))
-  const sendLines = sendIdx.map((i) => input.lines[i])
+  const sendIdx = input.lines.map((_, i) => i)
+  const sendLines = input.lines
   const payload = {
     ...(input.cardCode ? { CardCode: input.cardCode } : {}),
     ...(input.docDate ? { DocDate: onlyDate(input.docDate) } : {}),

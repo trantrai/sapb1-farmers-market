@@ -7,14 +7,15 @@
 // Gửi kèm dòng con của người dùng → TRÙNG công thức cũ + mới.
 //
 // Cách làm:
-//  1. POST/PATCH chỉ gửi dòng cha (bỏ dòng con của nhóm Template mới thêm).
+//  1. POST/PATCH gửi CẢ dòng cha và dòng con người dùng (SL đã chỉnh, giá 0,
+//     U_BOMID = mã cha). SAP vẫn chèn thêm khối định mức gốc ngay sau cha.
 //  2. Đọc lại dòng chứng từ, xác định khối dòng SAP vừa bung ngay sau mỗi cha
-//     (đối chiếu số dòng + mã với /ProductTrees trên SAP).
-//  3. PATCH (B1S-ReplaceCollectionsOnPatch) toàn bộ dòng theo thứ tự local:
-//     dòng thường/cha giữ nguyên (chỉ LineNum — KHÔNG gửi lại ItemCode để SAP
-//     không bung lần nữa); dòng con dùng lại dòng SAP bung cùng mã (sửa SL,
-//     giá 0, U_BOMID), mã khác (hoán đổi/thêm) → dòng mới; dòng bung thừa →
-//     bỏ khỏi danh sách = SAP xoá.
+//     (đối chiếu số dòng + mã với /ProductTrees trên SAP, U_BOMID trống).
+//  3. PATCH (B1S-ReplaceCollectionsOnPatch) giữ mọi dòng đã gửi (chỉ LineNum —
+//     KHÔNG gửi lại ItemCode/SL để SAP không bung lại và không tính lại SL theo
+//     ĐVT kho — lỗi 1470000840); khối dòng bung bị bỏ khỏi danh sách = SAP xoá.
+//     (Dòng con không gửi ở bước 1 — luồng cũ — vẫn hỗ trợ: dùng lại dòng bung
+//     cùng mã hoặc thêm dòng mới.)
 // ============================================================
 
 import { sapGet, sapPatch, type SapConfig } from './sap-service-layer'
@@ -73,7 +74,7 @@ export function freshTemplateGroups(lines: ReconcileLine[]): Map<string, string>
   return out
 }
 
-/** Dòng con của nhóm Template mới — KHÔNG gửi ở bước 1 */
+/** Dòng con của nhóm Template mới (mang U_BOMID, giá 0) */
 export function isFreshTplChild(l: ReconcileLine, fresh: Map<string, string>): boolean {
   return !!l.isBomChild && fresh.has(l.bomGroupKey || '')
 }
@@ -92,18 +93,13 @@ const multisetEq = (a: string[], b: string[]) => a.length === b.length && [...a]
  * @param posted   index các dòng local đã gửi ở bước 1, THEO THỨ TỰ LineNum SAP
  *                 (POST: thứ tự gửi; PATCH: dòng cũ theo LineNum rồi dòng mới theo thứ tự gửi)
  * @param trees    mã cha → mã các thành phần trong /ProductTrees SAP
- * @param opts.reuse dùng lại dòng SAP bung cùng mã (mặc định). false → bỏ hết
- *                 dòng bung, dòng con gửi thành dòng mới (SAP tính lại SL theo
- *                 ĐVT kho từ đầu — tránh lỗi 1470000840 khi chỉ sửa Quantity)
  */
 export function planReconcile(
   local: ReconcileLine[],
   sapLines: SapDocLine[],
   posted: number[],
   trees: Map<string, string[]>,
-  opts: { reuse?: boolean } = {},
 ): ReconcilePlan {
-  const reuseExploded = opts.reuse !== false
   const fresh = freshTemplateGroups(local)
   const sap = [...sapLines].sort((a, b) => a.LineNum - b.LineNum)
   const expected = posted.length + [...fresh.values()].reduce((n, code) => n + (trees.get(code)?.length ?? 0), 0)
@@ -142,7 +138,7 @@ export function planReconcile(
   const newIdx: number[] = []
   local.forEach((l, idx) => {
     const gk = l.bomGroupKey || ''
-    if (isFreshTplChild(l, fresh)) {
+    if (isFreshTplChild(l, fresh) && !keep.has(idx)) {
       const common = {
         Quantity: l.quantity,
         UnitPrice: 0,
@@ -152,7 +148,7 @@ export function planReconcile(
         ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
       }
       const pool = exploded.get(gk) ?? []
-      const reuse = reuseExploded ? pool.findIndex((b) => b.ItemCode === l.itemCode) : -1
+      const reuse = pool.findIndex((b) => b.ItemCode === l.itemCode)
       if (reuse >= 0) {
         const [b] = pool.splice(reuse, 1)
         keep.set(idx, b.LineNum)
@@ -236,9 +232,6 @@ export async function readTemplateTrees(s: SapConfig, parentCodes: string[]): Pr
   return out
 }
 
-/** Lỗi SAP lệch SL theo ĐVT kho của dòng (1470000840) */
-export const isInvQtyError = (e?: string) => /1470000840|Qty \(Inventory UoM\)/i.test(e ?? '')
-
 /**
  * Bước 2+3 trên SAP. Trả LineNum theo từng dòng local (undefined nếu không
  * xác định được) hoặc lỗi. Không ném exception.
@@ -257,20 +250,11 @@ export async function reconcileTemplateBoms(
   const sapLines = sapLinesAfterStep1?.length ? sapLinesAfterStep1 : await readDocLines(s, entitySet, docEntry)
   if (!sapLines) return { ok: false, error: 'Không đọc lại được dòng chứng từ trên SAP để áp định mức BOM' }
 
-  let plan = planReconcile(local, sapLines, posted, trees)
+  const plan = planReconcile(local, sapLines, posted, trees)
   if (plan.kind === 'already') return { ok: true, lineNums: mapReconciledLines(local, sapLines) }
   if (plan.kind === 'error') return { ok: false, error: plan.error }
 
-  let res = await sapPatch(s, `/${entitySet}(${docEntry})`, { DocumentLines: plan.patchLines })
-  // 1470000840 "Incorrect Qty (Inventory UoM)": SAP giữ SL ĐVT kho cũ của dòng bung khi
-  // chỉ sửa Quantity → thử lại: bỏ dòng bung, gửi dòng con thành dòng mới (PATCH lỗi không đổi chứng từ)
-  if (!res.ok && isInvQtyError(res.error)) {
-    const retry = planReconcile(local, sapLines, posted, trees, { reuse: false })
-    if (retry.kind === 'ok') {
-      plan = retry
-      res = await sapPatch(s, `/${entitySet}(${docEntry})`, { DocumentLines: plan.patchLines })
-    }
-  }
+  const res = await sapPatch(s, `/${entitySet}(${docEntry})`, { DocumentLines: plan.patchLines })
   if (!res.ok) return { ok: false, error: `Đã tạo chứng từ nhưng chưa áp được định mức BOM người dùng: ${res.error ?? `HTTP ${res.status}`}` }
   const after = await readDocLines(s, entitySet, docEntry)
   return { ok: true, lineNums: after ? finalLineNums(local.length, plan.keep, plan.newIdx, after) : undefined }
