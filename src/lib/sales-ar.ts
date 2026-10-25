@@ -31,6 +31,7 @@ import { pushDocumentToSap, patchDocumentToSap, bomLineFields } from '@/lib/sap-
 import { fetchSapDocuments, type SapDocRow } from '@/lib/sap-documents'
 import { fetchSapDocDetail } from '@/lib/sap-orders'
 import { attachSapBomGroups } from '@/lib/sap-doc-bom'
+import { checkCopiedLineEdits, copiedLinesOf, keptLineIds } from '@/lib/copied-lines'
 
 /**
  * Lỗi nghiệp vụ có mã HTTP — hooks ném lỗi này để handler trả về
@@ -1124,6 +1125,15 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
   for (const l of curLines) {
     if (typeof l.sapLineNum === 'number') oldLineNums.set(l.lineNum, l.sapLineNum)
   }
+  // Dòng đã sao chép sang chứng từ khác (kể cả con BOM Template): không xóa/đổi mã/giảm dưới SL đã sao chép
+  const copied = await copiedLinesOf(curLines.map((l) => l.id))
+  const copyErr = checkCopiedLineEdits(curLines, calcLines.map((l: any) => ({ dbId: l.dbId, itemCode: l.itemCode, quantity: l.quantity })), copied)
+  if (copyErr) return NextResponse.json({ error: copyErr }, { status: 400 })
+  // Ghi lại dòng với id cũ (dbId) → giữ liên kết dòng gốc của chứng từ đích + map đúng LineNum SAP.
+  // Client cũ không gửi dbId → giữ cách map LineNum theo vị trí như trước.
+  const keepIds = keptLineIds(curLines.map((l) => l.id), calcLines as any[])
+  const byId = keepIds.some(Boolean)
+  const oldLineNumById = new Map<string, number>(curLines.filter((l) => typeof l.sapLineNum === 'number').map((l) => [l.id, l.sapLineNum]))
 
   let updated: any
   try {
@@ -1159,7 +1169,7 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
           ...extraUpdateFields,
           ...b2b,
           ...paymentFields,
-          lines: { create: calcLines.map((l, i) => lineCreateData(l, i, cfg.lineBatchNumber === true)) },
+          lines: { create: calcLines.map((l, i) => ({ ...(keepIds[i] ? { id: keepIds[i] } : {}), ...lineCreateData(l, i, cfg.lineBatchNumber === true) })) },
         },
         include: { lines: { orderBy: { lineNum: 'asc' } } },
       })
@@ -1203,7 +1213,7 @@ export async function salesDocUpdate(req: NextRequest, id: string, cfg: SalesDoc
         lines: newLines.map((l: any) => ({
           // Dòng đã tồn tại trên SAP kèm LineNum cũ; dòng mới → null = thêm mới;
           // dòng bị bỏ khỏi danh sách sẽ bị XÓA (B1S-ReplaceCollectionsOnPatch)
-          lineNum: oldLineNums.get(l.lineNum) ?? null,
+          lineNum: (byId ? oldLineNumById.get(l.id) : oldLineNums.get(l.lineNum)) ?? null,
           itemCode: l.itemCode,
           ...bomLineFields(l),
           // Dòng hóa đơn dịch vụ: đẩy AccountCode thay vì ItemCode (chuẩn SAP B1)

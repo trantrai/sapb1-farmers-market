@@ -8,6 +8,7 @@ import { fetchSapDocDetail } from '@/lib/sap-orders'
 import { attachSapBomGroups } from '@/lib/sap-doc-bom'
 import { parseB2BHeader } from '../route'
 import { childQtyFor } from '@/lib/delivery-bom'
+import { checkCopiedLineEdits, copiedLinesOf } from '@/lib/copied-lines'
 
 interface Ctx {
   params: Promise<{ id: string }>
@@ -292,6 +293,12 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if (del.status === 'Cancelled') {
       return NextResponse.json({ error: 'Phiếu đã được hủy trước đó' }, { status: 400 })
     }
+    // Phiếu đã sao chép sang hóa đơn/trả hàng (chưa hủy) → phải hủy chứng từ đích trước
+    const copiedOnCancel = await copiedLinesOf(del.lines.map((l) => l.id))
+    if (copiedOnCancel.size > 0) {
+      const docs = [...new Set([...copiedOnCancel.values()].flatMap((c) => c.docs))].join(', ')
+      return NextResponse.json({ error: `Phiếu đã được sao chép sang ${docs} — hãy hủy chứng từ đó trước khi hủy phiếu giao hàng.` }, { status: 400 })
+    }
     const updated = await prisma.delivery.update({
       where: { id },
       data: { status: 'Cancelled', version: { increment: 1 } },
@@ -421,6 +428,16 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         : {}),
     })
   }
+
+  // Dòng đã sao chép sang hóa đơn/trả hàng: SL không nhỏ hơn SL đã sao chép
+  const copied = await copiedLinesOf(del.lines.map((l) => l.id))
+  const qtyById = new Map(updates.map((u) => [u.id, u.quantity]))
+  const copyErr = checkCopiedLineEdits(
+    del.lines,
+    del.lines.map((l) => ({ dbId: l.id, itemCode: l.itemCode, quantity: qtyById.get(l.id) ?? l.quantity })),
+    copied,
+  )
+  if (copyErr) return NextResponse.json({ error: copyErr }, { status: 400 })
 
   const totalById = new Map(updates.map((u) => [u.id, u.lineTotal]))
   // grandTotal = tổng các lineTotal đã round TRỪ chiết khấu đầu chứng từ

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useFocusTrap } from './use-focus-trap'
 import { ArrowLeft, Pencil, Lock, LockOpen, CloudUpload, Printer, X, Mail, Truck, Receipt, HandCoins } from 'lucide-react'
 import { formatDateVN, isOverdue } from '@/lib/fm-shared'
@@ -12,6 +12,7 @@ import { type CopyTarget, docNumLabel } from './sales-doc-shared'
 import CopyToMenu from './copy-to-menu'
 import { DocInfoCards, DocLinesCard, useDocParty } from './doc-detail-sections'
 import SapReconcileDialog, { sapSyncHint } from './sap-reconcile-dialog'
+import { childQtyFor } from '@/lib/delivery-bom'
 
 interface OrderLine {
   id: string
@@ -140,6 +141,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
     delivered: number
     openQty: number
     qty: number
+    /** Thành phần con BOM Template đi kèm (SL = SL giao của cha × tỉ lệ trên đơn) — chỉ xem */
+    children: Array<{ id: string; itemCode: string; itemName: string; ratio: number }>
   }>>([])
   const [copyBusy, setCopyBusy] = useState(false)
   const [copyError, setCopyError] = useState<string | null>(null)
@@ -177,6 +180,15 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
       })
   }, [buildDeliveredByLine])
 
+  /** Con BOM Template của từng dòng cha (server gắn kèm khi tạo phiếu — pickWithBomChildren) */
+  const bomChildrenOf = (o: Order, parent: OrderLine) => {
+    if (!parent.bomGroupKey) return []
+    const locked = parent.bomType === 'production' || parent.bomType === 'assembly'
+    return o.lines
+      .filter((c) => c.isBomChild && c.bomGroupKey === parent.bomGroupKey && !locked && (parent.bomType === 'template' || c.bomEditable !== false))
+      .map((c) => ({ id: c.id, itemCode: c.itemCode, itemName: c.itemName, ratio: parent.quantity > 0 ? c.quantity / parent.quantity : 0 }))
+  }
+
   const openCopyModal = () => {
     if (!order) return
     const rows = buildOpenLines(order)
@@ -189,6 +201,7 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
         delivered: x.delivered,
         openQty: x.openQty,
         qty: x.openQty,
+        children: bomChildrenOf(order, x.line),
       }))
     setCopyRows(rows)
     setCopyError(null)
@@ -810,7 +823,8 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
                 </thead>
                 <tbody>
                   {copyRows.map((r) => (
-                    <tr key={r.orderLineId}>
+                    <Fragment key={r.orderLineId}>
+                    <tr className={r.children.length ? 'is-bom-parent' : undefined}>
                       <td data-label="Mã hàng"><b>{r.itemCode}</b></td>
                       <td data-label="Tên hàng">{r.itemName}</td>
                       <td className="fm-num" data-label="SL đặt">{r.ordered}</td>
@@ -831,6 +845,19 @@ export default function OrderDetailView({ orderId, onBack, onEdit, onGoDelivery,
                         />
                       </td>
                     </tr>
+                    {r.children.map((c) => (
+                      <tr key={c.id} className="is-bom-child">
+                        <td data-label="Mã hàng"><span className="fm-bom-branch" aria-hidden>└─ </span>{c.itemCode}</td>
+                        <td data-label="Tên hàng">{c.itemName} <span className="fm-hint">(thành phần BOM)</span></td>
+                        <td className="fm-num" data-label="SL đặt">{childQtyFor(r.ordered, c.ratio)}</td>
+                        <td className="fm-num" data-label="Đã giao">—</td>
+                        <td className="fm-num" data-label="Còn mở">—</td>
+                        <td className="fm-num" data-label="SL giao đợt này" title="Theo SL giao của dòng cha × tỉ lệ trên đơn">
+                          {childQtyFor(r.qty, c.ratio)}
+                        </td>
+                      </tr>
+                    ))}
+                    </Fragment>
                   ))}
                 </tbody>
                 <tfoot>
