@@ -117,9 +117,11 @@ describe('pushDocumentToSap / patchDocumentToSap — gọi Service Layer', () =>
     return { ok: true, data: { DocumentLines: afterPatch } }
   }
 
-  it('POST chỉ gửi dòng cha; PATCH áp dòng con người dùng; trả LineNum theo dòng local', async () => {
-    sapGet.mockImplementation(routeGet([sl(0, CB), sl(1, 'N0002669', CB), sl(2, 'N0000148', CB)]))
-    sapPost.mockResolvedValue({ ok: true, data: { DocEntry: 77, DocNum: 1001, DocumentLines: [sl(0, CB), sl(1, 'N0002669'), sl(2, 'N0000148')] } })
+  it('POST gửi cả cha + con người dùng; PATCH chỉ xoá khối SAP bung (không sửa SL); trả LineNum theo dòng local', async () => {
+    sapGet.mockImplementation(routeGet([sl(0, CB), sl(3, 'N0000148', CB), sl(4, 'N0002669', CB)]))
+    // SAP chèn định mức gốc (1, 2) ngay sau cha, đẩy dòng con người dùng xuống 3, 4
+    sapPost.mockResolvedValue({ ok: true, data: { DocEntry: 77, DocNum: 1001, DocumentLines: [
+      sl(0, CB), sl(1, 'N0002669'), sl(2, 'N0000148'), sl(3, 'N0000148', CB), sl(4, 'N0002669', CB)] } })
     sapPatch.mockResolvedValue({ ok: true, status: 204 })
     const r = await pushDocumentToSap({
       entitySet: 'Orders', cardCode: 'C1', docDate: '2026-10-24', docDueDate: '2026-10-25', localId: 'loc1',
@@ -130,21 +132,19 @@ describe('pushDocumentToSap / patchDocumentToSap — gọi Service Layer', () =>
       ],
     })
     const posted = sapPost.mock.calls[0][2] as { DocumentLines: Record<string, unknown>[] }
-    expect(posted.DocumentLines).toHaveLength(1)
+    expect(posted.DocumentLines).toHaveLength(3)
     expect(posted.DocumentLines[0]).toMatchObject({ ItemCode: CB, Quantity: 2, UnitPrice: 300000 })
+    expect(posted.DocumentLines[1]).toMatchObject({ ItemCode: 'N0000148', Quantity: 2, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB })
+    expect(posted.DocumentLines[2]).toMatchObject({ ItemCode: 'N0002669', Quantity: 1, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB })
     expect(sapPatch).toHaveBeenCalledWith(expect.anything(), '/Orders(77)', {
-      DocumentLines: [
-        { LineNum: 0 },
-        { LineNum: 2, Quantity: 2, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB },
-        { LineNum: 1, Quantity: 1, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB },
-      ],
+      DocumentLines: [{ LineNum: 0 }, { LineNum: 3 }, { LineNum: 4 }],
     })
-    expect(r).toEqual({ status: 'synced', udf: true, docEntry: 77, docNum: 1001, lineNums: [0, 2, 1] })
+    expect(r).toEqual({ status: 'synced', udf: true, docEntry: 77, docNum: 1001, lineNums: [0, 3, 4] })
   })
 
   it('bước 2 lỗi + có marker localId → pending (Đẩy lại sẽ nhận lại chứng từ và áp tiếp)', async () => {
     sapGet.mockImplementation(routeGet([]))
-    sapPost.mockResolvedValue({ ok: true, data: { DocEntry: 78, DocumentLines: [sl(0, CB), sl(1, 'N0002669'), sl(2, 'N0000148')] } })
+    sapPost.mockResolvedValue({ ok: true, data: { DocEntry: 78, DocumentLines: [sl(0, CB), sl(1, 'N0002669'), sl(2, 'N0000148'), sl(3, 'N0000148', CB)] } })
     sapPatch.mockResolvedValue({ ok: false, status: 400, error: 'boom' })
     const r = await pushDocumentToSap({
       entitySet: 'Orders', cardCode: 'C1', docDate: '2026-10-24', docDueDate: '2026-10-25', localId: 'loc2',
@@ -165,12 +165,12 @@ describe('pushDocumentToSap / patchDocumentToSap — gọi Service Layer', () =>
     expect(r).toMatchObject({ status: 'synced', docEntry: 79, lineNums: [0] })
   })
 
-  it('sửa đơn thêm nhóm Template: PATCH 1 không gửi dòng con, PATCH 2 áp dòng con', async () => {
+  it('sửa đơn thêm nhóm Template: PATCH 1 gửi cả cha + con, PATCH 2 xoá khối SAP bung', async () => {
     sapGet.mockImplementation((_s: unknown, path: string) => {
       if (path.startsWith('/ProductTrees(')) return { ok: true, data: { ProductTreeLines: [{ ItemCode: 'N0002669' }, { ItemCode: 'N0000148' }] } }
       return { ok: true, data: { DocumentLines: sapPatch.mock.calls.length < 2
-        ? [sl(0, 'A'), sl(1, CB), sl(2, 'N0002669'), sl(3, 'N0000148')]
-        : [sl(0, 'A'), sl(1, CB), sl(3, 'N0000148', CB)] } }
+        ? [sl(0, 'A'), sl(1, CB), sl(2, 'N0002669'), sl(3, 'N0000148'), sl(4, 'N0000148', CB)]
+        : [sl(0, 'A'), sl(1, CB), sl(4, 'N0000148', CB)] } }
     })
     sapPatch.mockResolvedValue({ ok: true, status: 204 })
     const r = await patchDocumentToSap({ serviceLayerUrl: '', companyDb: '', sapUser: '', sapPassword: '' } as never, {
@@ -182,10 +182,9 @@ describe('pushDocumentToSap / patchDocumentToSap — gọi Service Layer', () =>
       ],
     })
     const first = sapPatch.mock.calls[0][2] as { DocumentLines: Record<string, unknown>[] }
-    expect(first.DocumentLines.map((l) => l.ItemCode)).toEqual(['A', CB])
-    expect(sapPatch.mock.calls[1][2]).toEqual({ DocumentLines: [
-      { LineNum: 0 }, { LineNum: 1 }, { LineNum: 3, Quantity: 6, UnitPrice: 0, DiscountPercent: 0, U_BOMID: CB },
-    ] })
-    expect(r).toMatchObject({ status: 'synced', lineNums: [0, 1, 3] })
+    expect(first.DocumentLines.map((l) => l.ItemCode)).toEqual(['A', CB, 'N0000148'])
+    expect(first.DocumentLines[2]).toMatchObject({ Quantity: 6, UnitPrice: 0, U_BOMID: CB })
+    expect(sapPatch.mock.calls[1][2]).toEqual({ DocumentLines: [{ LineNum: 0 }, { LineNum: 1 }, { LineNum: 4 }] })
+    expect(r).toMatchObject({ status: 'synced', lineNums: [0, 1, 4] })
   })
 })

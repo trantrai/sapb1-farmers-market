@@ -7,14 +7,15 @@
 // Gửi kèm dòng con của người dùng → TRÙNG công thức cũ + mới.
 //
 // Cách làm:
-//  1. POST/PATCH chỉ gửi dòng cha (bỏ dòng con của nhóm Template mới thêm).
+//  1. POST/PATCH gửi CẢ dòng cha và dòng con người dùng (SL đã chỉnh, giá 0,
+//     U_BOMID = mã cha). SAP vẫn chèn thêm khối định mức gốc ngay sau cha.
 //  2. Đọc lại dòng chứng từ, xác định khối dòng SAP vừa bung ngay sau mỗi cha
-//     (đối chiếu số dòng + mã với /ProductTrees trên SAP).
-//  3. PATCH (B1S-ReplaceCollectionsOnPatch) toàn bộ dòng theo thứ tự local:
-//     dòng thường/cha giữ nguyên (chỉ LineNum — KHÔNG gửi lại ItemCode để SAP
-//     không bung lần nữa); dòng con dùng lại dòng SAP bung cùng mã (sửa SL,
-//     giá 0, U_BOMID), mã khác (hoán đổi/thêm) → dòng mới; dòng bung thừa →
-//     bỏ khỏi danh sách = SAP xoá.
+//     (đối chiếu số dòng + mã với /ProductTrees trên SAP, U_BOMID trống).
+//  3. PATCH (B1S-ReplaceCollectionsOnPatch) giữ mọi dòng đã gửi (chỉ LineNum —
+//     KHÔNG gửi lại ItemCode/SL để SAP không bung lại và không tính lại SL theo
+//     ĐVT kho — lỗi 1470000840); khối dòng bung bị bỏ khỏi danh sách = SAP xoá.
+//     (Dòng con không gửi ở bước 1 — luồng cũ — vẫn hỗ trợ: dùng lại dòng bung
+//     cùng mã hoặc thêm dòng mới.)
 // ============================================================
 
 import { sapGet, sapPatch, type SapConfig } from './sap-service-layer'
@@ -73,7 +74,7 @@ export function freshTemplateGroups(lines: ReconcileLine[]): Map<string, string>
   return out
 }
 
-/** Dòng con của nhóm Template mới — KHÔNG gửi ở bước 1 */
+/** Dòng con của nhóm Template mới (mang U_BOMID, giá 0) */
 export function isFreshTplChild(l: ReconcileLine, fresh: Map<string, string>): boolean {
   return !!l.isBomChild && fresh.has(l.bomGroupKey || '')
 }
@@ -137,7 +138,7 @@ export function planReconcile(
   const newIdx: number[] = []
   local.forEach((l, idx) => {
     const gk = l.bomGroupKey || ''
-    if (isFreshTplChild(l, fresh)) {
+    if (isFreshTplChild(l, fresh) && !keep.has(idx)) {
       const common = {
         Quantity: l.quantity,
         UnitPrice: 0,

@@ -15,7 +15,7 @@ import {
   type SapLineBase,
   type SapDocHeaderExtras,
 } from './sap-push-document'
-import { freshTemplateGroups, isFreshTplChild, reconcileTemplateBoms, type SapDocLine } from './sap-bom-reconcile'
+import { freshTemplateGroups, isFreshTplChild, reconcileTemplateBoms, UDF_BOM, type SapDocLine } from './sap-bom-reconcile'
 
 export interface SapDeliveryLine {
   itemCode: string
@@ -45,10 +45,12 @@ export interface SapDeliveryLine {
    * DocumentLines.BatchNumbers = [{ BatchNumber }]; trống → bỏ qua.
    */
   batchNumber?: string | null
-  /** BOM (DeliveryLine.*): dòng con Template được gửi ở bước 2 (reconcileTemplateBoms) */
+  /** BOM (DeliveryLine.*): con Template gửi kèm cha ở bước 1, bước 2 xoá định mức gốc SAP bung (reconcileTemplateBoms) */
   isBomChild?: boolean | null
   bomGroupKey?: string | null
   bomEditable?: boolean | null
+  /** Nội bộ: mã cha của con Template → U_BOMID */
+  bomParentCode?: string
 }
 
 /** Dòng đơn hàng lấy TRỰC TIẾP từ SAP (không có bản ghi local): id dạng `sap-<LineNum>` */
@@ -125,6 +127,8 @@ function buildPayload(input: SapDeliveryInput, withUdf = false, bases?: (SapLine
         ...(l.warehouseCode?.trim() ? { WarehouseCode: l.warehouseCode.trim() } : {}),
         // Lô hàng (SAP: DocumentLines.BatchNumbers) — chỉ dòng có batchNumber
         ...(l.batchNumber?.trim() ? { BatchNumbers: [{ BatchNumber: l.batchNumber.trim() }] } : {}),
+        // BOM Template: con mang mã BOM cha
+        ...(l.bomParentCode ? { [UDF_BOM]: l.bomParentCode } : {}),
       }
     }),
   }
@@ -162,13 +166,19 @@ export async function pushDeliveryToSap(rawInput: SapDeliveryInput): Promise<Sap
   const settings = await loadSapSettings(rawInput.databaseId ?? null)
   if (!isSapConfigured(settings)) return { status: 'none' }
 
-  // BOM: bước 1 chỉ gửi dòng cha + hàng thường (SAP tự bung công thức).
-  // Nhóm Template → bước 2 sửa dòng SAP bung thành đúng dòng con người dùng
-  // nhập (giống đơn hàng). Con BOM khác (Production/Assembly/bán hàng) bỏ hẳn.
+  // BOM: con BOM khác (Production/Assembly/bán hàng) bỏ hẳn — SAP tự bung.
+  // Nhóm Template → bước 1 gửi cả cha + con người dùng (giá 0, U_BOMID), SAP vẫn
+  // chèn định mức gốc sau cha → bước 2 xoá khối đó (giống đơn hàng).
   const fresh = freshTemplateGroups(rawInput.lines)
   const recLines = rawInput.lines.filter((l) => !l.isBomChild || isFreshTplChild(l, fresh))
-  const postIdx = recLines.map((_, i) => i).filter((i) => !recLines[i].isBomChild)
-  const input: SapDeliveryInput = { ...rawInput, lines: postIdx.map((i) => recLines[i]) }
+  const postIdx = recLines.map((_, i) => i)
+  const input: SapDeliveryInput = {
+    ...rawInput,
+    lines: recLines.map((l) => (isFreshTplChild(l, fresh)
+      // Con Template: giá/CK 0, mang mã cha, không liên kết dòng nguồn (chỉ cha mang BaseLine)
+      ? { ...l, unitPrice: 0, discPct: 0, sourceOrderLineId: null, sourceQuotationLineId: null, bomParentCode: fresh.get(l.bomGroupKey || '') }
+      : l)),
+  }
   const reconcile = async (docEntry: number, docNum: number | undefined, udf: boolean, sapLines?: SapDocLine[]): Promise<SapDeliveryResult> => {
     const rec = await reconcileTemplateBoms(settings, 'DeliveryNotes', docEntry, recLines, postIdx, sapLines)
     if (rec.ok) return { status: 'synced', docEntry, docNum }

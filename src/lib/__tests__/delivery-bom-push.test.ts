@@ -28,16 +28,17 @@ beforeEach(() => {
 })
 
 describe('pushDeliveryToSap — BOM', () => {
-  it('Template: POST bỏ dòng con, PATCH áp SL con người dùng (giá 0, U_BOMID)', async () => {
+  it('Template: POST gửi cả cha + con người dùng (giá 0, U_BOMID), PATCH chỉ xoá khối SAP bung', async () => {
     let read = 0
     m.sapGet.mockImplementation(async (_s: unknown, path: string) => {
       if (path.startsWith('/ProductTrees')) return { ok: true, data: { ProductTreeLines: [{ ItemCode: 'A' }, { ItemCode: 'B' }] } }
       read++
-      // Sau bước 1: RAU, GIO, A, B (SAP bung) · sau bước 2: RAU, GIO, A, B
+      // Sau bước 1: RAU, GIO, A, B (SAP bung), A, B (người dùng) · sau bước 2: RAU, GIO, A, B (người dùng)
+      const user = [{ LineNum: 4, ItemCode: 'A', U_BOMID: 'GIO' }, { LineNum: 5, ItemCode: 'B', U_BOMID: 'GIO' }]
       return { ok: true, data: { DocumentLines: [
         { LineNum: 0, ItemCode: 'RAU' }, { LineNum: 1, ItemCode: 'GIO' },
-        { LineNum: 2, ItemCode: 'A', ...(read > 1 ? { U_BOMID: 'GIO' } : {}) },
-        { LineNum: 3, ItemCode: 'B', ...(read > 1 ? { U_BOMID: 'GIO' } : {}) },
+        ...(read > 1 ? [] : [{ LineNum: 2, ItemCode: 'A' }, { LineNum: 3, ItemCode: 'B' }]),
+        ...user,
       ] } }
     })
     const r = await pushDeliveryToSap({
@@ -50,15 +51,15 @@ describe('pushDeliveryToSap — BOM', () => {
       ],
     })
     expect(r).toMatchObject({ status: 'synced', docEntry: 77, docNum: 7 })
-    expect(m.sapPost.mock.calls[0][2].DocumentLines.map((l: { ItemCode: string }) => l.ItemCode)).toEqual(['RAU', 'GIO'])
+    const posted = m.sapPost.mock.calls[0][2].DocumentLines
+    expect(posted.map((l: { ItemCode: string }) => l.ItemCode)).toEqual(['RAU', 'GIO', 'A', 'B'])
+    expect(posted[1]).toMatchObject({ UnitPrice: 5000 })
+    expect(posted[1].U_BOMID).toBeUndefined()
+    expect(posted[2]).toMatchObject({ Quantity: 6, UnitPrice: 0, DiscountPercent: 0, U_BOMID: 'GIO' })
+    expect(posted[3]).toMatchObject({ Quantity: 3, UnitPrice: 0, DiscountPercent: 0, U_BOMID: 'GIO' })
     const [, path, patch] = m.sapPatch.mock.calls[0]
     expect(path).toBe('/DeliveryNotes(77)')
-    expect(patch.DocumentLines).toEqual([
-      { LineNum: 0 },
-      { LineNum: 1 },
-      expect.objectContaining({ LineNum: 2, Quantity: 6, UnitPrice: 0, U_BOMID: 'GIO' }),
-      expect.objectContaining({ LineNum: 3, Quantity: 3, UnitPrice: 0, U_BOMID: 'GIO' }),
-    ])
+    expect(patch.DocumentLines).toEqual([{ LineNum: 0 }, { LineNum: 1 }, { LineNum: 4 }, { LineNum: 5 }])
   })
 
   it('Production/Assembly: chỉ POST dòng cha, không PATCH', async () => {
@@ -97,11 +98,12 @@ describe('pushDeliveryToSap — BOM', () => {
     m.sapGet.mockImplementation(async (_s: unknown, path: string) => {
       if (path === '/DeliveryNotes') return { ok: true, data: { value: [{ DocEntry: 55, DocNum: 5 }] } }
       if (path.startsWith('/ProductTrees')) return { ok: true, data: { ProductTreeLines: [{ ItemCode: 'A' }] } }
-      return { ok: true, data: { DocumentLines: [{ LineNum: 0, ItemCode: 'GIO' }, { LineNum: 1, ItemCode: 'A' }] } }
+      return { ok: true, data: { DocumentLines: [{ LineNum: 0, ItemCode: 'GIO' }, { LineNum: 1, ItemCode: 'A' }, { LineNum: 2, ItemCode: 'A', U_BOMID: 'GIO' }] } }
     })
     const r = await pushDeliveryToSap({ ...base, localId: 'dl1', lines: tpl })
     expect(r).toMatchObject({ status: 'synced', docEntry: 55 })
     expect(m.sapPost).not.toHaveBeenCalled()
     expect(m.sapPatch.mock.calls[0][1]).toBe('/DeliveryNotes(55)')
+    expect(m.sapPatch.mock.calls[0][2]).toEqual({ DocumentLines: [{ LineNum: 0 }, { LineNum: 2 }] })
   })
 })
