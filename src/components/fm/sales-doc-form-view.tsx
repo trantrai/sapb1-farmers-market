@@ -766,6 +766,8 @@ export default function SalesDocFormView({ config, initialId, sourceType, source
           discPct: l.isBomChild ? 0 : clampPct(l.discPct),
           vatPct: clampPct(l.vatPct),
           sourceLineId: l.sourceLineId ?? null,
+          // Sửa: id dòng đã lưu → server giữ id (liên kết dòng gốc của chứng từ đích) + LineNum SAP
+          ...(isEdit && l.dbId ? { dbId: l.dbId } : {}),
           // BOM: SL con là SL người dùng đã chỉnh — đẩy SAP đúng SL này
           isBomChild: l.isBomChild ?? false,
           bomGroupKey: l.bomGroupKey ?? null,

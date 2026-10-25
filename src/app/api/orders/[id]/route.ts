@@ -11,6 +11,7 @@ import { normalizeBomLines, bomChildKey } from '@/lib/order-bom'
 import { parseB2BHeader } from '../route'
 import { checkOrderSourceLines } from '@/lib/order-source-lines'
 import { attachSapBomGroups } from '@/lib/sap-doc-bom'
+import { checkCopiedLineEdits, copiedLinesOf, keptLineIds } from '@/lib/copied-lines'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -318,6 +319,15 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     )
   }
 
+  // Dòng đã sao chép sang chứng từ khác (giao hàng/hóa đơn…, kể cả con BOM Template):
+  // không xóa, không đổi mã, SL không nhỏ hơn SL đã sao chép — giữ liên kết dòng gốc
+  const dbIdOf = (l: unknown) => (l as { dbId?: string }).dbId
+  const copied = await copiedLinesOf(order.lines.map((l) => l.id))
+  const copyErr = checkCopiedLineEdits(order.lines, calcLines.map((l) => ({ dbId: dbIdOf(l), itemCode: l.itemCode, quantity: l.quantity })), copied)
+  if (copyErr) return NextResponse.json({ error: copyErr }, { status: 400 })
+  // Ghi lại dòng với id cũ (dbId) → sourceOrderLineId/sourceLineId của chứng từ đích vẫn trỏ đúng
+  const keepIds = keptLineIds(order.lines.map((l) => l.id), calcLines.map((l) => ({ dbId: dbIdOf(l) })))
+
   // ---------- 1) Đơn đã synced → PATCH lên Service Layer trước ----------
   let patchedInSap = false
   // LineNum SAP theo từng dòng sau PATCH (có khi thêm BOM Template — dòng con
@@ -413,6 +423,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
         ...(patchedInSap ? { sapSyncedAt: new Date(), sapSyncError: null } : {}),
         lines: {
           create: calcLines.map((l, i) => ({
+            ...(keepIds[i] ? { id: keepIds[i] } : {}),
             lineNum: i + 1,
             itemCode: l.itemCode,
             itemName: l.itemName,
